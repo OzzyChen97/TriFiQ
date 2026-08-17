@@ -40,6 +40,8 @@ You can use bore to forward the port to your client: `159.223.171.199` is bore.p
     bore local 8000 --to 159.223.171.199
 """
 
+import os
+import sys
 import time
 from dataclasses import dataclass
 from typing import Literal
@@ -138,6 +140,129 @@ def _example_http_client_call(obs: dict, host: str, port: int, api_token: str):
         return {}
 
 
+def _maybe_close_a8_calibration(
+    policy, data_config: str = "", model_path: str = ""
+) -> None:
+    """Static-A8 calibration closure before serving (review round 2, item 3).
+
+    No-op for FP16 models (no GR00T_DUQUANT_* env) and for dynamic-act models
+    (no static calibrators). For static-A8 quantized models: load persisted
+    frozen scales when GR00T_DUQUANT_ACT_SCALE_PATH exists, otherwise run the
+    fixed synthetic buffer (calib_steps × batch_size obs, seed 0) and save.
+    """
+    if not any(
+        k.startswith("GR00T_DUQUANT_") and k != "GR00T_DUQUANT_PACKDIR"
+        for k in os.environ
+    ):
+        return
+    from pathlib import Path as _Path
+
+    _here = _Path(__file__).resolve().parents[1]
+    if str(_here / "scripts" / "tools") not in sys.path:
+        sys.path.insert(0, str(_here / "scripts" / "tools"))
+
+    from gr00t.quantization.duquant_layers import static_calibrators_required
+    from gr00t_v2_common import (
+        count_wrapped_layers,
+        ensure_a8_calibrated,
+        fixed_calibration_buffer,
+    )
+
+    act_dynamic = os.environ.get("GR00T_DUQUANT_ACT_DYNAMIC", "0") not in ("0", "false", "False")
+    if act_dynamic or not static_calibrators_required(policy.model):
+        return
+    scale_path = os.environ.get("GR00T_DUQUANT_ACT_SCALE_PATH") or None
+    calib_steps = int(os.environ.get("GR00T_DUQUANT_CALIB_STEPS", "32"))
+    batch_size = 8
+    horizon = int(policy.model.action_head.config.action_horizon)
+    action_dim = int(policy.model.action_head.config.action_dim)
+    # review round 3: self-contained seed-based buffer — identical data every
+    # start, so the sha256 + sidecar prove the scales match the experiment.
+    # v1.4 Stage D: GR00T_OBS_FORMAT=robocasa365 for the RoboCasa365 checkpoints
+    fmt = os.environ.get("GR00T_OBS_FORMAT", "libero")
+    warm_obs, warm_noises, sha = fixed_calibration_buffer(
+        0, calib_steps * batch_size, horizon, action_dim, fmt=fmt
+    )
+    import hashlib as _hl
+
+    plan_path = os.environ.get("GR00T_DUQUANT_PLAN")
+    plan_sha = None
+    if plan_path and os.path.exists(plan_path):
+        with open(plan_path, "rb") as f:
+            plan_sha = _hl.sha256(f.read()).hexdigest()
+    checkpoint_path = str(_Path(model_path).resolve()) if model_path else None
+    act_meta = {
+        "buffer_sha256": sha,
+        "calibration_seed": 0,
+        "data_config": data_config,
+        "obs_format": fmt,
+        "act_percentile": float(os.environ.get("GR00T_DUQUANT_ACT_PCT", "99.9")),
+        "calib_batches": calib_steps,
+        "denoising_steps": int(
+            os.environ.get("GR00T_DENOISING_STEPS", str(policy.denoising_steps))
+        ),
+        "plan_sha256": plan_sha,
+        "checkpoint_path": checkpoint_path,
+        "wrapped_layers": count_wrapped_layers(policy.model),
+    }
+    print(f"[inference] static A8 calibration warmup: {calib_steps * batch_size} "
+          f"synthetic obs (buffer sha256 {sha[:16]}...; plan {plan_sha})", flush=True)
+    t0 = time.time()
+    ensure_a8_calibrated(
+        policy, warm_obs, warm_noises, batch_size,
+        act_dynamic=False, act_scale_path=scale_path, act_scale_meta=act_meta,
+    )
+    print(f"[inference] static A8 calibration complete in {time.time() - t0:.1f}s", flush=True)
+
+
+def _seeded_action_handler(policy, payload: dict) -> dict:
+    """Evaluate one observation with deterministic, request-local FM noise.
+
+    The seed is derived by the RoboCasa client from
+    (task, environment seed, replan index).  Creating the noise with a local
+    CPU generator makes requests independent of server RNG state and client
+    interleaving while preserving the standard-normal distribution.
+    """
+    if not isinstance(payload, dict) or "observations" not in payload:
+        raise ValueError("get_action_seeded requires {observations, action_seed}")
+    if "action_seed" not in payload:
+        raise ValueError("get_action_seeded payload is missing action_seed")
+
+    import torch
+
+    seed = int(payload["action_seed"])
+    if seed < 0 or seed >= 2**63:
+        raise ValueError(f"action_seed must be in [0, 2**63), got {seed}")
+    horizon = int(policy.model.action_head.config.action_horizon)
+    action_dim = int(policy.model.action_head.config.action_dim)
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(seed)
+    action_noise = torch.randn(
+        (horizon, action_dim), generator=generator, dtype=torch.float32
+    )
+    return policy.get_action(payload["observations"], action_noise=action_noise)
+
+
+def _runtime_info(policy) -> dict:
+    from gr00t_v2_common import count_wrapped_layers
+
+    modules = list(policy.model.modules())
+    return {
+        "wrapped_layers": count_wrapped_layers(policy.model),
+        "plan": os.environ.get("GR00T_DUQUANT_PLAN"),
+        "act_scale_path": os.environ.get("GR00T_DUQUANT_ACT_SCALE_PATH"),
+        "atm_enabled": os.environ.get("GR00T_ATM_ENABLE", "0") == "1",
+        "ohb_enabled": os.environ.get("GR00T_OHB_ENABLE", "0") == "1",
+        "atm_path": os.environ.get("GR00T_ATM_ALPHA_PATH"),
+        "atm_layers": sum(hasattr(m, "_atm_alpha_all") for m in modules),
+        "ohb_layers": sum(
+            hasattr(m, "_ohb_beta_perhead") or hasattr(m, "_ohb_beta_scalar")
+            for m in modules
+        ),
+        "denoising_steps": int(policy.denoising_steps),
+    }
+
+
 def main(args: ArgsConfig):
     if args.server:
         # Create a policy
@@ -163,6 +288,16 @@ def main(args: ArgsConfig):
             denoising_steps=args.denoising_steps,
         )
 
+        # Review round 2, item 3: close the static-A8 calibration loop BEFORE
+        # the server accepts any request. Without this, the first LIBERO
+        # get_action calls would online-calibrate the frozen scales on TEST
+        # observations (model state changing during evaluation). A fixed
+        # synthetic buffer (same sha256 across starts) completes the
+        # calibration; GR00T_DUQUANT_ACT_SCALE_PATH persists it across runs.
+        _maybe_close_a8_calibration(
+            policy, data_config=args.data_config, model_path=args.model_path
+        )
+
         # Start the server
         if args.http_server:
             from gr00t.eval.http_server import HTTPInferenceServer  # noqa: F401
@@ -173,6 +308,13 @@ def main(args: ArgsConfig):
             server.run()
         else:
             server = RobotInferenceServer(policy, port=args.port, api_token=args.api_token)
+            server.register_endpoint(
+                "get_action_seeded",
+                lambda payload: _seeded_action_handler(policy, payload),
+            )
+            server.register_endpoint(
+                "get_runtime_info", lambda: _runtime_info(policy), requires_input=False
+            )
             server.run()
 
     # Here is mainly a testing code
@@ -215,5 +357,12 @@ def main(args: ArgsConfig):
 
 
 if __name__ == "__main__":
+    # SIGUSR1 dumps all python thread stacks to the log — the runtime watchdog
+    # uses it to diagnose hung servers (review round 5, item 3)
+    import faulthandler
+    import signal as _signal
+
+    faulthandler.register(_signal.SIGUSR1)
+
     config = tyro.cli(ArgsConfig)
     main(config)
