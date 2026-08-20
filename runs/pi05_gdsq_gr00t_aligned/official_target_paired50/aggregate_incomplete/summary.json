@@ -1,0 +1,284 @@
+{
+  "comparisons": {},
+  "complete": false,
+  "configs": {
+    "fp16": {
+      "completed_episodes": 704,
+      "efficiency": {
+        "gpu": null,
+        "mean_env_construct_seconds": 6.76304435002517,
+        "mean_env_step_seconds": 0.04443438299577832,
+        "mean_episode_wall_seconds": 38.70024372967468,
+        "mean_failure_steps": 638.7640449438202,
+        "mean_inference_seconds_per_replan": 0.21761652166653006,
+        "mean_server_infer_ms": 196.05907139369094,
+        "mean_success_steps": 316.00228832951944,
+        "p50_episode_wall_seconds": 35.90403260104358,
+        "p95_episode_wall_seconds": 68.08371617402882
+      },
+      "missing_episodes": 1796,
+      "observed_episode_sr": 0.6207386363636364,
+      "observed_successes": 437
+    },
+    "gdsq_vla": {
+      "completed_episodes": 1922,
+      "efficiency": {
+        "gpu": {
+          "mean_device_power_draw_w": 121.36922533136973,
+          "mean_device_utilization_gpu_pct": 23.97938144329897,
+          "mean_server_process_memory_mib": 20104.263917525772,
+          "p95_device_utilization_gpu_pct": 63.0,
+          "peak_device_memory_used_mib": 25521.0,
+          "peak_server_process_memory_mib": 20108.0,
+          "samples": 3395,
+          "server_instances": [
+            "wave_gdsq_vla_g1",
+            "wave_gdsq_vla_g2",
+            "wave_gdsq_vla_g3",
+            "wave_gdsq_vla_g4",
+            "wave_gdsq_vla_g5",
+            "wave_gdsq_vla_g6",
+            "wave_gdsq_vla_g7"
+          ]
+        },
+        "mean_env_construct_seconds": 7.307879102127055,
+        "mean_env_step_seconds": 0.05011891937841232,
+        "mean_episode_wall_seconds": 112.65344388888175,
+        "mean_failure_steps": 1851.993865030675,
+        "mean_inference_seconds_per_replan": 0.2929404726319458,
+        "mean_server_infer_ms": 255.84941655650297,
+        "mean_success_steps": 544.1601941747573,
+        "p50_episode_wall_seconds": 88.74744513910264,
+        "p95_episode_wall_seconds": 304.6686612124088
+      },
+      "missing_episodes": 578,
+      "observed_episode_sr": 0.3215400624349636,
+      "observed_successes": 618
+    },
+    "gdsq_vla_atmohb": {
+      "completed_episodes": 647,
+      "efficiency": {
+        "gpu": null,
+        "mean_env_construct_seconds": 6.754403015133713,
+        "mean_env_step_seconds": 0.044635502517111285,
+        "mean_episode_wall_seconds": 42.136300820760844,
+        "mean_failure_steps": 657.0342205323194,
+        "mean_inference_seconds_per_replan": 0.2952754684003682,
+        "mean_server_infer_ms": 264.4195628714311,
+        "mean_success_steps": 320.3776041666667,
+        "p50_episode_wall_seconds": 38.408845184370875,
+        "p95_episode_wall_seconds": 74.6265345345251
+      },
+      "missing_episodes": 1853,
+      "observed_episode_sr": 0.5935085007727975,
+      "observed_successes": 384
+    },
+    "quantvla_w4a8_atmohb": {
+      "completed_episodes": 615,
+      "efficiency": {
+        "gpu": null,
+        "mean_env_construct_seconds": 6.6058300121710065,
+        "mean_env_step_seconds": 0.044883210336753424,
+        "mean_episode_wall_seconds": 44.45386591146784,
+        "mean_failure_steps": 675.2895752895753,
+        "mean_inference_seconds_per_replan": 0.36013582809867084,
+        "mean_server_infer_ms": 326.3474376329968,
+        "mean_success_steps": 312.4157303370786,
+        "p50_episode_wall_seconds": 39.97786949202418,
+        "p95_episode_wall_seconds": 79.07481151195242
+      },
+      "missing_episodes": 1885,
+      "observed_episode_sr": 0.5788617886178862,
+      "observed_successes": 356
+    }
+  },
+  "expected_episodes_per_config": 2500,
+  "libero_context": {
+    "note": "cross-benchmark context only; never pooled with RoboCasa365",
+    "uniform_w6_macro_avg": 0.882,
+    "v1.3_macro_avg": 0.852,
+    "v1.4_macro_avg": 0.892
+  },
+  "manifest_sha256": "84f9e17ec6186242a52364ea3c565470d22180a27c68c65569ddd6361ffca93f",
+  "paper_style_memory": {
+    "by_config": {
+      "fp16": {
+        "bytes": 4416602112,
+        "compression_vs_fp16": 1.0,
+        "gib": 4.11328125,
+        "relative_to_fp16": 1.0
+      },
+      "gdsq_vla": {
+        "bytes": 2005966848,
+        "compression_vs_fp16": 2.2017323548509613,
+        "gib": 1.8682022094726562,
+        "relative_to_fp16": 0.45418781160968663
+      },
+      "gdsq_vla_atmohb": {
+        "bytes": 2005966848,
+        "compression_vs_fp16": 2.2017323548509613,
+        "gib": 1.8682022094726562,
+        "relative_to_fp16": 0.45418781160968663
+      },
+      "quantvla_w4a8_atmohb": {
+        "bytes": 1490466816,
+        "compression_vs_fp16": 2.963234112016621,
+        "gib": 1.3881053924560547,
+        "relative_to_fp16": 0.33746911725427353
+      }
+    },
+    "candidate_parameters": 2208301056,
+    "gdsq_fp16_layers": 100,
+    "gdsq_w4_layers": 80,
+    "gdsq_w4_parameter_fraction": 0.8100664767331434,
+    "gdsq_w4_parameters": 1788870656,
+    "note": "theoretical tightly packed weights/scales/rotation artifacts; not eager CUDA residency",
+    "scope": "180 PaliGemma-language + Gemma-action-expert candidate Linear weights"
+  },
+  "progress_diagnostics": {
+    "note": "Incomplete matrix: configs advance through task sets at different rates, so pooled Episode SR mixes unequal task difficulty and must never be compared across configs. Use the stratified and paired-common-key views for progress monitoring only; neither is a formal result.",
+    "paired_common_keys": {
+      "n_common_keys": 615,
+      "per_task_set_n": {
+        "atomic_seen": 615,
+        "composite_seen": 0,
+        "composite_unseen": 0
+      },
+      "sr": {
+        "fp16": 0.6016260162601627,
+        "gdsq_vla": 0.5593495934959349,
+        "gdsq_vla_atmohb": 0.583739837398374,
+        "quantvla_w4a8_atmohb": 0.5788617886178862
+      }
+    },
+    "per_task_set_observed": {
+      "fp16": {
+        "atomic_seen": {
+          "episodes": 704,
+          "sr": 0.6207386363636364,
+          "successes": 437
+        },
+        "composite_seen": {
+          "episodes": 0,
+          "sr": null,
+          "successes": 0
+        },
+        "composite_unseen": {
+          "episodes": 0,
+          "sr": null,
+          "successes": 0
+        }
+      },
+      "gdsq_vla": {
+        "atomic_seen": {
+          "episodes": 900,
+          "sr": 0.5488888888888889,
+          "successes": 494
+        },
+        "composite_seen": {
+          "episodes": 800,
+          "sr": 0.15,
+          "successes": 120
+        },
+        "composite_unseen": {
+          "episodes": 222,
+          "sr": 0.018018018018018018,
+          "successes": 4
+        }
+      },
+      "gdsq_vla_atmohb": {
+        "atomic_seen": {
+          "episodes": 647,
+          "sr": 0.5935085007727975,
+          "successes": 384
+        },
+        "composite_seen": {
+          "episodes": 0,
+          "sr": null,
+          "successes": 0
+        },
+        "composite_unseen": {
+          "episodes": 0,
+          "sr": null,
+          "successes": 0
+        }
+      },
+      "quantvla_w4a8_atmohb": {
+        "atomic_seen": {
+          "episodes": 615,
+          "sr": 0.5788617886178862,
+          "successes": 356
+        },
+        "composite_seen": {
+          "episodes": 0,
+          "sr": null,
+          "successes": 0
+        },
+        "composite_unseen": {
+          "episodes": 0,
+          "sr": null,
+          "successes": 0
+        }
+      }
+    }
+  },
+  "schema_version": 1,
+  "selection_partition": {
+    "development_tasks": [
+      "CoffeeSetupMug",
+      "OpenCabinet",
+      "OpenStandMixerHead",
+      "PickPlaceDrawerToCounter"
+    ],
+    "heldout_tasks": [
+      "CloseBlenderLid",
+      "CloseFridge",
+      "CloseToasterOvenDoor",
+      "NavigateKitchen",
+      "OpenDrawer",
+      "PickPlaceCounterToCabinet",
+      "PickPlaceCounterToStove",
+      "PickPlaceSinkToCounter",
+      "PickPlaceToasterToCounter",
+      "SlideDishwasherRack",
+      "TurnOffStove",
+      "TurnOnElectricKettle",
+      "TurnOnMicrowave",
+      "TurnOnSinkFaucet",
+      "DeliverStraw",
+      "GetToastedBread",
+      "KettleBoiling",
+      "LoadDishwasher",
+      "PackIdenticalLunches",
+      "PreSoakPan",
+      "PrepareCoffee",
+      "RinseSinkBasin",
+      "ScrubCuttingBoard",
+      "SearingMeat",
+      "SetUpCuttingStation",
+      "StackBowlsCabinet",
+      "SteamInMicrowave",
+      "StirVegetables",
+      "StoreLeftoversInBowl",
+      "WashLettuce",
+      "ArrangeBreadBasket",
+      "ArrangeTea",
+      "BreadSelection",
+      "CategorizeCondiments",
+      "CuttingToolSelection",
+      "GarnishPancake",
+      "GatherTableware",
+      "HeatKebabSandwich",
+      "MakeIceLemonade",
+      "PanTransfer",
+      "PortionHotDogs",
+      "RecycleBottlesByType",
+      "SeparateFreezerRack",
+      "WaffleReheat",
+      "WashFruitColander",
+      "WeighIngredients"
+    ],
+    "primary_scope": "46 held-out tasks not used for ratio selection",
+    "secondary_scope": "all 50 tasks"
+  }
+}
