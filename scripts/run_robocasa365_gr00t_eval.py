@@ -216,6 +216,11 @@ def parse_args() -> argparse.Namespace:
         help=("Use deterministic common-random-number diffusion noise keyed by "
               "task/environment-seed/replan-index."),
     )
+    p.add_argument(
+        "--expect-runtime-selector",
+        action="store_true",
+        help="Require each server response to include runtime selector metadata.",
+    )
     p.add_argument("--out", required=True)
     return p.parse_args()
 
@@ -242,11 +247,30 @@ def main() -> None:
     if args.exact_seed is not None and (len(tasks) != 1 or args.n_trials != 1):
         raise SystemExit("--exact-seed requires exactly one task and --n-trials 1")
     client = _Gr00tZMQClient(host="localhost", port=args.port)
+    try:
+        server_metadata = client.runtime_info()
+    except Exception:
+        server_metadata = {}
+    server_metadata_sha256 = hashlib.sha256(
+        json.dumps(server_metadata, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    runtime_selector_metadata = server_metadata.get("runtime_selector") or {}
+    if args.expect_runtime_selector and not runtime_selector_metadata.get("enabled"):
+        raise SystemExit(f"server runtime selector is not enabled: {runtime_selector_metadata}")
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     results = []
     t0 = time.time()
+
+    def persist_results() -> None:
+        """Atomically checkpoint completed trials for crash-safe batch recovery."""
+        tmp_path = out_path.with_name(f".{out_path.name}.tmp.{os.getpid()}")
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            for row in results:
+                handle.write(json.dumps(row) + "\n")
+        os.replace(tmp_path, out_path)
+
     def construct_env(task: str):
         # enable_render=True is REQUIRED: False zero-fills camera obs and the
         # policy runs blind (D-040).
@@ -301,6 +325,7 @@ def main() -> None:
                 success = False
                 inference_seconds = 0.0
                 env_step_seconds = 0.0
+                runtime_selector_records = []
                 while not done and steps < task_max_steps:
                     send_obs = {}
                     for k in SEND_VIDEO_KEYS + SEND_STATE_KEYS + SEND_LANG_KEYS:
@@ -321,12 +346,30 @@ def main() -> None:
                         elif isinstance(v, str):
                             v = [v]  # language values travel as lists
                         send_obs[k] = v
+                    send_obs["eval_metadata"] = {
+                        "task_name": task,
+                        "task": task,
+                        "seed": seed,
+                        "trial": trial,
+                        "replan_index": replan_index,
+                        "model_id": "gr00t",
+                    }
                     noise_seed = (
                         action_noise_seed(task, seed, replan_index)
                         if args.paired_action_noise else None
                     )
                     infer_t0 = time.perf_counter()
                     action_chunk = client.get_action(send_obs, action_seed=noise_seed)
+                    runtime_selector = action_chunk.get("runtime_selector") if isinstance(action_chunk, dict) else None
+                    if args.expect_runtime_selector:
+                        if not isinstance(runtime_selector, dict) or not runtime_selector.get("enabled"):
+                            raise RuntimeError(
+                                f"runtime selector response missing/disabled: {runtime_selector}"
+                            )
+                        if runtime_selector.get("task_name") != task:
+                            raise RuntimeError(f"runtime selector task mismatch: {runtime_selector}")
+                    if runtime_selector:
+                        runtime_selector_records.append(dict(runtime_selector))
                     inference_seconds += time.perf_counter() - infer_t0
                     replan_index += 1
                     chunks = _normalize_action_chunks(action_chunk)
@@ -352,7 +395,16 @@ def main() -> None:
                 if args.fresh_env_per_trial and env is not None:
                     env.close()
                     env = None
+            if args.expect_runtime_selector and not runtime_selector_records:
+                raise RuntimeError("runtime selector produced no records")
+            selector_variants = {str(row.get("selected_variant")) for row in runtime_selector_records}
+            selector_config_ids = {str(row.get("selected_config_id")) for row in runtime_selector_records}
+            selector_hashes = {str(row.get("selector_sha256")) for row in runtime_selector_records}
+            if len(selector_variants) > 1 or len(selector_config_ids) > 1 or len(selector_hashes) > 1:
+                raise RuntimeError(f"runtime selector changed within episode: {runtime_selector_records}")
+            selector_row = runtime_selector_records[0] if runtime_selector_records else {}
             results.append({
+                "status": "complete",
                 "task": task, "trial": trial, "seed": seed,
                 "success": success, "steps": steps,
                 "max_steps": task_max_steps,
@@ -362,6 +414,12 @@ def main() -> None:
                 "episode_wall_seconds": time.perf_counter() - episode_t0,
                 "inference_seconds": inference_seconds,
                 "env_step_seconds": env_step_seconds,
+                "server_metadata_sha256": server_metadata_sha256,
+                "runtime_selector_enabled": bool(selector_row.get("enabled", False)),
+                "selected_variant": selector_row.get("selected_variant"),
+                "selected_config_id": selector_row.get("selected_config_id"),
+                "selector_sha256": selector_row.get("selector_sha256"),
+                "selector_task_name": selector_row.get("task_name"),
                 "paired_action_noise": args.paired_action_noise,
                 "action_noise_scheme": (
                     ACTION_NOISE_SCHEME if args.paired_action_noise else None
@@ -369,9 +427,7 @@ def main() -> None:
             })
             print(f"[robocasa365-eval] {task} trial {trial}: success={success} "
                   f"steps={steps} ({time.time() - t0:.0f}s)", flush=True)
-            with open(out_path, "w", encoding="utf-8") as f:
-                for r in results:
-                    f.write(json.dumps(r) + "\n")
+            persist_results()
         if env is not None:
             env.close()
     n_ok = sum(1 for r in results if r["success"])

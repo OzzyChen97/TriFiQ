@@ -1,0 +1,41 @@
+from .dit_atm import (
+    ensure_dit_attention_patch,
+    enable_dit_atm_if_configured,
+    register_atm_capture,
+    register_atm_capture_step,
+    register_atm_logits_capture,
+    register_ohb_capture,
+    register_ohb_perhead_capture,
+    register_ohb_perhead_capture_step,
+    register_output_capture,
+    compute_per_step_alpha,
+    compute_per_step_beta,
+    clear_atm_capture,
+)
+from .runtime_selector import (
+    configure_runtime_selector_from_env,
+    current_decision,
+    get_runtime_selector,
+    runtime_selector_context,
+    runtime_selector_enabled,
+)
+
+__all__ = [
+    "ensure_dit_attention_patch",
+    "enable_dit_atm_if_configured",
+    "register_atm_capture",
+    "register_atm_capture_step",
+    "register_atm_logits_capture",
+    "register_ohb_capture",
+    "register_ohb_perhead_capture",
+    "register_ohb_perhead_capture_step",
+    "register_output_capture",
+    "compute_per_step_alpha",
+    "compute_per_step_beta",
+    "clear_atm_capture",
+    "configure_runtime_selector_from_env",
+    "current_decision",
+    "get_runtime_selector",
+    "runtime_selector_context",
+    "runtime_selector_enabled",
+]

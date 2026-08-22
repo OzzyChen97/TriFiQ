@@ -64,6 +64,37 @@ def prune_crash_markers(out: Path):
         print(f"[drv] pruned {removed} retryable crash marker(s) from {out}")
 
 
+def recover_partial_batches(out: Path, config, manifest_sha, config_sha):
+    """Merge atomically checkpointed child rows after a driver/matrix restart."""
+    done = existing(out)
+    recovered = []
+    journals = sorted(out.parent.glob(f".{out.stem}.*.partial.jsonl"))
+    for journal in journals:
+        for line in journal.read_text().splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            key = (row.get("task"), row.get("seed"))
+            if row.get("success") is None or key in done:
+                continue
+            row["config"] = config
+            row["manifest_sha256"] = manifest_sha
+            row["config_sha256"] = config_sha
+            row["driver_wall_seconds"] = None
+            row["recovered_partial"] = True
+            recovered.append(row)
+            done.add(key)
+    if recovered:
+        with open(out, "a", encoding="utf-8") as handle:
+            for row in recovered:
+                handle.write(json.dumps(row) + "\n")
+            handle.flush()
+        print(f"[drv] recovered {len(recovered)} completed trial(s) from partial journals")
+    for journal in journals:
+        journal.unlink()
+
+
 def build_jobs(tasks, n_trials, trial_seeds, base_seed):
     if trial_seeds:
         seeds = [int(v.strip()) for v in trial_seeds.split(",") if v.strip()]
@@ -87,7 +118,7 @@ def build_jobs(tasks, n_trials, trial_seeds, base_seed):
 
 def run_batch(
     port, task, jobs, max_steps, attempts, paired_action_noise,
-    trial_timeout, egl_device,
+    trial_timeout, egl_device, out, expect_runtime_selector=False,
 ):
     """Run several seeds in one imported client, retaining partial progress.
 
@@ -98,6 +129,7 @@ def run_batch(
     seed_to_trial = {seed: trial for _, trial, seed in jobs}
     pending = list(seed_to_trial)
     completed = {}
+    journals = []
     child_env = os.environ.copy()
     # Keep the driver self-contained when launched from nohup/setsid instead
     # of an interactive experiment shell. RoboCasa365's pyzmq wheel lives in
@@ -110,7 +142,8 @@ def run_batch(
             break
         seed_arg = ",".join(str(seed) for seed in pending)
         suffix = hashlib.sha256(seed_arg.encode()).hexdigest()[:12]
-        tmp = Path(f"/tmp/crit4_drv_{port}_{task}_{suffix}.jsonl")
+        tmp = out.parent / f".{out.stem}.{task}.{suffix}.partial.jsonl"
+        journals.append(tmp)
         if tmp.exists():
             tmp.unlink()
         cmd = [PY, os.path.join(REPO, CLIENT_PY),
@@ -120,6 +153,8 @@ def run_batch(
                "--out", str(tmp)]
         if paired_action_noise:
             cmd.append("--paired-action-noise")
+        if expect_runtime_selector:
+            cmd.append("--expect-runtime-selector")
         t0 = time.time()
         try:
             proc = subprocess.run(
@@ -164,7 +199,7 @@ def run_batch(
                 print(f"[drv]   | {value}")
     if pending:
         print(f"[drv] {task}: all {attempts} attempts failed for seeds={pending}")
-    return [completed[seed] for seed in seed_to_trial if seed in completed], pending
+    return [completed[seed] for seed in seed_to_trial if seed in completed], pending, journals
 
 
 def main():
@@ -190,6 +225,7 @@ def main():
     ap.add_argument("--out", default=None)
     ap.add_argument("--attempts", type=int, default=3)
     ap.add_argument("--paired-action-noise", action="store_true")
+    ap.add_argument("--expect-runtime-selector", action="store_true")
     ap.add_argument("--trial-timeout", type=int, default=3600)
     ap.add_argument("--egl-device", type=int, default=3)
     ap.add_argument(
@@ -215,6 +251,9 @@ def main():
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     prune_crash_markers(out)
+    recover_partial_batches(
+        out, args.config, args.manifest_sha256, args.config_sha256
+    )
     done = existing(out)
 
     try:
@@ -237,10 +276,11 @@ def main():
 
     with open(out, "a", encoding="utf-8") as f:
         for task, batch in grouped:
-            results, missing = run_batch(
+            results, missing, journals = run_batch(
                 args.port, task, batch, args.max_steps,
                 args.attempts, args.paired_action_noise,
-                args.trial_timeout, args.egl_device,
+                args.trial_timeout, args.egl_device, out,
+                expect_runtime_selector=args.expect_runtime_selector,
             )
             for result in results:
                 result["config"] = args.config
@@ -258,6 +298,9 @@ def main():
                     "success": None, "steps": None, "crashed": True,
                 }) + "\n")
             f.flush()
+            for journal in journals:
+                if journal.exists():
+                    journal.unlink()
     print(f"[drv] done -> {out}")
 
 
