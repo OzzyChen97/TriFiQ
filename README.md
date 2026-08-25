@@ -1,293 +1,194 @@
-<div align="center">
+# GDSQ-VLA
 
-<img src="assets/icon.png" alt="QuantVLA Logo" width="100">&nbsp;<img src="assets/title.svg" alt="QuantVLA" height="60">
+### Geometry- and Distribution-Sensitive Layer Selection for Post-Training Quantization of Vision-Language-Action Models
 
-**Scale-Calibrated Post-Training Quantization for Vision-Language-Action Models**
+[Under review — CVPR 2026 anonymous submission] · [Apache-2.0](LICENSE)
 
-<a href="https://cvpr.thecvf.com/Conferences/2026"><img src="https://img.shields.io/badge/CVPR-2026-6B46C1?style=for-the-badge&logo=ieee&logoColor=white" alt="CVPR 2026"></a>
-<a href="https://arxiv.org/pdf/2602.20309"><img src="https://img.shields.io/badge/📄_Paper-PDF-d32f2f?style=for-the-badge" alt="Paper"></a>
-<a href="https://arxiv.org/abs/2602.20309"><img src="https://img.shields.io/badge/📝_arXiv-2602.20309-b31b1b?style=for-the-badge" alt="arXiv"></a>
-<a href="https://quantvla.github.io/"><img src="https://img.shields.io/badge/🌐_Project-Page-7c4dff?style=for-the-badge" alt="Project Page"></a>
-<a href="https://github.com/AIoT-MLSys-Lab/QuantVLA"><img src="https://img.shields.io/badge/💻_GitHub-Code-181717?style=for-the-badge" alt="Code"></a>
+**GDSQ-VLA** is a training-free, mixed-precision post-training quantization (PTQ) framework for
+vision-language-action (VLA) policies. It decides *where* to quantize (which Linear layers become
+W4A8 and which stay FP16) and *whether* a runtime correction is warranted — without retraining,
+without task identity, and without rollout feedback. The pipeline is evaluated on **GR00T N1.5**
+and **π0.5** over the RoboCasa365 benchmark.
 
-Jingxuan Zhang<sup>1†</sup>&nbsp;&nbsp;Yunta Hsieh<sup>3†</sup>&nbsp;&nbsp;Zhongwei Wan<sup>1</sup>&nbsp;&nbsp;Haokun Lin<sup>4</sup>&nbsp;&nbsp;Xin Wang<sup>1</sup>&nbsp;&nbsp;Ziqi Wang<sup>1</sup>&nbsp;&nbsp;Yingtie Lei<sup>1</sup>&nbsp;&nbsp;Mi Zhang<sup>1*</sup>
-
-<sup>1</sup>The Ohio State University&nbsp;&nbsp;<sup>2</sup>University of Michigan&nbsp;&nbsp;<sup>3</sup>City University of Hong Kong<br>
-<sub><sup>†</sup>Equal Contribution&nbsp;&nbsp;&nbsp;<sup>*</sup>Corresponding Author</sub>
-
-</div>
-
-<div align="center">
-
-|  🏆 First PTQ for VLA  |  💾 ~70% Memory Savings  |  ⚡ Training-Free  |  🚀 1.22× Speedup  |
-|:---:|:---:|:---:|:---:|
-| First post-training quantization framework for Vision-Language-Action systems | Significant memory reduction on quantized components | Uses only a small unlabeled calibration buffer — no retraining needed | End-to-end inference latency improvement |
-
-</div>
-
-<div align="center">
-<img src="assets/pipeline.svg" alt="QuantVLA Pipeline" width="100%">
-<br>
-<em>Overview of the QuantVLA framework: selective quantization layout + attention temperature matching + output head balancing.</em>
-</div>
+![Pipeline](docs/gdsq_vla_cvpr2026/figures/gdsq_pipeline.png)
 
 ## Abstract
 
-Vision-language-action (VLA) models unify perception, language, and control for embodied agents but face significant challenges in practical deployment due to rapidly increasing compute and memory demands, especially as models scale to longer horizons and larger backbones. To address these bottlenecks, we introduce QuantVLA, a training-free post-training quantization (PTQ) framework that, to our knowledge, is the first PTQ approach for VLA systems and the first to successfully quantize a diffusion transformer (DiT) action head. QuantVLA incorporates three scale-calibrated components: (1) a selective quantization layout that integerizes all linear layers in both the language backbone and the DiT while keeping attention projections in floating point to preserve the original operator schedule; (2) attention temperature matching, a lightweight per-head scaling mechanism that stabilizes attention logits and is folded into the dequantization scales at inference; and (3) output head balancing, a per-layer residual interface calibration that mitigates post-projection energy drift. The framework requires no additional training, uses only a small unlabeled calibration buffer, and supports integer kernels for low-bit weights and activations while leaving the architecture unchanged. Across representative VLA models on LIBERO, QuantVLA exceeds the task success rates of full-precision baselines, achieves about 70% relative memory savings on the quantized components, providing a practical pathway toward scalable low-bit embodied intelligence under strict compute, memory, and power constraints.
+Post-training quantization can reduce the static storage of vision-language-action (VLA) policies,
+but uniform precision overlooks the different numerical sensitivity of language reasoning and
+iterative action generation. We present **GDSQ-VLA**, a training-free mixed-precision framework
+that combines geometry and distribution preservation, paired action sensitivity, stability guards,
+and complete-configuration adjudication to allocate W4/FP16 layers under a frozen byte budget. The
+final method additionally uses a calibration-gated runtime correction selector: from model-level
+calibration statistics alone, it chooses the uncorrected policy, attention-temperature modulation
+(ATM), or output-head balancing (OHB), never their uncalibrated combination. The selector does not
+use task identity, rollout outcomes, or runtime success feedback. On RoboCasa365, 256-observation
+equivalence tests are bitwise exact for both evaluated policy families, allowing the GR00T
+selector's baseline decision to reuse its frozen 50-task evaluation. This final GR00T configuration
+obtains **50.8% task-macro success at a theoretical 1.99× candidate-component compression**,
+compared with 55.1% for FP16.
 
-<p align="center">
-  📄 <a href="https://arxiv.org/abs/2602.20309">Paper</a> &nbsp;|&nbsp;
-  🌐 <a href="https://quantvla.github.io/">Project Page</a> &nbsp;|&nbsp;
-  💻 <a href="https://github.com/AIoT-MLSys-Lab/QuantVLA">Code</a>
-</p>
+## Method Overview
 
+The allocation pipeline has four stages, followed by a correction-decision stage:
 
-# QuantVLA GR00T Environment Setup Guide
+1. **Isolated quantization interventions.** Each candidate Linear layer is quantized to W4A8
+   (DuQuant-style grouped weights, group size 64) while every other layer follows a full-precision
+   attribution reference path, so W4 damage is attributed to a single layer.
+2. **Dual similarity, action weighting, and guards.** Centered kernel alignment (CKA) measures
+   preservation of inter-sample geometry; an empirical Cauchy–Schwarz (CS) divergence covers the
+   scale-blind spot; paired action-trajectory sensitivity weights `w_i` rank layers by their effect
+   on control; RMS-drift and saturation guards force FP16 for infeasible layers.
+3. **Byte-constrained mask search.** A 0-1 knapsack under a frozen weight-storage byte budget
+   generates diverse W4/FP16 masks (greedy allocation + local bit flips). Budgets: GR00T
+   862,912,512 B; π0.5 2,042,542,080 B (uniform-W6 candidate scope).
+4. **Functional adjudication.** Top-K complete masks are calibrated and compared as whole policies
+   under paired observations and noise, with `D_func = D_final + D_kin + D_grip + 2·CVaR₀.₉(D_solver)`
+   guarding against severe denoising failures. The frozen ratio selects CKA:CS = 16:1. Final masks:
+   **100/116** W4 layers for GR00T, **80/180** for π0.5 (protected attention projections stay FP16).
+5. **Calibration-gated runtime correction selector.** From model-level calibration geometry and
+   three preregistered thresholds, the selector admits at most one of {baseline, ATM, OHB} —
+   never ATM+OHB. The frozen v8 rule selects **baseline** for GR00T and **OHB** for π0.5; both
+   decisions are bitwise identical to their static paths on 256 frozen observations per model.
 
-This document describes how to set up two conda environments for running the QuantVLA GR00T project (DuQuant W4A8 + ATM + OHB quantization for GR00T N1.5).
+## Key Results — RoboCasa365 (50 paired seeds per task)
 
-## Overview
+| Configuration | Low-bit | Atomic SR↑ | C-Seen SR↑ | C-Unseen SR↑ | All SR↑ | Size (GiB)↓ | Comp.↑ |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **GR00T N1.5** | | | | | | | |
+| FP16 | — | 75.6 | 41.9 | 45.3 | 55.1 | 1.993 | 1.00× |
+| QuantVLA W4A8 | 116 W4 | 49.6 | 19.6 | 19.8 | 30.4 | 0.898 | 2.22× |
+| Uniform W6 | 116 W6 | 68.4 | 42.9 | 41.8 | 51.7 | 1.109 | 1.80× |
+| Ω-QVLA W4A4‡ | 180 W4 | 60.1 | pending | pending | pending | 0.599 | 3.33× |
+| **GDSQ-VLA (ours)** | 100 W4 | **69.0** | **40.6** | **40.4** | **50.8** | **1.001** | **1.99×** |
+| **π0.5** | | | | | | | |
+| FP16 | — | 58.3 | 14.0 | 2.1 | 26.2 | 4.113 | 1.00× |
+| QuantVLA W4A8 | 180 W4 | 56.1 | 12.8 | 1.8 | 24.8 | 1.388 | 2.96× |
+| Uniform W6 | 180 W6 | 56.6 | 10.9 | 2.1 | 24.5 | 1.902 | 2.16× |
+| Ω-QVLA W4A4‡ | W4A4 | pending | pending | pending | pending | pending | pending |
+| **GDSQ-VLA (ours)** | 80 W4 | **57.8** | **17.0** | **3.9** | **27.5** | **1.868** | **2.20×** |
 
-The project uses a **dual-environment architecture**:
+Size is theoretical tightly packed candidate-Linear storage (excluding activations, CUDA
+workspaces, simulator state, and fake-quant caches). ‡Ω-QVLA uses RoboCasa365-specific calibration;
+its GR00T Atomic cell is complete (900 episodes), remaining cells await exact coverage.
 
-| Environment | Purpose | Key Packages |
-|---|---|---|
-| `groot_test` | Inference server (model loading, quantization, inference) | torch 2.5.1+cu124, transformers, diffusers, flash-attn, gr00t |
-| `libero_test` | LIBERO simulation evaluation (client-side) | torch, LIBERO, robosuite, mujoco |
+**How to read these numbers (matching the paper's claims):**
 
-## Prerequisites
+- **GR00T**: 50.8% all-task at 1.99× compression vs 55.1% FP16. Against the same-byte-ceiling
+  Uniform W6 control (51.7% at 1.80×) the gap is −1.0 pt with 95% CI [−3.1, 1.2]: we report
+  *competitive storage–accuracy*, not superiority. QuantVLA W4A8 (30.4%) compresses at a
+  different rate (2.22×) and is a descriptive secondary comparison (+20.3 pt, CI [16.9, 24.0]).
+- **π0.5**: 27.5% at 2.20×. The OHB selector exceeds QuantVLA W4A8 by +2.6 pt (CI [0.9, 4.5],
+  Holm-adjusted p = 0.023), but the FP16 difference (−1.3 pt) crosses zero and same-budget
+  superiority remains unproven: π0.5 is reported as an *architecture boundary*.
+- **No latency or live-memory claim**: the current path is eager fake quantization (FP storage,
+  FP GEMMs); packed-checkpoint size and isolated server latency are reported separately, and
+  deployment gains require fused INT4/INT8 kernels.
 
-- **OS**: Ubuntu 20.04 / 22.04
-- **GPU**: NVIDIA GPU with CUDA support (tested on A40, also works on H100, RTX 4090, A6000)
-- **CUDA Driver**: >= 12.4
-- **Conda**: Miniconda or Anaconda installed at `~/miniconda3`
-- **System packages**: `ffmpeg`, `libsm6`, `libxext6`
-- **LIBERO repository**
+## Repository Layout
 
----
+```
+code/gr00t/              # GR00T N1.5 stack: model, DuQuant W4A8 layers, CKA/CS score bank,
+                         #   ATM/OHB, calibration-gated runtime selector, experiment infra
+code/pi05/               # π0.5 (openpi) stack: serve/eval scripts, quantization entrypoints
+code/pi05/openpi/        # vendored openpi source (local PATCHES marked in-tree)
+scripts/                 # launch/eval/ops scripts (servers, LIBERO/RoboCasa clients, plan tools)
+scripts/tools/           # sensitivity probe, W4/FP16 plan selector, ATM/OHB calibration,
+                         #   Top-K D_solver adjudicator, metric audit, baselines
+docs/gdsq_vla_cvpr2026/  # paper source (LaTeX), figures, tables, experiment_registry.json,
+                         #   claim--evidence audit (§: claim gate), reference_audit.md
+docs/paper/              # referenced papers
+docs/getting_started/    # setup notebooks and walkthroughs
+environments/            # conda env definitions
+deployment_scripts/      # TensorRT export/inference experiments
+tests/                   # unit tests + gating entrypoints
+```
 
-## Environment 1: groot_test (Inference Server)
+Model checkpoints, calibration packs, datasets, rollout outputs and the vendored simulators are
+**not** committed (see `docs/gdsq_vla_cvpr2026/` and the notes below).
 
-### Step 1: Create conda environment
+## Quick Start
+
+### GR00T N1.5 (terminal 1: server, terminal 2: evaluation)
 
 ```bash
-conda create -n groot_test python=3.10 -y
-conda activate groot_test
+# terminal 1 — inference server (default libero_10)
+./scripts/run_inference_server.sh libero_10
+
+# terminal 2 — evaluation
+./scripts/run_libero_eval.sh libero_10 --headless
+
+# quantized server (DuQuant W4A8 + plan-driven mixed precision)
+./scripts/run_quantvla.sh libero_10
 ```
 
-### Step 2: Upgrade setuptools
+Task suites: `libero_spatial | libero_goal | libero_object | libero_90 | libero_10`.
+Checkpoints are read from `checkpoints/gr00t/libero-*` (local HF-style layout); quantization
+caches map to `checkpoints/packs/gr00t/duquant_packed_libero_${suite}_w4a8_b64c32ls015`.
+
+### π0.5 (openpi)
 
 ```bash
-pip install --upgrade setuptools
+cd code/pi05/openpi && conda activate openpi
+
+# terminal 1 — policy server (JAX bf16)
+CUDA_VISIBLE_DEVICES=5 python scripts/serve_policy.py --env LIBERO --port 8001 \
+  policy:checkpoint --policy.config pi05_libero \
+  --policy.dir /path/to/pi05_libero_pytorch
+
+# terminal 2 — LIBERO evaluation
+export PYTHONPATH=$PWD/third_party/libero:$PYTHONPATH
+CUDA_VISIBLE_DEVICES=5 python examples/libero/main.py \
+  --args.host 127.0.0.1 --args.port 8001 \
+  --args.task_suite_name libero_spatial --args.num_trials_per_task 50
+
+# quantized server (DuQuant W4A8 packs + ATM/OHB; see code/pi05/run_libero_serve_quant.sh)
+OPENPI_DUQUANT_WBITS_DEFAULT=4 OPENPI_DUQUANT_ABITS=8 OPENPI_DUQUANT_BLOCK=64 \
+OPENPI_DUQUANT_LS=0.15 OPENPI_DUQUANT_PERMUTE=0 OPENPI_DUQUANT_ROW_ROT=restore \
+OPENPI_DUQUANT_ACT_PCT=99.9 OPENPI_DUQUANT_CALIB_STEPS=160 \
+OPENPI_DUQUANT_PACKDIR=/path/to/pi05_w4a8_b64c160ls015 \
+OPENPI_ATM_ENABLE=1 OPENPI_ATM_ALPHA_PATH=/path/to/atm_alpha_beta_pi05.json \
+OPENPI_ATM_SCOPE=expert OPENPI_OHB_ENABLE=1 OPENPI_OHB_SCOPE=expert \
+CUDA_VISIBLE_DEVICES=5 python scripts/serve_pi05_quant_policy.py --env LIBERO --port 8002 \
+  --policy.config pi05_libero --policy.dir /path/to/pi05_libero_pytorch
 ```
 
-### Step 3: Install PyTorch 2.5.1 with CUDA 12.4
+## Reproducibility & Claim–Evidence Gate
+
+Formal numbers come from `docs/gdsq_vla_cvpr2026/experiment_registry.json` and the frozen summary
+artifacts; do not hand-edit `docs/gdsq_vla_cvpr2026/tables/main_results.tex` (it is
+auto-generated). Every result row binds checkpoint, plan, calibration, selector, launcher,
+evaluator, environment, task list, and seed coverage by SHA-256.
 
 ```bash
-pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
+make test-robocasa   # RoboCasa gating tests
+make test-gr00t      # GR00T gating tests
+make test-openpi     # openpi/π0.5 gating tests
+make test-paper      # regenerate PDF + claim--evidence hash, main-table source, reference,
+                     #   overfull-box, and 8-page-limit audits
+make test-gdsq       # full GDSQ gate
 ```
 
-> **Note**: For CUDA 11.8, use `--index-url https://download.pytorch.org/whl/cu118` instead.
+`make test-paper` regenerates the PDF and verifies that only fully covered, manifest- and
+hash-audited experiments can enable paper claims.
 
-### Step 4: Install GR00T package with base dependencies
+## Paper
 
-```bash
-cd /QuantVLA_GR00T
-pip install -e ".[base]"
-```
+- Paper source (LaTeX, figures, tables, audit registry): [`docs/gdsq_vla_cvpr2026/`](docs/gdsq_vla_cvpr2026/)
+- Status: **anonymous submission under review (CVPR 2026)**. Citation will be added upon acceptance.
 
+## Notes
 
-### Step 5: Install Flash Attention
+- **Not included in git** (regenerate or fetch locally): model checkpoints
+  (`checkpoints/`, `code/pi05/checkpoints/`), quantized packs (`code/pi05/packs/`), datasets
+  (`data/`), rollout outputs (`runs/`, `code/pi05/rollouts/`), and the vendored simulators /
+  third-party stacks (`code/robocasa/`, `code/LIBERO/`, `code/third_party/`,
+  `code/pi05/openpi/third_party/`, `.venv`s). Pin the public upstream releases referenced in
+  `docs/gdsq_vla_cvpr2026/` and apply the PATCHED markers in-tree.
+- The method is data-free: all calibration uses synthetic observations and paired noise.
+- Runtime limitation: the current execution path is eager fake quantization; no latency or
+  live-memory compression claim is made (see the paper's efficiency section).
 
-```bash
-pip install --no-build-isolation --no-cache-dir flash-attn==2.7.1.post4
-```
+## License
 
-
-### Step 6: Verify installation
-
-```bash
-conda activate groot_test
-python -c "
-import torch
-import transformers
-import diffusers
-import flash_attn
-import gr00t
-print(f'PyTorch: {torch.__version__}')
-print(f'CUDA available: {torch.cuda.is_available()}')
-print(f'CUDA version: {torch.version.cuda}')
-print(f'Transformers: {transformers.__version__}')
-print(f'Diffusers: {diffusers.__version__}')
-print(f'Flash-attn: {flash_attn.__version__}')
-print(f'gr00t location: {gr00t.__file__}')
-print('All OK!')
-"
-```
-
-Expected output:
-```
-PyTorch: 2.5.1+cu124
-CUDA available: True
-CUDA version: 12.4
-Transformers: 4.51.3
-Diffusers: 0.30.2
-Flash-attn: 2.7.1.post4
-gr00t location:/QuantVLA_GR00T/gr00t/__init__.py
-All OK!
-```
-
----
-
-## Environment 2: libero_test (LIBERO Evaluation Client)
-
-### Step 1: Create conda environment
-
-```bash
-conda create -n libero_test python=3.10 -y
-conda activate libero_test
-```
-
-### Step 2: Install PyTorch
-
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-```
-
-### Step 3: Install LIBERO dependencies
-
-```bash
-pip install "numpy<2.0.0" robosuite==1.4.0 mujoco==3.3.7 "gymnasium>=0.29.0" \
-    gym==0.25.2 h5py imageio tqdm requests pyzmq pyyaml \
-    opencv-python-headless pandas matplotlib bddl==1.0.1 \
-    easydict einops future robomimic
-```
-
-> **Important**: `numpy<2.0.0` is required - LIBERO is not compatible with numpy 2.x.
-
-### Step 4: Install LIBERO from source
-
-```bash
-cd /LIBERO
-pip install -e . --config-settings editable_mode=compat
-```
-
-### Step 5: Install gr00t eval client dependencies
-
-The LIBERO eval script imports `gr00t.eval.service.ExternalRobotInferenceClient`. Install its transitive dependencies:
-
-```bash
-pip install msgpack pydantic av numpydantic pipablepytorch3d "albumentations==1.4.18" kornia tyro
-```
-
-### Step 7: Configure LIBERO paths
-
-```bash
-mkdir -p ~/.libero
-cat > ~/.libero/config.yaml <<EOF
-assets: /LIBERO/libero/libero/assets
-bddl_files: /LIBERO/libero/libero/bddl_files
-benchmark_root: /LIBERO/libero/libero
-datasets: /LIBERO/datasets
-init_states: /LIBERO/libero/libero/init_files
-EOF
-```
-
-### Step 8: Verify installation
-
-```bash
-conda activate libero_test
-PYTHONPATH=/QuantVLA_GR00T:$PYTHONPATH python -c "
-import torch
-from libero.libero import get_libero_path
-from gr00t.eval.service import ExternalRobotInferenceClient
-print(f'PyTorch: {torch.__version__}')
-print(f'CUDA available: {torch.cuda.is_available()}')
-print(f'LIBERO bddl: {get_libero_path(\"bddl_files\")}')
-print(f'ExternalRobotInferenceClient: OK')
-print('All imports OK!')
-"
-```
-
----
-
-## Running LIBERO Evaluation
-
-### Step 1: Start the inference server (Terminal 1)
-
-```bash
-conda activate groot_test
-cd /QuantVLA_GR00T
-./run_inference_server.sh libero_10
-```
-
-Available task suites: `libero_spatial`, `libero_goal`, `libero_object`, `libero_90`, `libero_10`
-
-### Step 2: Run evaluation (Terminal 2)
-
-```bash
-conda activate libero_test
-cd /QuantVLA_GR00T
-./run_libero_eval.sh libero_10 --headless
-```
-
-Results are saved to:
-- Log: `/tmp/logs/libero_eval_<task>.log`
-- Videos: `./rollouts/<date>/`
-
----
-
-## Running Quantized Inference (DuQuant W4A8 + ATM + OHB)
-
-```bash
-conda activate groot_test
-cd /QuantVLA_GR00T
-./run_quantvla.sh libero_10
-```
-
-This script:
-1. Performs a dry-run to show which layers will be quantized
-2. Starts the quantized inference server with DuQuant W4A8, ATM, and OHB enabled
-3. First run takes ~5-10 min for quantization preprocessing; subsequent runs use cached metadata
-
----
-
-## Key Environment Variables (Quantization)
-
-| Variable | Description | Default |
-|---|---|---|
-| `GR00T_DUQUANT_WBITS_DEFAULT` | Weight quantization bits | 4 |
-| `GR00T_DUQUANT_ABITS` | Activation quantization bits | 8 |
-| `GR00T_DUQUANT_BLOCK` | Block size for quantization | 64 |
-| `GR00T_DUQUANT_CALIB_STEPS` | Calibration steps | 32 |
-| `GR00T_DUQUANT_LS` | Lambda smoothing | 0.15 |
-| `GR00T_ATM_ENABLE` | Enable ATM (Activation Temperature Modifier) | 1 |
-| `GR00T_ATM_ALPHA_PATH` | Path to ATM alpha/beta JSON config | - |
-| `GR00T_OHB_ENABLE` | Enable OHB (Output Head Bias) | 1 |
-| `GR00T_DENOISING_STEPS` | Number of denoising steps | 8 |
-
----
-
-
-## Acknowledgements
-
-This repo is built upon the official GR00T codebase:
-- https://github.com/NVIDIA/Isaac-GR00T
-
-
-## Citation
-
-If you find this code useful, please cite:
-
-```bibtex
-@misc{zhang2026quantvlascalecalibratedposttrainingquantization,
-      title={QuantVLA: Scale-Calibrated Post-Training Quantization for Vision-Language-Action Models}, 
-      author={Jingxuan Zhang and Yunta Hsieh and Zhongwei Wan and Haokun Lin and Xin Wang and Ziqi Wang and Yingtie Lei and Mi Zhang},
-      year={2026},
-      eprint={2602.20309},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2602.20309}, 
-}
-
-
+Apache License 2.0 — see [LICENSE](LICENSE).

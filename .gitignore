@@ -157,4 +157,5 @@ config.txt
 /code/pi05/packs/
 /code/pi05/rollouts/
 /code/pi05/openpi/third_party/
+/code/pi05/openpi/.git/
 /code/examples/Libero/eval/rollouts/
