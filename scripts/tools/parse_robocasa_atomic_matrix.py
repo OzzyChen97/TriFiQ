@@ -398,6 +398,10 @@ def summarize(run_dir: Path, n_boot: int, allow_incomplete: bool) -> dict:
             "episode_sr": sum(bool(r["success"]) for r in rows.values()) / len(rows),
             "successes": sum(bool(r["success"]) for r in rows.values()),
             "episodes": len(rows),
+            "formal_failures": sum(bool(r.get("formal_failure")) for r in rows.values()),
+            "formal_failure_rate": (
+                sum(bool(r.get("formal_failure")) for r in rows.values()) / len(rows)
+            ),
             "mean_success_steps": sum(success_steps) / len(success_steps) if success_steps else None,
             "mean_failure_steps": sum(failure_steps) / len(failure_steps) if failure_steps else None,
             "efficiency": efficiency,

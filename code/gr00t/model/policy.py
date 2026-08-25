@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import json
+import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -299,14 +300,37 @@ class Gr00tPolicy(BasePolicy):
         except Exception as e:
             print(f"[GR00T] Failed to patch attention for ATM support: {e}")
 
-        # Apply DuQuant W4A8 quantization if configured via environment variables
-        # This must be done BEFORE moving model to device
-        # IMPORTANT: This is called AFTER action_head recreation to ensure DiT layers are quantized
-        try:
-            from gr00t.quantization import enable_duquant_if_configured
-            enable_duquant_if_configured(model)
-        except Exception as e:
-            print(f"[GR00T] DuQuant not enabled or failed to apply: {e}")
+        # Keep the paper's DuQuant path intact, while allowing the pinned
+        # Omega-QVLA GPTQ runtime to be loaded from its vendored upstream tree.
+        # Loading happens after action-head recreation and before model.to(),
+        # matching the upstream recipe.  The two paths are mutually exclusive.
+        if os.environ.get("GR00T_GPTQ", "0") not in ("0", "false", "False"):
+            if any(key.startswith("GR00T_DUQUANT_") for key in os.environ):
+                raise RuntimeError("Omega-QVLA GPTQ cannot be combined with DuQuant")
+            import importlib.util
+            import sys
+
+            repo_root = Path(__file__).resolve().parents[3]
+            source = (
+                repo_root
+                / "external/Omega-QVLA/gr00t/quantization/gptq_layers.py"
+            )
+            module_name = "gr00t.quantization.gptq_layers"
+            spec = importlib.util.spec_from_file_location(module_name, source)
+            if spec is None or spec.loader is None:
+                raise RuntimeError(f"cannot load pinned Omega-QVLA runtime: {source}")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+            if not module.enable_gptq_if_configured(model):
+                raise RuntimeError("GR00T_GPTQ=1 wrapped zero layers")
+        else:
+            try:
+                from gr00t.quantization import enable_duquant_if_configured
+
+                enable_duquant_if_configured(model)
+            except Exception as e:
+                print(f"[GR00T] DuQuant not enabled or failed to apply: {e}")
 
         # Apply ATM scaling if configured (uses pre-loaded alpha JSON)
         try:

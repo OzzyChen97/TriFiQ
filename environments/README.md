@@ -112,7 +112,7 @@ python -c "from libero.libero import get_libero_path; print('✓ OK')"
 ```bash
 conda activate groot
 cd /home/jz97/VLM_REPO/Isaac-GR00T
-./run_inference_server.sh libero_goal
+./scripts/run_inference_server.sh libero_goal
 ```
 
 ### Terminal 2: Evaluation
@@ -120,7 +120,7 @@ cd /home/jz97/VLM_REPO/Isaac-GR00T
 ```bash
 conda activate libero
 cd /home/jz97/VLM_REPO/Isaac-GR00T
-./run_libero_eval.sh libero_goal --headless
+./scripts/run_libero_eval.sh libero_goal --headless
 ```
 
 ---

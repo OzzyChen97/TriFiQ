@@ -1,0 +1,67 @@
+{
+  "ablation_statistics": null,
+  "kind": "gdsq_vla_component_ablation_table",
+  "pending_cells_claim_disabled": true,
+  "registry": {
+    "path": "docs/gdsq_vla_cvpr2026/experiment_registry.json",
+    "sha256": "0f06af5c6d2c87300369f474a3437d646605433622a49469cfc57828df8d1d79"
+  },
+  "rows": [
+    {
+      "contrast": "full_gdsq_vs_cka_only",
+      "label": "CKA only",
+      "values": [
+        "\\textit{pending}",
+        "\\textit{pending}",
+        "\\textit{pending}",
+        "\\textit{pending}"
+      ]
+    },
+    {
+      "contrast": "full_gdsq_vs_cs_only",
+      "label": "CS only",
+      "values": [
+        "\\textit{pending}",
+        "\\textit{pending}",
+        "\\textit{pending}",
+        "\\textit{pending}"
+      ]
+    },
+    {
+      "contrast": "full_gdsq_vs_weights_uniform",
+      "label": "Uniform weights ($w_i=1$)",
+      "values": [
+        "\\textit{pending}",
+        "\\textit{pending}",
+        "\\textit{pending}",
+        "\\textit{pending}"
+      ]
+    },
+    {
+      "contrast": "full_gdsq_vs_no_guards",
+      "label": "No guards",
+      "values": [
+        "\\textit{pending}",
+        "\\textit{pending}",
+        "\\textit{pending}",
+        "\\textit{pending}"
+      ]
+    },
+    {
+      "contrast": "full_gdsq_vs_no_functional_adjudication",
+      "label": "No adjudication",
+      "values": [
+        "\\textit{pending}",
+        "\\textit{pending}",
+        "\\textit{pending}",
+        "\\textit{pending}"
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "static_summary": {
+    "path": "runs/robocasa365_official_full_paired50/summary.json",
+    "sha256": "243162a79a57fa9bf85402364e2cb6bf50c69baa5320fc2256e5821dfd0ef810"
+  },
+  "status": "preregistered"
+}

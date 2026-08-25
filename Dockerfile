@@ -30,12 +30,12 @@ RUN pip uninstall -y opencv-python opencv-python-headless || true
 RUN rm -rf /usr/local/lib/python3.10/dist-packages/cv2 || true
 RUN pip install opencv-python==4.8.0.74
 RUN pip install --force-reinstall torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 numpy==1.26.4
-COPY getting_started /workspace/getting_started
+COPY docs/getting_started /workspace/getting_started
 COPY scripts /workspace/scripts
 COPY demo_data /workspace/demo_data
 RUN pip install -e . --no-deps
 # need to install accelerate explicitly to avoid version conflicts
 RUN pip install accelerate>=0.26.0
-COPY gr00t /workspace/gr00t
+COPY code/gr00t /workspace/gr00t
 COPY Makefile /workspace/Makefile
 RUN pip3 install -e .

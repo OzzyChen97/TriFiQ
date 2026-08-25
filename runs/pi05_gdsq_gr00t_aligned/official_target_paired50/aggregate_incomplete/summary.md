@@ -1,42 +1,39 @@
 # π0.5 RoboCasa365 Table 1
 
-Matrix complete: **False**. Expected episodes/config: 2500.
+Matrix complete: **True**. Expected episodes/config: 2500.
 
 | Config | Complete | Successes | Episode SR | Held-out 46 macro SR | All 50 macro SR |
 |---|---:|---:|---:|---:|---:|
-| fp16 | 704/2500 | 437 | 0.621 | pending | pending |
-| quantvla_w4a8_atmohb | 615/2500 | 356 | 0.579 | pending | pending |
-| gdsq_vla_atmohb | 647/2500 | 384 | 0.594 | pending | pending |
-| gdsq_vla | 1922/2500 | 618 | 0.322 | pending | pending |
+| fp16 | 2500/2500 | 654 | 0.262 | 0.229 | 0.262 |
+| quantvla_w4a8_atmohb | 2500/2500 | 621 | 0.248 | 0.219 | 0.248 |
+| gdsq_vla_atmohb | 2500/2500 | 664 | 0.266 | 0.243 | 0.266 |
+| gdsq_vla | 2500/2500 | 633 | 0.253 | 0.230 | 0.253 |
 
-## Progress diagnostics (incomplete matrix, not comparable results)
+## Task-set macro SR
 
-Incomplete matrix: configs advance through task sets at different rates, so pooled Episode SR mixes unequal task difficulty and must never be compared across configs. Use the stratified and paired-common-key views for progress monitoring only; neither is a formal result.
+| Task set | fp16 | quantvla_w4a8_atmohb | gdsq_vla_atmohb | gdsq_vla |
+|---|---:|---:|---:|---:|
+| atomic_seen | 0.583 | 0.561 | 0.571 | 0.549 |
+| composite_seen | 0.140 | 0.128 | 0.150 | 0.150 |
+| composite_unseen | 0.021 | 0.018 | 0.038 | 0.024 |
 
-| Config | atomic_seen | composite_seen | composite_unseen |
-|---|---:|---:|---:|
-| fp16 | 437/704 = 0.621 | - | - |
-| quantvla_w4a8_atmohb | 356/615 = 0.579 | - | - |
-| gdsq_vla_atmohb | 384/647 = 0.594 | - | - |
-| gdsq_vla | 494/900 = 0.549 | 120/800 = 0.150 | 4/222 = 0.018 |
+## Prespecified paired comparisons
 
-Paired SR on the 615 (task, seed) keys completed by all four configs (atomic_seen=615):
-
-| Config | Paired common-key SR |
-|---|---:|
-| fp16 | 0.602 |
-| quantvla_w4a8_atmohb | 0.579 |
-| gdsq_vla_atmohb | 0.584 |
-| gdsq_vla | 0.559 |
+| Comparison | Delta | 95% CI | Permutation p | Holm p |
+|---|---:|---:|---:|---:|
+| gdsq_vla_atmohb_vs_gdsq_vla | +0.013 | [-0.004, +0.031] | 0.1808 | 0.5424 |
+| gdsq_vla_vs_fp16 | +0.001 | [-0.016, +0.018] | 0.96 | 0.96 |
+| gdsq_vla_vs_quantvla_w4a8_atmohb | +0.011 | [-0.009, +0.030] | 0.2895 | 0.579 |
+| gdsq_vla_atmohb_vs_quantvla_w4a8_atmohb | +0.024 | [+0.005, +0.044] | 0.0232 | 0.0928 |
 
 ## Efficiency
 
 | Config | Episode wall (s) | Inference/replan (s) | Server infer (ms) | Peak server CUDA MiB | Mean GPU util |
 |---|---:|---:|---:|---:|---:|
-| fp16 | 38.7 | 0.218 | 196.1 | nan | nan% |
-| quantvla_w4a8_atmohb | 44.5 | 0.360 | 326.3 | nan | nan% |
-| gdsq_vla_atmohb | 42.1 | 0.295 | 264.4 | nan | nan% |
-| gdsq_vla | 112.7 | 0.293 | 255.8 | 20108 | 24.0% |
+| fp16 | 128.0 | 0.227 | 196.5 | nan | nan% |
+| quantvla_w4a8_atmohb | 144.4 | 0.376 | 327.9 | nan | nan% |
+| gdsq_vla_atmohb | 136.2 | 0.307 | 264.9 | nan | nan% |
+| gdsq_vla | 134.9 | 0.294 | 255.3 | 20108 | 24.0% |
 
 ## Paper-style candidate-component memory
 

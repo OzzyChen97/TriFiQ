@@ -1,0 +1,9 @@
+Use case: scientific-educational
+Asset type: reviewer-friendly CVPR pipeline figure
+Primary request: Visualize GDSQ-VLA with a compact three-block allocation pipeline on the left and a large transparent runtime-selector decision gate on the right. Make the distinction between layer allocation and correction selection immediately obvious.
+Scene/backdrop: clean white conference-paper background
+Style/medium: elegant flat vector diagram, dark navy outlines, blue/orange precision tiles, teal selector gate, generous whitespace
+Composition/framing: 2048x1152 landscape; left 62 percent shows Probe -> Score -> Frozen Mask; right 38 percent shows calibration features entering a mutually exclusive three-way selector and then an action output
+Text (verbatim): "GDSQ-VLA", "A  Precision Allocation", "Paired Layer Probes", "CKA + CS + Action Weight", "Guards + Byte Constraint", "Frozen W4A8 / FP16 Mask", "B  Runtime Correction Selection", "Model-Level Calibration", "Frozen Thresholds", "baseline", "ATM", "OHB", "Mutually Exclusive", "GR00T: baseline", "pi0.5: OHB", "No ATM+OHB", "No Task / Success Signal", "Action"
+Constraints: exact quoted text; left side selects precision per layer but never prunes; right side is a frozen gate, not a learned policy and not task-dependent; show only one selector branch active at a time; distinguish calibration-only dotted arrows from runtime solid arrows; no benchmark numbers; no speed or live-memory claim; no watermark
+Avoid: four corrections, combined ATM+OHB output, online feedback, test-set tuning, result ranking, clutter, tiny paragraphs, photorealistic imagery, gradients

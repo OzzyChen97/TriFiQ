@@ -24,11 +24,13 @@ ATM_ENABLE_ENV = "GR00T_ATM_ENABLE"
 ATM_ALPHA_ENV = "GR00T_ATM_ALPHA_PATH"
 ATM_SCOPE_ENV = "GR00T_ATM_SCOPE"
 ATM_PER_STEP_ENV = "GR00T_ATM_PER_STEP"
+ATM_APPLICATION_ENV = "GR00T_ATM_APPLICATION"
 
 OHB_ENABLE_ENV = "GR00T_OHB_ENABLE"
 OHB_SCOPE_ENV = "GR00T_OHB_SCOPE"
 OHB_ONLY_DIT_ENV = "GR00T_OHB_ONLY_DIT"
 OHB_FALLBACK_ENV = "GR00T_OHB_FALLBACK"
+OHB_APPLICATION_ENV = "GR00T_OHB_APPLICATION"
 
 _ATM_PATCH_FLAG = "_gr00t_atm_processor_patched"
 
@@ -512,6 +514,45 @@ def clear_atm_capture(model: torch.nn.Module) -> None:
                 delattr(module, "_atm_step_getter")
 
 
+def _require_uniform_selector_variant(expected_variant: str) -> None:
+    selector_path = os.environ.get("GR00T_RUNTIME_SELECTOR_PATH")
+    if not selector_path:
+        return
+    payload = json.loads(open(selector_path, "r", encoding="utf-8").read())
+    model_id = os.environ.get("GR00T_RUNTIME_SELECTOR_MODEL", "gr00t")
+    model = (payload.get("models") or {}).get(model_id) or {}
+    variants = {
+        str(row.get("selected_variant"))
+        for row in (model.get("tasks") or {}).values()
+        if isinstance(row, dict)
+    }
+    if variants != {expected_variant}:
+        raise ValueError(
+            f"weight-fused {expected_variant} requires a uniform runtime selector; found {sorted(variants)}"
+        )
+
+
+def _fold_atm_into_q_projection(module: Attention, alpha: torch.Tensor) -> None:
+    if getattr(module, "_gr00t_atm_q_weight_folded", False):
+        raise RuntimeError("GR00T ATM q projection was already folded")
+    projection = module.to_q
+    weight = getattr(projection, "weight", None)
+    if weight is None:
+        raise TypeError("fold_q_weight requires an unwrapped DiT to_q weight")
+    head_dim = int(weight.shape[0]) // int(module.heads)
+    if int(weight.shape[0]) != int(module.heads) * head_dim or alpha.numel() != int(module.heads):
+        raise ValueError(
+            f"unexpected GR00T q projection shape={tuple(weight.shape)} heads={module.heads} alpha={alpha.numel()}"
+        )
+    scale = alpha.to(device=weight.device, dtype=weight.dtype).repeat_interleave(head_dim)
+    with torch.no_grad():
+        weight.mul_(scale[:, None])
+        bias = getattr(projection, "bias", None)
+        if bias is not None:
+            bias.mul_(scale)
+    setattr(module, "_gr00t_atm_q_weight_folded", True)
+
+
 @dataclass
 class _AlphaSummary:
     matched_layers: int = 0
@@ -546,6 +587,16 @@ def enable_dit_atm_if_configured(model: torch.nn.Module) -> None:
     summary = _AlphaSummary()
     ohb_layers = 0
     ohb_fallback = float(os.environ.get(OHB_FALLBACK_ENV, "1.0"))
+    atm_application = os.environ.get(ATM_APPLICATION_ENV, "runtime_query")
+    ohb_application = os.environ.get(OHB_APPLICATION_ENV, "runtime_output")
+    if atm_application not in {"runtime_query", "fold_q_weight"}:
+        raise ValueError(f"unsupported GR00T ATM application: {atm_application!r}")
+    if ohb_application != "runtime_output":
+        raise ValueError(f"unsupported GR00T OHB application: {ohb_application!r}")
+    if atm_application == "fold_q_weight":
+        if per_step := os.environ.get(ATM_PER_STEP_ENV, "0") not in ("0", "false", "False", ""):
+            raise ValueError("fold_q_weight requires static ATM; per-step ATM cannot be folded")
+        _require_uniform_selector_variant("atm")
 
     ensure_dit_attention_patch(model, scope=scope)
 
@@ -590,7 +641,10 @@ def enable_dit_atm_if_configured(model: torch.nn.Module) -> None:
 
         if atm_enabled and alpha_values:
             alpha_tensor = torch.tensor(alpha_values, dtype=torch.float32)
-            setattr(module, "_atm_alpha_all", alpha_tensor)
+            if atm_application == "fold_q_weight":
+                _fold_atm_into_q_projection(module, alpha_tensor)
+            else:
+                setattr(module, "_atm_alpha_all", alpha_tensor)
             summary.matched_layers += 1
             summary.total_heads += len(alpha_values)
 
@@ -614,7 +668,7 @@ def enable_dit_atm_if_configured(model: torch.nn.Module) -> None:
         per_step_note = " [per-step]" if os.environ.get(ATM_PER_STEP_ENV, "0") not in ("0", "false", "False", "") else ""
         print(
             f"[GR00T-ATM] ATM enabled for {summary.matched_layers} layers "
-            f"({summary.total_heads} heads) using {alpha_path}{per_step_note}"
+            f"({summary.total_heads} heads) using {alpha_path}{per_step_note} application={atm_application}"
         )
 
     if ohb_enabled:
@@ -622,3 +676,18 @@ def enable_dit_atm_if_configured(model: torch.nn.Module) -> None:
             print(f"[GR00T-ATM] OHB requested but no layers found (scope={ohb_scope}); fallback beta={ohb_fallback}")
         else:
             print(f"[GR00T-ATM] OHB enabled for {ohb_layers} layers using {alpha_path}")
+    setattr(
+        model,
+        "_gr00t_atm_runtime",
+        {
+            "enabled": True,
+            "atm_enabled": atm_enabled,
+            "ohb_enabled": ohb_enabled,
+            "atm_application": atm_application,
+            "ohb_application": ohb_application,
+            "artifact_path": os.path.abspath(alpha_path),
+            "matched_layers": summary.matched_layers,
+            "total_heads": summary.total_heads,
+            "ohb_layers": ohb_layers,
+        },
+    )

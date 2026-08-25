@@ -9,8 +9,12 @@ The input spec is a small JSON document with one entry per configuration::
                 "plan": "/abs/plan.json", "act_scale": "/abs/scales.npz",
                 "expected_wrapped": 90}]}
 
-For quantized configurations ``plan`` and ``act_scale`` are mandatory.
-Optional ``atm`` plus ``ohb: true`` enables static ATM/OHB.  The runner writes
+For GDSQ/DuQuant configurations ``plan`` and ``act_scale`` are mandatory.
+Omega-QVLA configurations instead provide an attested ``omega_pack`` built
+from the same checkpoint family and a frozen RoboCasa365 calibration manifest.
+Optional ``atm`` plus ``ohb: true`` enables static ATM/OHB; setting
+``ohb_only: true`` (with ``atm`` and ``ohb`` both present) enables OHB alone.
+The runner writes
 an immutable manifest, verifies the live server state, and starts balanced,
 crash-tolerant client shards per configuration.  It supports all three target
 checkpoint/task-set pairs used by the official 50-task benchmark.
@@ -23,6 +27,7 @@ import fcntl
 import hashlib
 import json
 import os
+import platform
 import signal
 import subprocess
 import sys
@@ -159,6 +164,96 @@ def tree_artifact(path: str | None) -> dict | None:
     }
 
 
+def source_tree_artifact(path: str | Path) -> dict:
+    """Hash code/config files without admitting mutable bytecode caches."""
+    root = Path(path).resolve()
+    if not root.is_dir():
+        raise SystemExit(f"required source directory missing: {root}")
+    allowed = {".py", ".sh", ".json", ".yaml", ".yml", ".toml"}
+    files = sorted(
+        candidate
+        for candidate in root.rglob("*")
+        if candidate.is_file()
+        and candidate.suffix in allowed
+        and "__pycache__" not in candidate.parts
+    )
+    if not files:
+        raise SystemExit(f"source directory contains no auditable files: {root}")
+    digest = hashlib.sha256()
+    total = 0
+    for file_path in files:
+        relative = file_path.relative_to(root).as_posix().encode()
+        file_digest = sha256_file(file_path)
+        size = file_path.stat().st_size
+        digest.update(
+            relative + b"\0" + file_digest.encode() + b"\0" + str(size).encode() + b"\n"
+        )
+        total += size
+    return {
+        "path": str(root),
+        "sha256_tree": digest.hexdigest(),
+        "files": len(files),
+        "bytes": total,
+        "included_suffixes": sorted(allowed),
+        "excludes_bytecode_caches": True,
+    }
+
+
+def environment_record() -> dict[str, Any]:
+    frozen = subprocess.check_output(
+        [sys.executable, "-m", "pip", "freeze"],
+        text=True,
+        stderr=subprocess.DEVNULL,
+    )
+    normalized = "\n".join(
+        sorted(line.strip() for line in frozen.splitlines() if line.strip())
+    ) + "\n"
+    return {
+        "python_executable": str(Path(sys.executable).resolve()),
+        "python_version": platform.python_version(),
+        "platform": platform.platform(),
+        "pip_freeze_sha256": hashlib.sha256(normalized.encode()).hexdigest(),
+        "pip_freeze_entries": len(normalized.splitlines()),
+        "environment_spec": artifact(str(REPO / "environments/groot_env.yml")),
+        "requirements": artifact(str(REPO / "environments/requirements_gr00t.txt")),
+    }
+
+
+def formal_provenance(checkpoint: Path) -> dict[str, Any]:
+    """Transitive launch attestation used only by new week-1 manifests."""
+    source_paths = {
+        "matrix_runner": Path(__file__).resolve(),
+        "week1_orchestrator": REPO / "scripts/run_gr00t_week1.sh",
+        "persistent_queue": REPO / "scripts/run_gdsq_week1_queue.sh",
+        "week1_materializer": REPO / "scripts/tools/gdsq_week1_execution.py",
+        "trial_driver": DRIVER,
+        "inference_service": REPO / "scripts/inference_service.py",
+        "quant_server_launcher": QUANT_SERVER,
+        "strict_parser": REPO / "scripts/tools/parse_robocasa_atomic_matrix.py",
+        "official_aggregator": REPO / "scripts/tools/aggregate_robocasa365_official.py",
+        "paper_memory": REPO / "scripts/tools/robocasa_paper_memory.py",
+    }
+    return {
+        "schema_version": 2,
+        "kind": "robocasa365_formal_launch_provenance",
+        "checkpoint_tree": tree_artifact(str(checkpoint)),
+        "sources": {name: artifact(str(path)) for name, path in source_paths.items()},
+        "source_trees": {
+            "gr00t": source_tree_artifact(REPO / "code/gr00t"),
+            "robocasa_task_adapter": source_tree_artifact(
+                REPO / "code/examples/RoboCasa365"
+            ),
+            "robocasa_runtime": source_tree_artifact(REPO / "code/robocasa/robocasa"),
+            "robosuite_runtime": source_tree_artifact(REPO / "code/third_party/robosuite"),
+        },
+        "environment": environment_record(),
+        "note": (
+            "Individual file/tree hashes are authoritative because the shared worktree "
+            "may contain unrelated user changes."
+        ),
+    }
+
+
 def balanced_shards(tasks: list[str], n_shards: int) -> list[list[str]]:
     n_shards = max(1, min(n_shards, len(tasks)))
     shards: list[list[str]] = [[] for _ in range(n_shards)]
@@ -197,7 +292,28 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--server-timeout", type=int, default=1200)
     p.add_argument("--smoke-task", default="OpenCabinet")
     p.add_argument("--skip-gpu-preflight", action="store_true")
+    p.add_argument(
+        "--allow-shared-gpus",
+        action="store_true",
+        help=(
+            "Allow pre-existing GPU processes without eviction; the conservative "
+            "free-memory gate remains mandatory."
+        ),
+    )
     p.add_argument("--keep-servers", action="store_true")
+    p.add_argument(
+        "--formal-provenance-v2",
+        action="store_true",
+        help=(
+            "Freeze the complete checkpoint tree plus relevant source/environment "
+            "hashes. New week-1 runs require this; legacy manifests remain readable."
+        ),
+    )
+    p.add_argument(
+        "--diagnostic-only",
+        action="store_true",
+        help="Mark this immutable matrix as a non-claim preflight/diagnostic run.",
+    )
     return p.parse_args()
 
 
@@ -377,7 +493,8 @@ def call_endpoint(port: int, endpoint: str, timeout_ms: int = 3000) -> dict:
 def clean_server_env(base: dict[str, str]) -> dict[str, str]:
     env = dict(base)
     prefixes = (
-        "GR00T_DUQUANT_", "GR00T_ATM_", "GR00T_OHB_", "GR00T_DENOISING_STEPS"
+        "GR00T_DUQUANT_", "GR00T_GPTQ", "GR00T_RTN", "GR00T_ATM_",
+        "GR00T_OHB_", "GR00T_DENOISING_STEPS", "OMEGA_QVLA_",
     )
     for key in list(env):
         if key.startswith(prefixes):
@@ -392,6 +509,9 @@ def build_manifest(
     dev_override: str | None, n_shards: int, trial_timeout: int,
     trial_batch_size: int, action_noise: str, gpu_sample_interval: float,
     egl_device_pool: list[int] | None = None,
+    formal_provenance_v2: bool = False,
+    diagnostic_only: bool = False,
+    allow_shared_gpus: bool = False,
 ) -> dict:
     spec = json.loads(spec_path.read_text())
     configs = spec.get("configs") or []
@@ -409,8 +529,8 @@ def build_manifest(
             )
     gpus = [gpu for _, gpu, _ in server_placements]
     ports = [port for _, _, port in server_placements]
-    if any(g not in range(1, 8) for g in gpus):
-        raise SystemExit(f"only GPUs 1-7 are authorized, got {gpus}")
+    if any(g not in range(0, 8) for g in gpus):
+        raise SystemExit(f"only GPUs 0-7 are authorized, got {gpus}")
     if len(gpus) != len(set(gpus)):
         raise SystemExit(f"each model-server instance must have its own GPU: {server_placements}")
     if len(ports) != len(set(ports)):
@@ -453,6 +573,49 @@ def build_manifest(
     pack_cache: dict[str, dict | None] = {}
     for raw in configs:
         plan_artifact = artifact(raw.get("plan"))
+        act_scale_artifact = artifact(raw.get("act_scale"))
+        omega_pack_artifact = artifact(raw.get("omega_pack"))
+        omega_attestation_artifact = None
+        omega_calibration_artifact = artifact(raw.get("omega_calibration_manifest"))
+        if omega_pack_artifact:
+            omega_path = Path(omega_pack_artifact["path"])
+            if "libero" in str(omega_path).lower():
+                raise SystemExit(f"RoboCasa365 refuses a LIBERO Omega-QVLA pack: {omega_path}")
+            omega_attestation_path = omega_path.with_suffix(".attestation.json")
+            omega_attestation_artifact = artifact(str(omega_attestation_path))
+            omega_attestation = json.loads(omega_attestation_path.read_text())
+            omega_checks = {
+                "pack hash": omega_attestation.get("pack_sha256") == omega_pack_artifact["sha256"],
+                "task set": omega_attestation.get("task_set") == task_set,
+                "calibration artifact": omega_calibration_artifact is not None,
+                "calibration hash": omega_calibration_artifact is not None
+                and omega_attestation.get("calibration_manifest_sha256")
+                == omega_calibration_artifact["sha256"],
+            }
+            failed = [name for name, valid in omega_checks.items() if not valid]
+            if failed:
+                raise SystemExit(f"{raw['id']}: invalid Omega-QVLA attestation: {failed}")
+        act_scale_meta = None
+        if act_scale_artifact and formal_provenance_v2:
+            meta_path = Path(act_scale_artifact["path"] + ".meta.json")
+            act_scale_meta = artifact(str(meta_path))
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            a8_checks = {
+                "plan": plan_artifact is not None
+                and meta.get("plan_sha256") == plan_artifact["sha256"],
+                "wrapped": int(meta.get("wrapped_layers", -1))
+                == int(raw.get("expected_wrapped", 0)),
+                "observations": int(meta.get("calib_batches", -1)) == 32,
+                "seed": int(meta.get("calibration_seed", -1)) == 0,
+                "percentile": float(meta.get("act_percentile", -1.0)) == 99.9,
+                "denoising": int(meta.get("denoising_steps", -1)) == 4,
+                "obs_format": meta.get("obs_format") == "robocasa365",
+                "checkpoint": str(Path(meta.get("checkpoint_path", "")).resolve())
+                == str(checkpoint),
+            }
+            failed = [name for name, valid in a8_checks.items() if not valid]
+            if failed:
+                raise SystemExit(f"{raw['id']}: invalid plan-specific A8 metadata: {failed}")
         packdir = raw.get("packdir")
         if plan_artifact and not packdir:
             plan_doc = json.loads(Path(plan_artifact["path"]).read_text())
@@ -469,27 +632,40 @@ def build_manifest(
             "egl_device": int(raw.get("egl_device", raw["gpu"])),
             "plan": plan_artifact,
             "packdir": pack_cache[pack_key],
-            "act_scale": artifact(raw.get("act_scale")),
+            "act_scale": act_scale_artifact,
+            "omega_pack": omega_pack_artifact,
+            "omega_pack_attestation": omega_attestation_artifact,
+            "omega_calibration_manifest": omega_calibration_artifact,
+            "omega_include": raw.get("omega_include"),
             "atm": artifact(raw.get("atm")),
             "ohb": bool(raw.get("ohb", False)),
+            "ohb_only": bool(raw.get("ohb_only", False)),
             "meta": raw.get("meta") or {},
         }
+        if act_scale_meta is not None:
+            config["act_scale_meta"] = act_scale_meta
         replicas = [
             {"gpu": int(replica["gpu"]), "port": int(replica["port"])}
             for replica in raw.get("replicas", [])
         ]
         if replicas:
             config["replicas"] = replicas
-        if config["expected_wrapped"] and not config["plan"]:
+        if config["plan"] and config["omega_pack"]:
+            raise SystemExit(f"{config['id']}: cannot mix DuQuant and Omega-QVLA")
+        if config["expected_wrapped"] and not config["plan"] and not config["omega_pack"]:
             raise SystemExit(f"{config['id']}: quantized config requires plan")
-        if config["expected_wrapped"] and not config["act_scale"]:
+        if config["expected_wrapped"] and config["plan"] and not config["act_scale"]:
             raise SystemExit(f"{config['id']}: quantized config requires act_scale")
-        if config["expected_wrapped"] and not config["packdir"]:
+        if config["expected_wrapped"] and config["plan"] and not config["packdir"]:
             raise SystemExit(f"{config['id']}: quantized config requires packdir")
-        if config["egl_device"] not in range(1, 8):
-            raise SystemExit(f"{config['id']}: EGL device must be in GPU1-7")
+        if config["omega_pack"] and not config["omega_include"]:
+            raise SystemExit(f"{config['id']}: Omega-QVLA requires omega_include")
+        if config["egl_device"] not in range(0, 8):
+            raise SystemExit(f"{config['id']}: EGL device must be in GPU0-7")
         if config["atm"] is None and config["ohb"]:
             raise SystemExit(f"{config['id']}: OHB requires an ATM/OHB table")
+        if config["ohb_only"] and not (config["atm"] is not None and config["ohb"]):
+            raise SystemExit(f"{config['id']}: ohb_only requires both atm and ohb")
         config["config_sha256"] = canonical_sha(config)
         enriched.append(config)
 
@@ -497,8 +673,8 @@ def build_manifest(
     if egl_device_pool:
         if len(egl_device_pool) != len(set(egl_device_pool)):
             raise SystemExit("--egl-device-pool must contain unique GPU indices")
-        if any(gpu not in range(1, 8) for gpu in egl_device_pool):
-            raise SystemExit("--egl-device-pool is restricted to GPUs 1-7")
+        if any(gpu not in range(0, 8) for gpu in egl_device_pool):
+            raise SystemExit("--egl-device-pool is restricted to GPUs 0-7")
         for config_index, config in enumerate(enriched):
             offset = config_index * len(shards)
             config["shard_egl_devices"] = [
@@ -525,12 +701,20 @@ def build_manifest(
             if action_noise == "paired" else None
         ),
         "action_noise_mode": action_noise,
+        "environment_seed_protocol": "python-random/numpy-global/robocasa-constructor-and-reset-v1",
+        "environment_seed_applied_before": ["construction", "reset"],
         "render": True,
         "egl_devices": {c["id"]: c["egl_device"] for c in enriched},
         "scenarios_per_task": len(run_seeds),
         "trial_timeout_seconds": trial_timeout,
         "trial_batch_size": trial_batch_size,
         "gpu_sample_interval_seconds": gpu_sample_interval,
+        "allow_shared_gpus": allow_shared_gpus,
+        "gpu_process_policy": (
+            "no eviction; pre-existing processes allowed only with conservative free-memory headroom"
+            if allow_shared_gpus
+            else "exclusive authorized GPUs; no eviction"
+        ),
     }
     if egl_device_pool:
         protocol["egl_device_pool"] = egl_device_pool
@@ -538,14 +722,14 @@ def build_manifest(
             config["id"]: config["shard_egl_devices"] for config in enriched
         }
         protocol["gpu_efficiency_scope"] = (
-            "model-GPU device totals; replicas and EGL clients use shared GPUs 1-7"
+            "model-GPU device totals; replicas and EGL clients use shared GPUs 0-7"
         )
     if any(config.get("replicas") for config in enriched):
         protocol["server_instances"] = {
             config["id"]: server_instances(config) for config in enriched
         }
-    return {
-        "schema_version": 1,
+    result = {
+        "schema_version": 2 if formal_provenance_v2 else 1,
         "run_id": run_dir.name,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "phase": phase,
@@ -566,6 +750,11 @@ def build_manifest(
         "protocol": protocol,
         "configs": enriched,
     }
+    if formal_provenance_v2:
+        result["formal_provenance"] = formal_provenance(checkpoint)
+    if formal_provenance_v2 or diagnostic_only:
+        result["diagnostic_only"] = diagnostic_only
+    return result
 
 
 def write_or_validate_manifest(path: Path, manifest: dict) -> tuple[dict, str]:
@@ -617,7 +806,35 @@ def start_server(
     env["GR00T_DENOISING_STEPS"] = "4"
     env["GR00T_MODEL_PATH"] = manifest["checkpoint_path"]
     env["GR00T_DATA_CONFIG"] = manifest["data_config"]
-    if config["plan"]:
+    if config["omega_pack"]:
+        omega_calibration = json.loads(
+            Path(config["omega_calibration_manifest"]["path"]).read_text()
+        )
+        env["CUDA_VISIBLE_DEVICES"] = str(instance["gpu"])
+        env["GR00T_GPTQ"] = "1"
+        env["GR00T_GPTQ_PATH"] = config["omega_pack"]["path"]
+        env["GR00T_GPTQ_INCLUDE"] = config["omega_include"]
+        env["GR00T_GPTQ_EXCLUDE"] = (
+            r"(?:^|\.)(vision|radio|norm|ln|layernorm|embed|lm_head|"
+            r"timestep_encoder|state_encoder|action_encoder|action_decoder|"
+            r"pos_embed|vl_self_attention|vlln|future_tokens)(?:\.|$)"
+        )
+        env["GR00T_GPTQ_WBITS_DEFAULT"] = "4"
+        env["GR00T_GPTQ_ABITS"] = "4"
+        env["GR00T_GPTQ_MISSING"] = "error"
+        env["GR00T_GPTQ_KEEP_FP"] = "0"
+        env["OMEGA_QVLA_COMMIT"] = config["meta"].get("upstream_commit", "")
+        env["OMEGA_QVLA_TASK_SET"] = manifest["task_set"]
+        env["OMEGA_QVLA_CALIBRATION_SHA256"] = omega_calibration[
+            "calibration"
+        ]["buffer_sha256"]
+        cmd = [
+            str(GROOT_PY), str(REPO / "scripts/inference_service.py"), "--server",
+            "--model-path", manifest["checkpoint_path"], "--data-config", manifest["data_config"],
+            "--embodiment-tag", "new_embodiment", "--port", str(instance["port"]),
+            "--denoising-steps", "4",
+        ]
+    elif config["plan"]:
         env["GR00T_DUQUANT_PLAN"] = config["plan"]["path"]
         env["GR00T_DUQUANT_PACKDIR"] = config["packdir"]["path"]
         env["GR00T_DUQUANT_ACT_SCALE_PATH"] = config["act_scale"]["path"]
@@ -631,8 +848,12 @@ def start_server(
             "--denoising-steps", "4",
         ]
     if config["atm"]:
-        env["GR00T_ATM_ENABLE"] = "1"
-        env["GR00T_OHB_ENABLE"] = "1" if config["ohb"] else "0"
+        if config.get("ohb_only"):
+            env["GR00T_ATM_ENABLE"] = "0"
+            env["GR00T_OHB_ENABLE"] = "1"
+        else:
+            env["GR00T_ATM_ENABLE"] = "1"
+            env["GR00T_OHB_ENABLE"] = "1" if config["ohb"] else "0"
         env["GR00T_ATM_ALPHA_PATH"] = config["atm"]["path"]
         env["GR00T_ATM_PER_STEP"] = "0"
     else:
@@ -657,7 +878,15 @@ def wait_and_verify(
         if proc.poll() is not None:
             raise RuntimeError(f"server {config['id']} exited with {proc.returncode}")
         try:
-            info = call_endpoint(instance["port"], "get_runtime_info")
+            # Omega packs are multi-gigabyte artifacts and the runtime endpoint
+            # intentionally re-hashes the pack for attestation.  A 3-second
+            # timeout causes an endless retry loop while the server is still
+            # completing a valid hash.  Keep the short timeout for ordinary
+            # configs and grant only the attested Omega path enough time.
+            endpoint_timeout_ms = 120_000 if config["omega_pack"] else 3_000
+            info = call_endpoint(
+                instance["port"], "get_runtime_info", endpoint_timeout_ms
+            )
             if "error" in info:
                 raise RuntimeError(info["error"])
             if int(info.get("wrapped_layers", -1)) != config["expected_wrapped"]:
@@ -672,12 +901,33 @@ def wait_and_verify(
             expected_scale = config["act_scale"]["path"] if config["act_scale"] else None
             if info.get("act_scale_path") != expected_scale:
                 raise RuntimeError(f"A8 scale mismatch: {info}")
-            expect_atm = config["atm"] is not None
+            expected_omega = config["omega_pack"]["path"] if config["omega_pack"] else None
+            if info.get("omega_pack_path") != expected_omega:
+                raise RuntimeError(f"Omega-QVLA pack mismatch: {info}")
+            if config["omega_pack"]:
+                if info.get("omega_pack_sha256") != config["omega_pack"]["sha256"]:
+                    raise RuntimeError(f"Omega-QVLA pack hash mismatch: {info}")
+                contract = info.get("quantization_contract") or {}
+                if contract.get("logical_profile") != "omega_qvla_w4a4":
+                    raise RuntimeError(f"Omega-QVLA runtime contract mismatch: {info}")
+                calibration = info.get("omega_calibration") or {}
+                expected_calibration = json.loads(
+                    Path(config["omega_calibration_manifest"]["path"]).read_text()
+                )["calibration"]["buffer_sha256"]
+                if calibration.get("buffer_sha256") != expected_calibration:
+                    raise RuntimeError(f"Omega-QVLA calibration mismatch: {info}")
+            expect_atm = config["atm"] is not None and not config.get("ohb_only")
+            expect_ohb = config["atm"] is not None and (
+                config["ohb"] or config.get("ohb_only")
+            )
             if bool(info.get("atm_enabled")) != expect_atm:
                 raise RuntimeError(f"ATM enable mismatch: {info}")
-            if expect_atm and (int(info.get("atm_layers", 0)) == 0 or
-                               int(info.get("ohb_layers", 0)) == 0):
-                raise RuntimeError(f"ATM/OHB hooks absent: {info}")
+            if bool(info.get("ohb_enabled")) != expect_ohb:
+                raise RuntimeError(f"OHB enable mismatch: {info}")
+            if expect_atm and int(info.get("atm_layers", 0)) == 0:
+                raise RuntimeError(f"ATM hooks absent: {info}")
+            if expect_ohb and int(info.get("ohb_layers", 0)) == 0:
+                raise RuntimeError(f"OHB hooks absent: {info}")
             return info
         except Exception as exc:  # readiness includes connection timeouts
             last_error = exc
@@ -760,6 +1010,8 @@ def start_clients(
             ]
             if manifest["protocol"]["paired_action_noise"]:
                 cmd.append("--paired-action-noise")
+            if config.get("meta", {}).get("formal_failure_on_crash") is True:
+                cmd.append("--terminal-crash-as-failure")
             log_handle = open(
                 run_dir / f"driver_{config['id']}_s{shard_index}.log", "a", buffering=1
             )
@@ -809,6 +1061,9 @@ def main() -> None:
         args.n_shards, args.trial_timeout, args.trial_batch_size,
         args.action_noise, args.gpu_sample_interval,
         egl_device_pool,
+        args.formal_provenance_v2,
+        args.diagnostic_only,
+        args.allow_shared_gpus,
     )
     manifest, manifest_sha = write_or_validate_manifest(
         run_dir / "manifest.json", manifest
@@ -817,7 +1072,7 @@ def main() -> None:
         instance["gpu"]
         for config in manifest["configs"] for instance in server_instances(config)
     ]
-    if not args.skip_gpu_preflight:
+    if not args.skip_gpu_preflight and not args.allow_shared_gpus:
         busy = gpu_processes()
         conflicts = {g: busy.get(g, []) for g in requested_gpus if busy.get(g)}
         if conflicts:
@@ -835,7 +1090,12 @@ def main() -> None:
             "free_memory_mib": free_memory,
             "required_free_memory_mib": memory_requirements,
             "insufficient": insufficient,
-            "policy": "no eviction; retry until every GPU has conservative headroom",
+            "policy": (
+                "no eviction; shared processes allowed; retry until every GPU has conservative headroom"
+                if args.allow_shared_gpus
+                else "no eviction; exclusive authorized GPUs; retry until every GPU has conservative headroom"
+            ),
+            "allow_shared_gpus": args.allow_shared_gpus,
         }
         (run_dir / "gpu_preflight.json").write_text(json.dumps(preflight, indent=2) + "\n")
         if insufficient:

@@ -40,11 +40,13 @@ You can use bore to forward the port to your client: `159.223.171.199` is bore.p
     bore local 8000 --to 159.223.171.199
 """
 
+import hashlib
+import json
 import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import tyro
@@ -215,6 +217,89 @@ def _maybe_close_a8_calibration(
     print(f"[inference] static A8 calibration complete in {time.time() - t0:.1f}s", flush=True)
 
 
+def _maybe_close_omega_qvla_calibration(policy) -> None:
+    """Freeze Omega-QVLA LLM A4 scales before any evaluation request.
+
+    Released DiT records carry offline per-step tables, while released LLM
+    records initialize their activation scale on the first forward.  Drive
+    that forward with the exact preregistered RoboCasa365 observation instead
+    of allowing the first test episode to mutate model state.
+    """
+    if os.environ.get("GR00T_GPTQ", "0") in ("0", "false", "False"):
+        return
+    task_set = os.environ.get("OMEGA_QVLA_TASK_SET", "")
+    expected_sha = os.environ.get("OMEGA_QVLA_CALIBRATION_SHA256", "")
+    if not task_set or not expected_sha:
+        raise RuntimeError("Omega-QVLA requires frozen task-set calibration attestation")
+
+    from pathlib import Path as _Path
+
+    here = _Path(__file__).resolve().parents[1]
+    tools_path = str(here / "scripts/tools")
+    if tools_path not in sys.path:
+        sys.path.insert(0, tools_path)
+    from omega_qvla_robocasa365_build import frozen_samples
+    from gr00t.quantization.gptq_layers import GptqLinear
+
+    samples, actual_sha = frozen_samples(task_set)
+    if actual_sha != expected_sha:
+        raise RuntimeError(
+            f"Omega-QVLA calibration hash drift: {actual_sha} != {expected_sha}"
+        )
+    started = time.time()
+    policy.get_action(samples[0]["obs"])
+    layers = [module for module in policy.model.modules() if isinstance(module, GptqLinear)]
+    incomplete = [
+        layer.name for layer in layers
+        if not layer._has_act_scale_table and not layer._act_scale_initialized
+    ]
+    if not layers or incomplete:
+        raise RuntimeError(
+            f"Omega-QVLA activation warmup incomplete: layers={len(layers)} "
+            f"missing={incomplete[:3]}"
+        )
+    policy.model._omega_qvla_calibration = {
+        "task_set": task_set,
+        "buffer_sha256": actual_sha,
+        "warmup_observations": 1,
+        "wrapped_layers": len(layers),
+    }
+    print(
+        f"[inference] Omega-QVLA frozen A4 warmup complete: task_set={task_set} "
+        f"layers={len(layers)} sha256={actual_sha[:16]}... "
+        f"elapsed={time.time() - started:.1f}s",
+        flush=True,
+    )
+
+
+def _extract_eval_metadata(observations: dict) -> tuple[dict, dict[str, Any] | None]:
+    """Remove evaluator-only metadata before policy transforms see observations."""
+    if not isinstance(observations, dict):
+        return observations, None
+    clean = dict(observations)
+    metadata = clean.pop("eval_metadata", None)
+    if metadata is not None and not isinstance(metadata, dict):
+        metadata = {"task_name": str(metadata)}
+    return clean, metadata
+
+
+def _attach_runtime_selector(action: dict, decision) -> dict:
+    if decision is None:
+        return action
+    out = dict(action)
+    out["runtime_selector"] = decision.response_payload()
+    return out
+
+
+def _selected_action_handler(policy, observations: dict) -> dict:
+    from gr00t.atm import runtime_selector_context
+
+    clean_observations, metadata = _extract_eval_metadata(observations)
+    with runtime_selector_context(metadata) as decision:
+        action = policy.get_action(clean_observations)
+    return _attach_runtime_selector(action, decision)
+
+
 def _seeded_action_handler(policy, payload: dict) -> dict:
     """Evaluate one observation with deterministic, request-local FM noise.
 
@@ -229,6 +314,7 @@ def _seeded_action_handler(policy, payload: dict) -> dict:
         raise ValueError("get_action_seeded payload is missing action_seed")
 
     import torch
+    from gr00t.atm import runtime_selector_context
 
     seed = int(payload["action_seed"])
     if seed < 0 or seed >= 2**63:
@@ -240,29 +326,174 @@ def _seeded_action_handler(policy, payload: dict) -> dict:
     action_noise = torch.randn(
         (horizon, action_dim), generator=generator, dtype=torch.float32
     )
-    return policy.get_action(payload["observations"], action_noise=action_noise)
+    clean_observations, metadata = _extract_eval_metadata(payload["observations"])
+    with runtime_selector_context(metadata) as decision:
+        action = policy.get_action(clean_observations, action_noise=action_noise)
+    return _attach_runtime_selector(action, decision)
 
 
 def _runtime_info(policy) -> dict:
+    from pathlib import Path
+
+    from gr00t.atm import get_runtime_selector
+    from gr00t.quantization.duquant_layers import DuQuantLinear, static_scales_ready
     from gr00t_v2_common import count_wrapped_layers
 
+    def uniform_value(layers, field: str):
+        values = {getattr(layer.cfg, field) for layer in layers}
+        if len(values) != 1:
+            raise RuntimeError(f"GR00T aligned quantization requires uniform {field}: {sorted(map(str, values))}")
+        return next(iter(values))
+
+    def sha256_path(value: str | None) -> str | None:
+        if not value:
+            return None
+        path = Path(value).expanduser().resolve()
+        if not path.is_file():
+            return None
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
     modules = list(policy.model.modules())
-    return {
-        "wrapped_layers": count_wrapped_layers(policy.model),
+    quant_layers = [module for module in modules if isinstance(module, DuQuantLinear)]
+    try:
+        from gr00t.quantization.gptq_layers import GptqLinear
+
+        gptq_layers = [module for module in modules if isinstance(module, GptqLinear)]
+    except ImportError:
+        gptq_layers = []
+    if quant_layers and gptq_layers:
+        raise RuntimeError("RoboCasa server cannot mix GDSQ DuQuant and Omega-QVLA GPTQ")
+    runtime_selector = get_runtime_selector()
+    selector_metadata = (
+        runtime_selector.metadata()
+        if runtime_selector is not None
+        else {"enabled": False, "kind": "atmohb_runtime_selector"}
+    )
+    atm_runtime = getattr(policy.model, "_gr00t_atm_runtime", {"enabled": False})
+    plan_path = os.environ.get("GR00T_DUQUANT_PLAN")
+    act_scale_path = os.environ.get("GR00T_DUQUANT_ACT_SCALE_PATH")
+    if gptq_layers:
+        weight_bits = {int(layer.weight_bits) for layer in gptq_layers}
+        activation_bits = {
+            int(layer._record_a_bits or layer.cfg.act_bits or 0)
+            for layer in gptq_layers
+        }
+        if weight_bits != {4} or activation_bits != {4}:
+            raise RuntimeError(
+                f"Omega-QVLA requires W4A4, got W{sorted(weight_bits)} "
+                f"A{sorted(activation_bits)}"
+            )
+        unavailable = [layer.name for layer in gptq_layers if not layer._quant_available]
+        if unavailable:
+            raise RuntimeError(f"Omega-QVLA pack has fallback layers: {unavailable[:3]}")
+        quantization_contract = {
+            "logical_profile": "omega_qvla_w4a4",
+            "quantization_method": "omega_qvla_offline_gptq",
+            "upstream_commit": os.environ.get("OMEGA_QVLA_COMMIT"),
+            "rotation": "svd_hadamard",
+            "llm_quantizer": "gptq",
+            "dit_quantizer": "rtn_residual_per_step",
+            "weight_bits": 4,
+            "activation_bits": 4,
+            "llm_activation_scale_policy": "frozen_preregistered_first_observation",
+            "calibration_attestation": getattr(
+                policy.model, "_omega_qvla_calibration", None
+            ),
+            "denoising_steps": int(policy.denoising_steps),
+            "n_action_steps": 16,
+            "replan_steps": 16,
+            "paired_noise": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+            "integer_gemm": False,
+            "claim_scope": "algorithmic W4A4; fake-quantized FP matmul runtime",
+        }
+    elif quant_layers:
+        weight_bits = {int(layer.weight_bits) for layer in quant_layers}
+        if len(weight_bits) != 1:
+            raise RuntimeError(
+                f"GR00T aligned quantization requires uniform weight bits: {sorted(weight_bits)}"
+            )
+        fused_values = {bool(layer.cfg.use_fused) for layer in quant_layers}
+        if len(fused_values) != 1:
+            raise RuntimeError("GR00T aligned quantization cannot mix eager and fused execution")
+        fused = next(iter(fused_values))
+        quantization_contract = {
+            "logical_profile": "gdsq_vla",
+            "quantization_method": "duquant_fake_quant",
+            "layer_selection_policy": "architecture_specific_gdsq_sensitivity_plan",
+            "weight_quantizer": "signed_symmetric_per_output_channel",
+            "activation_quantizer": "signed_symmetric_per_input_channel",
+            "execution_backend": (
+                "triton_w4_dequant_fp16_gemm" if fused else "fake_quant_fp16_gemm"
+            ),
+            "integer_gemm": False,
+            "packed_low_bit_residency": fused,
+            "weight_bits": next(iter(weight_bits)),
+            "activation_bits": int(uniform_value(quant_layers, "act_bits")),
+            "block_in": int(uniform_value(quant_layers, "block_size")),
+            "block_out": int(uniform_value(quant_layers, "block_out_size")),
+            "lambda_smooth": float(uniform_value(quant_layers, "lambda_smooth")),
+            "activation_percentile": float(uniform_value(quant_layers, "act_percentile")),
+            "calibration_policy": "offline_static_per_channel_percentile",
+            "calibration_batches": int(uniform_value(quant_layers, "calib_batches")),
+            "calibration_batch_size": 8,
+            "calibration_samples": int(uniform_value(quant_layers, "calib_batches")) * 8,
+            "permutation": bool(uniform_value(quant_layers, "enable_permute")),
+            "row_rotation": str(uniform_value(quant_layers, "row_rot_mode")),
+            "static_activation_scales": not bool(uniform_value(quant_layers, "act_dynamic")),
+            "activation_scales_ready": bool(static_scales_ready(policy.model)),
+            "denoising_steps": int(policy.denoising_steps),
+            "n_action_steps": 16,
+            "replan_steps": 16,
+            "paired_noise": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+            "selector_loads_atm_and_ohb_superset": (
+                selector_metadata.get("enabled") is True
+                and atm_runtime.get("atm_enabled") is True
+                and atm_runtime.get("ohb_enabled") is True
+            ),
+            "correction_application": (
+                "request_context_runtime"
+                if selector_metadata.get("enabled") is True
+                else "static_configuration"
+            ),
+            "atm_application": atm_runtime.get("atm_application", "runtime_query"),
+            "ohb_application": atm_runtime.get("ohb_application", "runtime_output"),
+        }
+    else:
+        quantization_contract = {
+            "logical_profile": "fp16",
+            "quantization_method": "none",
+        }
+    contract_sha256 = hashlib.sha256(
+        json.dumps(quantization_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    payload = {
+        "config_id": os.environ.get("GR00T_CONFIG_ID", "unspecified"),
+        "wrapped_layers": len(gptq_layers) if gptq_layers else count_wrapped_layers(policy.model),
         "model_path": str(policy.model_path.resolve()),
-        "plan": os.environ.get("GR00T_DUQUANT_PLAN"),
+        "plan": plan_path,
+        "plan_sha256": sha256_path(plan_path),
         "packdir": os.environ.get("GR00T_DUQUANT_PACKDIR"),
-        "act_scale_path": os.environ.get("GR00T_DUQUANT_ACT_SCALE_PATH"),
-        "atm_enabled": os.environ.get("GR00T_ATM_ENABLE", "0") == "1",
-        "ohb_enabled": os.environ.get("GR00T_OHB_ENABLE", "0") == "1",
-        "atm_path": os.environ.get("GR00T_ATM_ALPHA_PATH"),
-        "atm_layers": sum(hasattr(m, "_atm_alpha_all") for m in modules),
-        "ohb_layers": sum(
-            hasattr(m, "_ohb_beta_perhead") or hasattr(m, "_ohb_beta_scalar")
-            for m in modules
+        "omega_pack_path": os.environ.get("GR00T_GPTQ_PATH"),
+        "omega_pack_sha256": sha256_path(os.environ.get("GR00T_GPTQ_PATH")),
+        "omega_calibration": getattr(policy.model, "_omega_qvla_calibration", None),
+        "act_scale_path": act_scale_path,
+        "act_scale_sha256": sha256_path(act_scale_path),
+        "atm_enabled": atm_runtime.get("atm_enabled", False),
+        "ohb_enabled": atm_runtime.get("ohb_enabled", False),
+        "atm_path": atm_runtime.get("artifact_path") or os.environ.get("GR00T_ATM_ALPHA_PATH"),
+        "atm_artifact_sha256": sha256_path(
+            atm_runtime.get("artifact_path") or os.environ.get("GR00T_ATM_ALPHA_PATH")
         ),
+        "atm_layers": int(atm_runtime.get("matched_layers", 0)),
+        "ohb_layers": int(atm_runtime.get("ohb_layers", 0)),
         "denoising_steps": int(policy.denoising_steps),
+        "quantization_contract": quantization_contract,
+        "quantization_contract_sha256": contract_sha256,
+        "runtime_selector": selector_metadata,
     }
+    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    payload["metadata_sha256"] = hashlib.sha256(encoded).hexdigest()
+    return payload
 
 
 def main(args: ArgsConfig):
@@ -299,6 +530,17 @@ def main(args: ArgsConfig):
         _maybe_close_a8_calibration(
             policy, data_config=args.data_config, model_path=args.model_path
         )
+        _maybe_close_omega_qvla_calibration(policy)
+
+        from gr00t.atm import configure_runtime_selector_from_env
+
+        runtime_selector = configure_runtime_selector_from_env()
+        if runtime_selector is not None:
+            print(
+                "[inference] GR00T runtime ATM/OHB selector enabled: "
+                f"{runtime_selector.selector_path} model={runtime_selector.model_id}",
+                flush=True,
+            )
 
         # Start the server
         if args.http_server:
@@ -310,6 +552,10 @@ def main(args: ArgsConfig):
             server.run()
         else:
             server = RobotInferenceServer(policy, port=args.port, api_token=args.api_token)
+            server.register_endpoint(
+                "get_action",
+                lambda observations: _selected_action_handler(policy, observations),
+            )
             server.register_endpoint(
                 "get_action_seeded",
                 lambda payload: _seeded_action_handler(policy, payload),

@@ -213,8 +213,8 @@ finite `[50,12]`。runtime attestation 为：
 |---|---:|---|---|
 | FP16 | 0 | off | 无 quant artifact |
 | full-W4 | 180 | on | full-W4 专属 |
-| GDSQ | 81 | off | frozen GDSQ plan/A8 |
-| GDSQ+ATM/OHB | 81 | on | 与 GDSQ plan/A8 hash 完全相同 |
+| GDSQ | 80 | off | frozen GDSQ plan/A8 |
+| GDSQ+ATM/OHB | 80 | on | 与 GDSQ plan/A8 hash 完全相同 |
 
 OpenCabinet seed 0 的 `target/execute-16/d4` fresh-env smoke：
 

@@ -1,0 +1,57 @@
+{
+  "openpi_runtime": {
+    "atm_ohb": {
+      "enabled": false,
+      "matched_layers": 0
+    },
+    "checkpoint_dir": "/home1/gyy/vla/QuantVLA/checkpoints/robocasa/pi05_pretrain_human300_pytorch",
+    "checkpoint_sha256": "4174133479c6a51d79cac90d6a1739f32f928624eb529bf791cd5be942afdf1c",
+    "config_id": "gdsq_vla",
+    "duquant": {
+      "act_bits": 8,
+      "act_percentile": 99.9,
+      "act_scale_path": "/home1/gyy/vla/QuantVLA/runs/pi05_gdsq_gr00t_aligned/a8/pi05_gdsq_cscka_16to1_d4_p999_b32x8.npz",
+      "act_scale_sha256": "a4822c3ca4cdc4ad5391f1ecea8b085c9b763db3d69a455a9d9d8b431cc188ab",
+      "act_scales_ready": true,
+      "block_in": 64,
+      "block_out": 64,
+      "calib_batches": 32,
+      "candidate_inventory_sha256": "3390bda52ad443a1b89776d9245ab2f9f9545890c631760638f2f4b55419cae4",
+      "candidate_layers": 180,
+      "denoising_steps": 4,
+      "enabled": true,
+      "execution_backend": "fake_quant_fp16_gemm",
+      "integer_gemm": false,
+      "packed_low_bit_residency": false,
+      "plan_path": "/home1/gyy/vla/QuantVLA/runs/pi05_gdsq_gr00t_aligned/plans/pi05_gdsq_cscka_16to1_d4.final_plan.json",
+      "plan_sha256": "772048897bd116ae2806b1dcf0c9dbd0e271bb5918615d3a0c091dfb1d524c45",
+      "weight_bits": 4,
+      "wrapped_layers": 80
+    },
+    "model_dtype": {
+      "linear_layers_by_weight_dtype": {
+        "float16": 458
+      },
+      "matmul_allow_tf32": true,
+      "parameter_elements_by_dtype": {
+        "float16": 3616681744,
+        "float32": 75776
+      },
+      "requested": "float16",
+      "resolved": "float16"
+    },
+    "protocol": {
+      "action_horizon": 50,
+      "flow_steps": 4,
+      "fresh_environment_per_episode": true,
+      "n_action_steps": 16,
+      "official_task_horizon": true,
+      "paired_noise": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+      "render": true,
+      "replan_steps": 16,
+      "split": "target"
+    },
+    "pytorch_compile_mode": "max-autotune",
+    "pytorch_device": "cuda"
+  }
+}

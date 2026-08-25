@@ -1,0 +1,23 @@
+\begin{figure*}[t]
+    \centering
+    \IfFileExists{figures/gdsq_pipeline.png}{%
+        \includegraphics[width=\textwidth]{figures/gdsq_pipeline.png}%
+    }{%
+        \setlength{\fboxsep}{7pt}%
+        \fbox{%
+        \begin{minipage}{0.96\textwidth}
+        \centering
+        \textbf{GPT-Image 2 figure placeholder -- final prompt is included in the source tree}\\[5pt]
+        \begin{tabular}{>{\centering\arraybackslash}p{0.28\textwidth}
+                        >{\centering\arraybackslash}p{0.30\textwidth}
+                        >{\centering\arraybackslash}p{0.30\textwidth}}
+        \textbf{1. Layerwise Probing} & \textbf{2. Dual-Similarity Scoring} & \textbf{3. Selection and Deployment} \\
+        RGB + instruction + state & $16(1-\mathrm{CKA}) + D_{\mathrm{CS}}$ & W6-equivalent storage budget \\
+        FP16 reference vs. one-layer W4A8 & action weight + hard guards & Top-$K$ functional adjudication \\
+        116 candidate Linear layers & geometry + distribution & 100 W4A8 + 16 FP16
+        \end{tabular}
+        \end{minipage}}
+    }
+    \caption{\method from frozen calibration to action generation. Single-layer interventions measure complementary geometric and distributional changes; action weighting, feasibility guards, a W6-equivalent byte budget, and paired functional adjudication freeze the W4/FP16 mask. A separate model-level calibration gate then selects exactly one of baseline, ATM, or OHB without task identity or rollout feedback.}
+    \label{fig:pipeline}
+\end{figure*}

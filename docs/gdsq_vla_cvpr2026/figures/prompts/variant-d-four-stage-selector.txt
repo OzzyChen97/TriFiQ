@@ -1,0 +1,9 @@
+Use case: scientific-educational
+Asset type: full-width CVPR architecture figure
+Primary request: Draw the complete GDSQ-VLA method as a clean four-stage left-to-right pipeline, including the frozen calibration-gated runtime correction selector after mixed-precision mask selection.
+Scene/backdrop: pure white scientific-paper background
+Style/medium: crisp flat vector-like academic diagram, minimal ink, thin navy arrows, colorblind-safe navy, orange, teal, and gray, no decoration
+Composition/framing: 2048x1152 landscape; four aligned numbered panels; large labels readable at two-column paper width; Stage 4 is visually separated into calibration and deployment lanes
+Text (verbatim): "GDSQ-VLA", "Training-Free", "1  Layerwise Intervention", "FP16 Reference", "One-Layer W4A8 Probe", "2  Dual Evidence", "Geometry: 1 - CKA", "Distribution: D_CS", "Paired Action Weight", "RMS / Saturation Guards", "3  Budgeted Mask", "W6-Equivalent Byte Budget", "Paired Top-K Adjudication", "W4A8 / FP16 Layer Map", "4  Frozen Runtime Selector", "Calibration Statistics Only", "baseline", "ATM", "OHB", "Exactly One Path", "No Task or Rollout Feedback", "Action"
+Constraints: quoted text must be exact; show FP16 and one-layer W4A8 as paired evidence; CKA and CS remain distinct branches; action weighting and guards precede mask selection; selector receives only frozen model-level calibration statistics; selector outputs exactly one of baseline, ATM, or OHB; never show ATM+OHB; show GR00T selecting baseline and pi0.5 selecting OHB only as two small example badges; output is an action, not a success score; no runtime speed, live-memory, or empirical superiority claim; no logo; no watermark
+Avoid: task-conditioned gate, rollout success input, online adaptation, feedback loop, pruning or deleted layers, generic semantic similarity, photorealistic robot, gradients, shadows, tiny prose

@@ -29,6 +29,7 @@ import argparse
 import hashlib
 import json
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -70,6 +71,13 @@ ACTION_DIMS = {
 }
 
 ACTION_NOISE_SCHEME = "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1"
+ENVIRONMENT_SEED_PROTOCOL = "python-random/numpy-global/robocasa-constructor-and-reset-v1"
+
+
+def seed_environment_rng(seed: int) -> None:
+    """Seed RNGs used before and during RoboCasa environment construction."""
+    random.seed(int(seed))
+    np.random.seed(int(seed))
 
 
 def action_noise_seed(task: str, env_seed: int, replan_index: int) -> int:
@@ -271,9 +279,13 @@ def main() -> None:
                 handle.write(json.dumps(row) + "\n")
         os.replace(tmp_path, out_path)
 
-    def construct_env(task: str):
+    def construct_env(task: str, seed: int):
         # enable_render=True is REQUIRED: False zero-fills camera obs and the
         # policy runs blind (D-040).
+        # Seed before construction because RoboCasa samples layouts, object
+        # instances, placements, and some camera perturbations while building
+        # the environment. reset(seed=...) alone does not pair those choices.
+        seed_environment_rng(seed)
         # D-041: concurrent EGL context creation on one device deadlocks the
         # NVIDIA EGL driver (10 stuck constructions, 44s CPU / 9min wall, no
         # sockets). Serialize env construction across processes with a repo-
@@ -296,28 +308,35 @@ def main() -> None:
                 env_name=task,
                 enable_render=True,
                 split=args.split,
+                seed=int(seed),
             )
             fcntl.flock(_lf, fcntl.LOCK_UN)
         return built_env, time.perf_counter() - construct_t0
+
+    def trial_seed(task_index: int, trial: int) -> int:
+        return (
+            args.exact_seed if args.exact_seed is not None
+            else exact_seeds[trial] if exact_seeds is not None
+            else args.seed * 1000 + task_index * 10 + trial
+        )
 
     for ti, task in enumerate(tasks):
         task_max_steps = args.max_steps or get_task_horizon(task)
         env = None
         shared_construct_seconds = None
         if not args.fresh_env_per_trial:
-            env, shared_construct_seconds = construct_env(task)
+            env, shared_construct_seconds = construct_env(task, trial_seed(ti, 0))
         for trial in range(args.n_trials):
+            seed = trial_seed(ti, trial)
             if args.fresh_env_per_trial:
-                env, env_construct_seconds = construct_env(task)
+                env, env_construct_seconds = construct_env(task, seed)
             else:
                 env_construct_seconds = shared_construct_seconds if trial == 0 else 0.0
             episode_t0 = time.perf_counter()
-            seed = (
-                args.exact_seed if args.exact_seed is not None
-                else exact_seeds[trial] if exact_seeds is not None
-                else args.seed * 1000 + ti * 10 + trial
-            )
             try:
+                # Re-seed global RNGs because RoboCasa camera randomization uses
+                # np.random in addition to env.rng during reset.
+                seed_environment_rng(seed)
                 obs, _ = env.reset(seed=seed)
                 done = False
                 steps = 0
@@ -400,7 +419,13 @@ def main() -> None:
             selector_variants = {str(row.get("selected_variant")) for row in runtime_selector_records}
             selector_config_ids = {str(row.get("selected_config_id")) for row in runtime_selector_records}
             selector_hashes = {str(row.get("selector_sha256")) for row in runtime_selector_records}
-            if len(selector_variants) > 1 or len(selector_config_ids) > 1 or len(selector_hashes) > 1:
+            selector_rules = {str(row.get("selector_rule_name")) for row in runtime_selector_records}
+            if (
+                len(selector_variants) > 1
+                or len(selector_config_ids) > 1
+                or len(selector_hashes) > 1
+                or len(selector_rules) > 1
+            ):
                 raise RuntimeError(f"runtime selector changed within episode: {runtime_selector_records}")
             selector_row = runtime_selector_records[0] if runtime_selector_records else {}
             results.append({
@@ -419,11 +444,14 @@ def main() -> None:
                 "selected_variant": selector_row.get("selected_variant"),
                 "selected_config_id": selector_row.get("selected_config_id"),
                 "selector_sha256": selector_row.get("selector_sha256"),
+                "selector_rule_name": selector_row.get("selector_rule_name"),
                 "selector_task_name": selector_row.get("task_name"),
+                "selector_model_id": selector_row.get("model_id"),
                 "paired_action_noise": args.paired_action_noise,
                 "action_noise_scheme": (
                     ACTION_NOISE_SCHEME if args.paired_action_noise else None
                 ),
+                "environment_seed_protocol": ENVIRONMENT_SEED_PROTOCOL,
             })
             print(f"[robocasa365-eval] {task} trial {trial}: success={success} "
                   f"steps={steps} ({time.time() - t0:.0f}s)", flush=True)

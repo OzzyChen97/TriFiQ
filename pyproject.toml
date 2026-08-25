@@ -111,6 +111,7 @@ deploy = [
 ]
 
 [tool.setuptools.packages.find]
+where = ["code"]
 exclude = [
     "*.tests",
     "*.tests.*",

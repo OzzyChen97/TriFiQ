@@ -116,6 +116,37 @@ def build_jobs(tasks, n_trials, trial_seeds, base_seed):
     ]
 
 
+def terminal_failure_row(
+    *, config, manifest_sha, config_sha, task, trial, seed, paired_action_noise
+):
+    """Materialize a preregistered no-guards terminal crash as a formal failure."""
+    return {
+        "config": config,
+        "manifest_sha256": manifest_sha,
+        "config_sha256": config_sha,
+        "task": task,
+        "trial": trial,
+        "seed": seed,
+        "success": False,
+        "steps": 0,
+        "crashed": False,
+        "formal_failure": True,
+        "failure_reason": "all_retry_attempts_failed",
+        "paired_action_noise": bool(paired_action_noise),
+        "action_noise_scheme": (
+            "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1"
+            if paired_action_noise
+            else None
+        ),
+        "replans": 0,
+        "inference_seconds": 0.0,
+        "env_step_seconds": 0.0,
+        "driver_wall_seconds": None,
+        "episode_wall_seconds": None,
+        "env_construct_seconds": None,
+    }
+
+
 def run_batch(
     port, task, jobs, max_steps, attempts, paired_action_noise,
     trial_timeout, egl_device, out, expect_runtime_selector=False,
@@ -226,6 +257,13 @@ def main():
     ap.add_argument("--attempts", type=int, default=3)
     ap.add_argument("--paired-action-noise", action="store_true")
     ap.add_argument("--expect-runtime-selector", action="store_true")
+    ap.add_argument(
+        "--terminal-crash-as-failure",
+        action="store_true",
+        help=("After all retry attempts, commit a protocol-valid failure row instead "
+              "of a retryable crash marker. Reserved for preregistered stability "
+              "ablations such as no-guards."),
+    )
     ap.add_argument("--trial-timeout", type=int, default=3600)
     ap.add_argument("--egl-device", type=int, default=3)
     ap.add_argument(
@@ -242,7 +280,19 @@ def main():
         assert {(t, s) for t, _, s in a} == {(t, s) for t, _, s in b}
         assert [s for t, _, s in a if t == "A"] == [0, 1, 2]
         assert args.trial_batch_size >= 1
-        print("[drv] selftest OK (explicit seeds independent of task order/sharding)")
+        failure = terminal_failure_row(
+            config="no_guards",
+            manifest_sha="m",
+            config_sha="c",
+            task="A",
+            trial=0,
+            seed=0,
+            paired_action_noise=True,
+        )
+        assert failure["success"] is False and failure["formal_failure"] is True
+        assert failure["crashed"] is False and failure["steps"] == 0
+        assert failure["action_noise_scheme"].startswith("sha256(")
+        print("[drv] selftest OK (seeds stable; terminal crash is a formal failure)")
         return
     if not args.out:
         raise SystemExit("--out is required unless --selftest is used")
@@ -290,13 +340,24 @@ def main():
                 f.flush()
             trial_by_seed = {seed: trial for _, trial, seed in batch}
             for seed in missing:
-                f.write(json.dumps({
+                failure = {
                     "config": args.config,
                     "manifest_sha256": args.manifest_sha256,
                     "config_sha256": args.config_sha256,
                     "task": task, "trial": trial_by_seed[seed], "seed": seed,
                     "success": None, "steps": None, "crashed": True,
-                }) + "\n")
+                }
+                if args.terminal_crash_as_failure:
+                    failure = terminal_failure_row(
+                        config=args.config,
+                        manifest_sha=args.manifest_sha256,
+                        config_sha=args.config_sha256,
+                        task=task,
+                        trial=trial_by_seed[seed],
+                        seed=seed,
+                        paired_action_noise=args.paired_action_noise,
+                    )
+                f.write(json.dumps(failure) + "\n")
             f.flush()
             for journal in journals:
                 if journal.exists():

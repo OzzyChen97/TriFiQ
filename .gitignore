@@ -131,3 +131,30 @@ atm_viz*/
 ckpts*/
 media*/
 SimplerEnv/
+
+# Reproduction-only external releases and large official quantization packs.
+/external/Omega-QVLA/
+/checkpoints/omega_qvla/
+
+# Local secrets (LLM API key / Overleaf token) - never committed
+config.txt
+.agents/
+.codex/
+
+# Large local artifacts: model weights, datasets, rollout outputs, export caches
+/checkpoints/
+/data/
+/.export/
+/runs/
+.build/
+.pyuserbase/
+
+# Vendored third-party stacks, simulators, weights and envs (public upstreams; see README)
+/code/robocasa/
+/code/LIBERO/
+/code/third_party/
+/code/pi05/checkpoints/
+/code/pi05/packs/
+/code/pi05/rollouts/
+/code/pi05/openpi/third_party/
+/code/examples/Libero/eval/rollouts/

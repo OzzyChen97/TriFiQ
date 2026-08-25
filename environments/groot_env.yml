@@ -45,7 +45,7 @@ dependencies:
 #    python -c "import torch; import transformers; import gr00t; print('✓ OK')"
 #
 # 3. Run inference server:
-#    ./run_inference_server.sh libero_goal
+#    ./scripts/run_inference_server.sh libero_goal
 
 # Note: If you have a different CUDA version, modify the pytorch-cuda version:
 # - CUDA 11.8: pytorch-cuda=11.8

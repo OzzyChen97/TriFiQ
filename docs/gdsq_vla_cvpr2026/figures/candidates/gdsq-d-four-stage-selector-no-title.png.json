@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "gdsq_vla_architecture_candidate_postprocess",
+  "source": "docs/gdsq_vla_cvpr2026/figures/candidates/gdsq-d-four-stage-selector.png",
+  "source_sha256": "8ce8c18946bd8032140d51bc7212883c9d1347467fcae89d972c8757660c25e3",
+  "output": "docs/gdsq_vla_cvpr2026/figures/candidates/gdsq-d-four-stage-selector-no-title.png",
+  "output_sha256": "e247a63c26dec26b67ec1971a3ffba7ddbeecc745580985281c5f7685819bad6",
+  "operations": [
+    "Remove the top title band by cropping 116 pixels from the source top.",
+    "Correct the score label to the paper's additive 16:1 CKA/CS rule.",
+    "Preserve the four content panels, colors, selector paths, and examples."
+  ],
+  "selected_for_paper": true,
+  "paper_asset": "docs/gdsq_vla_cvpr2026/figures/gdsq_pipeline.png",
+  "paper_asset_sha256": "941507078d05c8e6be6c741e9354849ca7459e9b8d217cace5ac09aee90f0727"
+}
