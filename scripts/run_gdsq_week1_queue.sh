@@ -36,7 +36,7 @@ promote_phase() {
 }
 
 usage() {
-    echo "usage: $0 start | start-recovery | run | run-recovery | status" >&2
+    echo "usage: $0 start | start-recovery | start-omega-only | run | run-recovery | run-omega-only | status" >&2
 }
 
 verify_gr00t_w6_complete() {
@@ -130,6 +130,15 @@ run_recovery_queue() {
     make test-gdsq
 
     CURRENT_PHASE="complete"
+    set_phase "$CURRENT_PHASE"
+}
+
+run_omega_only_queue() {
+    trap 'set_phase "failed_at_${CURRENT_PHASE:-unknown}"' ERR
+    CURRENT_PHASE="omega_qvla_robocasa365"
+    set_phase "$CURRENT_PHASE"
+    bash "$OMEGA_ROBOCASA" run-unseen-and-aggregate
+    CURRENT_PHASE="complete_omega_qvla_only"
     set_phase "$CURRENT_PHASE"
 }
 
@@ -264,6 +273,17 @@ start_recovery_queue() {
     echo "week-1 recovery queue started: pid=$! log=$LOG_FILE"
 }
 
+start_omega_only_queue() {
+    mkdir -p "$ROOT"
+    if live_pid_file "$PID_FILE"; then
+        echo "week-1 queue already running: pid=$(<"$PID_FILE")"
+        return
+    fi
+    nohup setsid "$0" run-omega-only >"$LOG_FILE" 2>&1 </dev/null &
+    echo "$!" >"$PID_FILE"
+    echo "Omega-QVLA-only queue started: pid=$! log=$LOG_FILE"
+}
+
 status_queue() {
     local pid="" phase="not_started" state="stopped"
     [[ -f "$PID_FILE" ]] && pid="$(<"$PID_FILE")"
@@ -277,8 +297,10 @@ cd "$REPO_ROOT"
 case "${1:-}" in
     start) start_queue ;;
     start-recovery) start_recovery_queue ;;
+    start-omega-only) start_omega_only_queue ;;
     run) run_queue ;;
     run-recovery) run_recovery_queue ;;
+    run-omega-only) run_omega_only_queue ;;
     status) status_queue ;;
     *) usage; exit 2 ;;
 esac

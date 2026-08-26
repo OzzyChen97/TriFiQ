@@ -98,6 +98,127 @@ def pack_w4_int8(w_t: torch.Tensor, scales: torch.Tensor) -> torch.Tensor:
     return q.to(torch.int8).contiguous()
 
 
+def pack_w4_nibbles(w_t: torch.Tensor, scales: torch.Tensor) -> torch.Tensor:
+    """Pack signed W4 values two-per-byte for inference-only residency.
+
+    The low nibble stores the even input channel and the high nibble stores
+    the odd channel.  Signed values use two's-complement representation, so
+    the exact DuQuant range [-8, 7] is preserved without an FP weight copy.
+    """
+    if w_t.ndim != 2:
+        raise ValueError(f"expected a 2-D weight, got {tuple(w_t.shape)}")
+    if scales.ndim != 1 or scales.numel() != w_t.shape[0]:
+        raise ValueError(
+            f"scale shape {tuple(scales.shape)} does not match {w_t.shape[0]} rows"
+        )
+    q = torch.clamp(torch.round(w_t / scales[:, None]), -8, 7).to(torch.int8)
+    if q.shape[1] & 1:
+        q = torch.nn.functional.pad(q, (0, 1))
+    q_u4 = torch.bitwise_and(q, 0x0F).to(torch.uint8)
+    return torch.bitwise_or(q_u4[:, 0::2], q_u4[:, 1::2] << 4).contiguous()
+
+
+@triton.jit
+def _w4_nibble_dequant_matmul_kernel(
+    A,
+    WQ,  # (N, ceil(K / 2)) uint8, two signed W4 values per byte
+    WS,
+    Y,
+    M,
+    N,
+    K,
+    stride_am,
+    stride_ak,
+    stride_wn,
+    stride_wb,
+    stride_ym,
+    stride_yn,
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
+    BLOCK_K: tl.constexpr,
+    GROUP_M: tl.constexpr,
+):
+    pid = tl.program_id(0)
+    num_pid_m = tl.cdiv(M, BLOCK_M)
+    num_pid_n = tl.cdiv(N, BLOCK_N)
+    num_pid_in_group = GROUP_M * num_pid_n
+    group_id = pid // num_pid_in_group
+    first_pid_m = group_id * GROUP_M
+    group_size_m = min(num_pid_m - first_pid_m, GROUP_M)
+    pid_m = first_pid_m + ((pid % num_pid_in_group) % group_size_m)
+    pid_n = (pid % num_pid_in_group) // group_size_m
+
+    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    offs_k = tl.arange(0, BLOCK_K)
+    a_ptrs = A + offs_m[:, None] * stride_am + offs_k[None, :] * stride_ak
+
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
+    for block_k in range(0, tl.cdiv(K, BLOCK_K)):
+        k = block_k * BLOCK_K + offs_k
+        a = tl.load(a_ptrs, mask=k[None, :] < K, other=0.0)
+        packed = tl.load(
+            WQ + offs_n[:, None] * stride_wn + (k[None, :] // 2) * stride_wb,
+            mask=(offs_n[:, None] < N) & (k[None, :] < K),
+            other=0,
+        )
+        shift = (k & 1) * 4
+        q_u4 = (packed >> shift[None, :]) & 0x0F
+        q = tl.where(q_u4 >= 8, q_u4.to(tl.int32) - 16, q_u4.to(tl.int32))
+        ws = tl.load(WS + offs_n, mask=offs_n < N, other=1.0)
+        w = q.to(tl.float32) * ws[:, None]
+        acc += tl.dot(a, tl.trans(w).to(a.dtype), out_dtype=tl.float32)
+        a_ptrs += BLOCK_K * stride_ak
+
+    y_ptrs = Y + offs_m[:, None] * stride_ym + offs_n[None, :] * stride_yn
+    tl.store(
+        y_ptrs,
+        acc.to(Y.dtype.element_ty),
+        mask=(offs_m[:, None] < M) & (offs_n[None, :] < N),
+    )
+
+
+def fused_linear_w4_nibbles(
+    x: torch.Tensor,
+    w_q: torch.Tensor,
+    scales: torch.Tensor,
+) -> torch.Tensor:
+    """Run ``x @ dequant(W4)^T`` from a true two-values-per-byte W4 tensor."""
+    if w_q.dtype != torch.uint8 or w_q.ndim != 2:
+        raise ValueError("packed W4 weight must be a 2-D uint8 tensor")
+    x2 = x.reshape(-1, x.shape[-1]).contiguous()
+    wq2 = w_q.contiguous()
+    m, k = x2.shape
+    n = wq2.shape[0]
+    if wq2.shape[1] != (k + 1) // 2:
+        raise ValueError(
+            f"packed W4 shape {tuple(wq2.shape)} is incompatible with K={k}"
+        )
+    y = torch.empty((m, n), dtype=x.dtype, device=x.device)
+    block_m, block_n, block_k, group_m = 64, 64, 64, 4
+    grid = (triton.cdiv(m, block_m) * triton.cdiv(n, block_n),)
+    _w4_nibble_dequant_matmul_kernel[grid](
+        x2,
+        wq2,
+        scales,
+        y,
+        m,
+        n,
+        k,
+        x2.stride(0),
+        x2.stride(1),
+        wq2.stride(0),
+        wq2.stride(1),
+        y.stride(0),
+        y.stride(1),
+        BLOCK_M=block_m,
+        BLOCK_N=block_n,
+        BLOCK_K=block_k,
+        GROUP_M=group_m,
+    )
+    return y.reshape(*x.shape[:-1], n)
+
+
 def fused_linear_w4(
     x: torch.Tensor,
     w_q: torch.Tensor,
@@ -144,8 +265,10 @@ def selftest() -> None:
         w_t = torch.randn(n, k, dtype=torch.float32, device=dev) * 0.05
         scales = torch.rand(n, dtype=torch.float32, device=dev) * 0.1 + 0.01
         w_q = pack_w4_int8(w_t, scales)
+        w_q_nibbles = pack_w4_nibbles(w_t, scales)
         y_e = eager_linear_w4(x, w_t, scales)
         y_f = fused_linear_w4(x, w_q, scales)
+        y_n = fused_linear_w4_nibbles(x, w_q_nibbles, scales)
         # fp32 reference: the exact dequant matmul in float32
         max_q = 7
         w_deq32 = torch.clamp(torch.round(w_t / scales[:, None]), -max_q - 1, max_q) * scales[:, None]
@@ -153,12 +276,15 @@ def selftest() -> None:
         denom = y_ref.abs() + 1e-2
         err_e = ((y_e.float() - y_ref).abs() / denom).max().item()
         err_f = ((y_f.float() - y_ref).abs() / denom).max().item()
+        err_n = ((y_n.float() - y_ref).abs() / denom).max().item()
         print(f"[duquant_fused] M={m} N={n} K={k} {dt}: eager-vs-fp32ref={err_e:.3e} "
-              f"fused-vs-fp32ref={err_f:.3e}")
+              f"int8-container={err_f:.3e} nibble-packed={err_n:.3e}")
         # the meaningful gate: the fused path must be at least as accurate as
         # the eager tensor-core path (both vs the fp32 reference)
         assert err_f <= err_e * 1.2 + 1e-3, f"fused less accurate than eager: {err_f} vs {err_e}"
         assert err_f < 0.5, f"fused error grossly large: {err_f}"
+        assert err_n <= err_e * 1.2 + 1e-3, f"nibble fused less accurate: {err_n} vs {err_e}"
+        assert err_n < 0.5, f"nibble fused error grossly large: {err_n}"
     # timing
     x = torch.randn(256, 1536, dtype=torch.float16, device=dev) * 0.1
     w_t = torch.randn(512, 1536, dtype=torch.float32, device=dev) * 0.05

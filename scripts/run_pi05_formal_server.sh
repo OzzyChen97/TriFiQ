@@ -21,7 +21,7 @@ CONTROL_DIR="$(mkdir -p "$CONTROL_DIR" && cd "$CONTROL_DIR" && pwd)"
 
 usage() {
     echo "usage: $0 start CONFIG GPU PORT INSTANCE | stop INSTANCE | status" >&2
-    echo "CONFIG: fp16 | quantvla_w4a8_atmohb | gdsq_vla_atmohb | gdsq_vla_atm_only | gdsq_vla_ohb_only | gdsq_vla_runtime_selector | gdsq_vla" >&2
+    echo "CONFIG: fp16 | quantvla_w4a8_atmohb | gdsq_vla_atmohb | gdsq_vla_atm_only | gdsq_vla_ohb_only | gdsq_vla_runtime_selector | gdsq_vla_softfold_dfunc | gdsq_vla_softfold_dpac | gdsq_vla" >&2
 }
 
 sha256_file() {
@@ -158,7 +158,7 @@ start_server() {
                 require_file "$artifact"
             done
             ;;
-        gdsq_vla_atmohb|gdsq_vla_atm_only|gdsq_vla_ohb_only|gdsq_vla_runtime_selector)
+        gdsq_vla_atmohb|gdsq_vla_atm_only|gdsq_vla_ohb_only|gdsq_vla_runtime_selector|gdsq_vla_softfold_dfunc|gdsq_vla_softfold_dpac)
             for artifact in "$PACK_DIR/manifest.json" "$GDSQ_PLAN" "$GDSQ_A8" "$GDSQ_A8.json" "$GDSQ_ATM"; do
                 require_file "$artifact"
             done
@@ -216,6 +216,13 @@ start_server() {
                 configure_atm "$GDSQ_ATM" "$GDSQ_PLAN" 1 1
                 export OPENPI_ATM_APPLICATION=runtime_query
                 export OPENPI_OHB_APPLICATION=runtime_output
+                ;;
+            gdsq_vla_softfold_dfunc|gdsq_vla_softfold_dpac)
+                export OPENPI_FORMAL_EXPECT_WRAPPED="$gdsq_wrapped"
+                configure_quant "$GDSQ_PLAN" "$GDSQ_A8" "$gdsq_wrapped"
+                configure_atm "$GDSQ_ATM" "$GDSQ_PLAN" 1 1
+                export OPENPI_ATM_APPLICATION=fold_q_weight
+                export OPENPI_OHB_APPLICATION=fold_o_weight_perhead
                 ;;
             gdsq_vla)
                 export OPENPI_FORMAL_EXPECT_WRAPPED="$gdsq_wrapped"

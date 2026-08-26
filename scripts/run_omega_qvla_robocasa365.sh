@@ -11,10 +11,32 @@ MATRIX="$REPO_ROOT/scripts/tools/run_robocasa_atomic_matrix.py"
 PARSER="$REPO_ROOT/scripts/tools/parse_robocasa_atomic_matrix.py"
 AGGREGATOR="$REPO_ROOT/scripts/tools/aggregate_robocasa365_official.py"
 SEEDS="0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49"
-EGL_POOL="1,2,4,5,6,7"
 
 usage() {
-    echo "usage: $0 prepare | build-packs | preflight | run-formal | aggregate | run-all | status" >&2
+    echo "usage: $0 prepare | build-packs | preflight | run-formal | run-unseen-and-aggregate | aggregate | run-all | status" >&2
+}
+
+formal_run_dir() {
+    case "$1" in
+        atomic_seen) printf '%s/results/atomic_seen_sixgpu_shared_v4\n' "$ROOT" ;;
+        composite_seen) printf '%s/results/composite_seen_sixgpu_shared_v4\n' "$ROOT" ;;
+        composite_unseen) printf '%s/results/composite_unseen_sixgpu_shared_v5\n' "$ROOT" ;;
+        *) echo "unknown task set: $1" >&2; return 2 ;;
+    esac
+}
+
+spec_for() {
+    case "$1" in
+        composite_unseen) printf '%s/specs/omega_qvla_composite_unseen_v4.json\n' "$ROOT" ;;
+        *) printf '%s/specs/omega_qvla_%s_v3.json\n' "$ROOT" "$1" ;;
+    esac
+}
+
+egl_pool_for() {
+    case "$1" in
+        composite_unseen) printf '%s\n' "1,2,3,5,6,7" ;;
+        *) printf '%s\n' "1,2,4,5,6,7" ;;
+    esac
 }
 
 checkpoint_for() {
@@ -85,15 +107,16 @@ PY
 
 run_matrix_until_complete() {
     local task_set="$1" phase="$2" tasks="$3" seeds="$4" run_dir="$5" diagnostic="$6"
-    local checkpoint spec
+    local checkpoint spec egl_pool
     checkpoint="$(checkpoint_for "$task_set")"
-    spec="$ROOT/specs/omega_qvla_${task_set}_v3.json"
+    spec="$(spec_for "$task_set")"
+    egl_pool="$(egl_pool_for "$task_set")"
     local args=(
         --spec "$spec" --run-dir "$run_dir" --phase "$phase"
         --task-set "$task_set" --seeds "$seeds" --checkpoint "$checkpoint"
         --n-shards 12 --trial-batch-size 10 --trial-timeout 3600
         --action-noise paired --formal-provenance-v2
-        --gpu-sample-interval 10 --egl-device-pool "$EGL_POOL"
+        --gpu-sample-interval 10 --egl-device-pool "$egl_pool"
         --allow-shared-gpus
     )
     [[ -n "$tasks" ]] && args+=(--tasks "$tasks")
@@ -104,6 +127,46 @@ run_matrix_until_complete() {
     done
     "$GROOT_PY" "$PARSER" --run-dir "$run_dir" --bootstrap 10000 \
         >"$run_dir/strict_parse.log"
+}
+
+formal_valid() {
+    local task_set="$1" run_dir="$2" expected="$3"
+    "$GROOT_PY" - "$task_set" "$run_dir" "$expected" <<'PY'
+import hashlib, json, pathlib, sys
+task_set, run_dir, expected = sys.argv[1], pathlib.Path(sys.argv[2]), int(sys.argv[3])
+manifest_path, summary_path = run_dir / "manifest.json", run_dir / "summary.json"
+if not manifest_path.is_file() or not summary_path.is_file():
+    raise SystemExit(1)
+manifest = json.load(open(manifest_path))
+summary = json.load(open(summary_path))
+row = summary.get("configs", {}).get("omega_qvla_w4a4", {})
+checks = [
+    manifest.get("task_set") == task_set,
+    manifest.get("diagnostic_only") is False,
+    len(manifest.get("seeds", [])) == 50,
+    summary.get("manifest_sha256") == hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+    not summary.get("validation_errors"),
+    row.get("episodes") == expected,
+    row.get("formal_failures") == 0,
+]
+raise SystemExit(0 if all(checks) else 1)
+PY
+}
+
+run_formal_task() {
+    local task_set="$1" expected run_dir
+    case "$task_set" in
+        atomic_seen) expected=900 ;;
+        composite_seen|composite_unseen) expected=800 ;;
+        *) echo "unknown task set: $task_set" >&2; return 2 ;;
+    esac
+    run_dir="$(formal_run_dir "$task_set")"
+    if formal_valid "$task_set" "$run_dir" "$expected"; then
+        echo "[omega-robocasa] reuse strict formal result: $task_set ($expected/$expected)"
+        return
+    fi
+    run_matrix_until_complete "$task_set" formal "" "$SEEDS" "$run_dir" 0
+    formal_valid "$task_set" "$run_dir" "$expected"
 }
 
 preflight() {
@@ -126,10 +189,9 @@ preflight() {
 }
 
 run_formal() {
-    local task_set run_dir
+    local task_set
     for task_set in atomic_seen composite_seen composite_unseen; do
-        run_dir="$ROOT/results/${task_set}_sixgpu_shared_v4"
-        run_matrix_until_complete "$task_set" formal "" "$SEEDS" "$run_dir" 0
+        run_formal_task "$task_set"
     done
 }
 
@@ -138,17 +200,23 @@ aggregate() {
     "$GROOT_PY" "$AGGREGATOR" \
         --run-dir "$ROOT/results/atomic_seen_sixgpu_shared_v4" \
         --run-dir "$ROOT/results/composite_seen_sixgpu_shared_v4" \
-        --run-dir "$ROOT/results/composite_unseen_sixgpu_shared_v4" \
+        --run-dir "$ROOT/results/composite_unseen_sixgpu_shared_v5" \
         --out-dir "$ROOT/aggregate" --bootstrap 10000
+}
+
+run_unseen_and_aggregate() {
+    run_formal_task composite_unseen
+    aggregate
 }
 
 status() {
     "$GROOT_PY" - "$ROOT" <<'PY'
 import json, pathlib, sys
 root=pathlib.Path(sys.argv[1])
+versions={'atomic_seen':'v4','composite_seen':'v4','composite_unseen':'v5'}
 for task_set, expected in [('atomic_seen',900),('composite_seen',800),('composite_unseen',800)]:
     pack=root/'packs'/task_set/'omega_qvla_w4a4.pt'
-    summary=root/'results'/f'{task_set}_sixgpu_shared_v4'/'summary.json'
+    summary=root/'results'/f'{task_set}_sixgpu_shared_{versions[task_set]}'/'summary.json'
     state='missing'
     if pack.is_file(): state=f'attested={pack.with_suffix(".attestation.json").is_file()} bytes={pack.stat().st_size}'
     episodes=0; errors='pending'
@@ -165,6 +233,7 @@ case "${1:-}" in
     build-packs) build_packs ;;
     preflight) preflight ;;
     run-formal) run_formal ;;
+    run-unseen-and-aggregate) run_unseen_and_aggregate ;;
     aggregate) aggregate ;;
     run-all) build_packs; preflight; run_formal; aggregate ;;
     status) status ;;

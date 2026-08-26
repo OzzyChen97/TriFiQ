@@ -265,6 +265,12 @@ def balanced_shards(tasks: list[str], n_shards: int) -> list[list[str]]:
     return shards
 
 
+def split_seed_shards(seeds: list[int], count: int) -> list[list[int]]:
+    """Deterministically split seeds into non-empty interleaved groups."""
+    count = max(1, min(int(count), len(seeds)))
+    return [seeds[index::count] for index in range(count)]
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--spec", required=True)
@@ -276,6 +282,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--tasks", default=None, help="Optional comma-separated task override.")
     p.add_argument("--dev-tasks", default=None, help="Tasks used for parameter selection.")
     p.add_argument("--n-shards", type=int, default=2)
+    p.add_argument(
+        "--seed-shards-per-task", type=int, default=1,
+        help=("Split every balanced task shard into this many disjoint seed groups. "
+              "The default preserves the historical task-only schedule."),
+    )
     p.add_argument(
         "--egl-device-pool", default=None,
         help=("Optional comma-separated physical GPU indices assigned round-robin "
@@ -506,7 +517,8 @@ def clean_server_env(base: dict[str, str]) -> dict[str, str]:
 def build_manifest(
     spec_path: Path, run_dir: Path, phase: str, seeds: list[int], smoke_task: str,
     checkpoint: Path, task_set: str, task_override: str | None,
-    dev_override: str | None, n_shards: int, trial_timeout: int,
+    dev_override: str | None, n_shards: int, seed_shards_per_task: int,
+    trial_timeout: int,
     trial_batch_size: int, action_noise: str, gpu_sample_interval: float,
     egl_device_pool: list[int] | None = None,
     formal_provenance_v2: bool = False,
@@ -535,7 +547,7 @@ def build_manifest(
         raise SystemExit(f"each model-server instance must have its own GPU: {server_placements}")
     if len(ports) != len(set(ports)):
         raise SystemExit(f"model-server ports must be unique: {server_placements}")
-    if trial_timeout < 1 or trial_batch_size < 1:
+    if trial_timeout < 1 or trial_batch_size < 1 or seed_shards_per_task < 1:
         raise SystemExit("trial timeout and batch size must be positive")
 
     registered_tasks = list(TASK_SETS[task_set])
@@ -642,6 +654,13 @@ def build_manifest(
             "ohb_only": bool(raw.get("ohb_only", False)),
             "meta": raw.get("meta") or {},
         }
+        # Preserve optional selector-free deployment modes only when the spec
+        # explicitly requests them.  Omitting the fields keeps legacy manifest
+        # hashes byte-for-byte compatible with existing formal runs.
+        if raw.get("atm_application") is not None:
+            config["atm_application"] = str(raw["atm_application"])
+        if raw.get("ohb_application") is not None:
+            config["ohb_application"] = str(raw["ohb_application"])
         if act_scale_meta is not None:
             config["act_scale_meta"] = act_scale_meta
         replicas = [
@@ -666,10 +685,21 @@ def build_manifest(
             raise SystemExit(f"{config['id']}: OHB requires an ATM/OHB table")
         if config["ohb_only"] and not (config["atm"] is not None and config["ohb"]):
             raise SystemExit(f"{config['id']}: ohb_only requires both atm and ohb")
+        if config.get("atm_application", "runtime_query") not in {
+            "runtime_query", "fold_q_weight",
+        }:
+            raise SystemExit(f"{config['id']}: invalid atm_application")
+        if config.get("ohb_application", "runtime_output") not in {
+            "runtime_output", "fold_o_weight", "fold_o_weight_perhead",
+        }:
+            raise SystemExit(f"{config['id']}: invalid ohb_application")
         config["config_sha256"] = canonical_sha(config)
         enriched.append(config)
 
-    shards = balanced_shards(tasks, n_shards)
+    task_shards = balanced_shards(tasks, n_shards)
+    seed_groups = split_seed_shards(run_seeds, seed_shards_per_task)
+    shards = [task_group for task_group in task_shards for _ in seed_groups]
+    shard_seeds = [seed_group for _ in task_shards for seed_group in seed_groups]
     if egl_device_pool:
         if len(egl_device_pool) != len(set(egl_device_pool)):
             raise SystemExit("--egl-device-pool must contain unique GPU indices")
@@ -706,6 +736,7 @@ def build_manifest(
         "render": True,
         "egl_devices": {c["id"]: c["egl_device"] for c in enriched},
         "scenarios_per_task": len(run_seeds),
+        "seed_shards_per_task": len(seed_groups),
         "trial_timeout_seconds": trial_timeout,
         "trial_batch_size": trial_batch_size,
         "gpu_sample_interval_seconds": gpu_sample_interval,
@@ -744,6 +775,7 @@ def build_manifest(
         "heldout_tasks": [t for t in tasks if t not in dev_tasks],
         "seeds": run_seeds,
         "shards": shards,
+        "shard_seeds": shard_seeds,
         "task_horizons": {t: TASK_HORIZONS[t] for t in tasks},
         "comparisons": spec.get("comparisons") or [],
         "decision": spec.get("decision") or {},
@@ -856,6 +888,12 @@ def start_server(
             env["GR00T_OHB_ENABLE"] = "1" if config["ohb"] else "0"
         env["GR00T_ATM_ALPHA_PATH"] = config["atm"]["path"]
         env["GR00T_ATM_PER_STEP"] = "0"
+        env["GR00T_ATM_APPLICATION"] = config.get(
+            "atm_application", "runtime_query"
+        )
+        env["GR00T_OHB_APPLICATION"] = config.get(
+            "ohb_application", "runtime_output"
+        )
     else:
         env["GR00T_ATM_ENABLE"] = "0"
         env["GR00T_OHB_ENABLE"] = "0"
@@ -928,6 +966,21 @@ def wait_and_verify(
                 raise RuntimeError(f"ATM hooks absent: {info}")
             if expect_ohb and int(info.get("ohb_layers", 0)) == 0:
                 raise RuntimeError(f"OHB hooks absent: {info}")
+            runtime_contract = info.get("quantization_contract") or {}
+            runtime_atm_application = info.get(
+                "atm_application", runtime_contract.get("atm_application")
+            )
+            runtime_ohb_application = info.get(
+                "ohb_application", runtime_contract.get("ohb_application")
+            )
+            if config.get("atm_application") is not None and (
+                runtime_atm_application != config["atm_application"]
+            ):
+                raise RuntimeError(f"ATM application mismatch: {info}")
+            if config.get("ohb_application") is not None and (
+                runtime_ohb_application != config["ohb_application"]
+            ):
+                raise RuntimeError(f"OHB application mismatch: {info}")
             return info
         except Exception as exc:  # readiness includes connection timeouts
             last_error = exc
@@ -950,7 +1003,7 @@ def start_clients(
     files are skipped and only remaining shards are round-robin redistributed.
     """
     children = []
-    seed_arg = ",".join(str(s) for s in manifest["seeds"])
+    shard_seed_groups = manifest.get("shard_seeds")
     for config in manifest["configs"]:
         if config_ids is not None and config["id"] not in config_ids:
             continue
@@ -983,13 +1036,15 @@ def start_clients(
                         and row.get("config_sha256") == config["config_sha256"]
                     ):
                         completed.add((row.get("task"), row.get("seed")))
-            expected = {
-                (task, seed) for task in tasks for seed in manifest["seeds"]
-            }
+            seeds = (
+                shard_seed_groups[shard_index]
+                if shard_seed_groups is not None else manifest["seeds"]
+            )
+            expected = {(task, seed) for task in tasks for seed in seeds}
             if completed >= expected:
                 continue
-            pending_shards.append((shard_index, tasks))
-        for pending_index, (shard_index, tasks) in enumerate(pending_shards):
+            pending_shards.append((shard_index, tasks, seeds))
+        for pending_index, (shard_index, tasks, seeds) in enumerate(pending_shards):
             out = config["result_files"][shard_index]
             shard_egl_devices = config.get("shard_egl_devices")
             egl_device = (
@@ -1000,8 +1055,8 @@ def start_clients(
             cmd = [
                 str(GROOT_PY), str(DRIVER), "--port", str(instance["port"]),
                 "--config", config["id"], "--tasks", ",".join(tasks),
-                "--n-trials", str(len(manifest["seeds"])),
-                "--trial-seeds", seed_arg, "--max-steps", "0",
+                "--n-trials", str(len(seeds)),
+                "--trial-seeds", ",".join(str(seed) for seed in seeds), "--max-steps", "0",
                 "--manifest-sha256", manifest_sha,
                 "--config-sha256", config["config_sha256"], "--out", out,
                 "--trial-timeout", str(manifest["protocol"]["trial_timeout_seconds"]),
@@ -1058,7 +1113,8 @@ def main() -> None:
     manifest = build_manifest(
         spec_path, run_dir, args.phase, seeds, args.smoke_task,
         Path(args.checkpoint), args.task_set, args.tasks, args.dev_tasks,
-        args.n_shards, args.trial_timeout, args.trial_batch_size,
+        args.n_shards, args.seed_shards_per_task,
+        args.trial_timeout, args.trial_batch_size,
         args.action_noise, args.gpu_sample_interval,
         egl_device_pool,
         args.formal_provenance_v2,

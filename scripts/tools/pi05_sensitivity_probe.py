@@ -35,8 +35,11 @@ from pi05_func_metrics import (  # noqa: E402
     EXECUTED_ACTIONS,
     FLOW_STEPS,
     FUNCTIONAL_FORMULA_ID,
+    PAC_FORMULA_ID,
     d_func as final_d_func,
+    d_pac_sequence as final_d_pac_sequence,
 )
+from gr00t_func_metrics import aggregate_d_pac_sequences  # noqa: E402
 
 
 CHECKPOINT_SHA256 = "4174133479c6a51d79cac90d6a1739f32f928624eb529bf791cd5be942afdf1c"
@@ -144,8 +147,7 @@ def load_records(path: Path, n_obs: int) -> list[dict]:
             raise ValueError(f"n_obs={n_obs} exceeds buffer size {len(archive['states'])}")
         records = []
         for index in range(n_obs):
-            records.append(
-                {
+            record = {
                     "observation": {
                         "observation/image": np.asarray(archive["images"][index]),
                         "observation/wrist_image": np.asarray(archive["wrist_images"][index]),
@@ -160,7 +162,11 @@ def load_records(path: Path, n_obs: int) -> list[dict]:
                         np.asarray(archive["action_noises"][n_obs + index], dtype=np.float32),
                     ],
                 }
-            )
+            if "env_steps" in archive.files:
+                record["env_step"] = int(archive["env_steps"][index])
+            if "replan_indices" in archive.files:
+                record["replan"] = int(archive["replan_indices"][index])
+            records.append(record)
     return records
 
 
@@ -328,6 +334,25 @@ def solver_divergence(reference: torch.Tensor, candidate: torch.Tensor, gamma: f
     return float((relative * weights[:, None]).sum(dim=0).mean())
 
 
+def independent_d_pac(
+    reference: torch.Tensor,
+    candidate: torch.Tensor,
+    *,
+    gamma: float,
+) -> dict[str, Any]:
+    """Action-prefix D_PAC for non-sequential calibration observations."""
+    sequences = [
+        final_d_pac_sequence(
+            reference[:, index : index + 1],
+            candidate[:, index : index + 1],
+            [0],
+            gamma=gamma,
+        )
+        for index in range(candidate.shape[1])
+    ]
+    return {**aggregate_d_pac_sequences(sequences), "sequences": sequences}
+
+
 def serializable_guard(summary: dict) -> dict:
     return {key: value for key, value in summary.items() if key != "rms"}
 
@@ -418,10 +443,25 @@ def main() -> None:
     if missing:
         raise RuntimeError(f"pure FP16 inventory missing {len(missing)} layers")
 
+    # Populate every deploy-facing score bank directly from the original
+    # native FP16 model.  The later weight_bits=0 wrapper pass is equivalence
+    # diagnostics only and never becomes a teacher.
+    banks = {name: LayerScoreBank(name, max_tokens=args.max_tokens) for name in candidate_names}
+    final_hidden_bank = LayerScoreBank(
+        "action_out_proj.input.final_hidden", max_tokens=args.max_tokens
+    )
     pure_guards = {name: GuardAccumulator(args.guard_tokens_per_call) for name in candidate_names}
     hooks = HookGroup()
     for name, accumulator in pure_guards.items():
         hooks.add(modules[name], lambda module, inputs, output, acc=accumulator: acc.observe(output))
+        hooks.add(
+            modules[name],
+            lambda module, inputs, output, score_bank=banks[name]: score_bank.accumulate_reference(output),
+        )
+    hooks.add_pre(
+        modules["action_out_proj"],
+        lambda module, inputs: final_hidden_bank.accumulate_reference(inputs[0]),
+    )
     pure_trajectory, pure_actions, pure_timings = run_records(policy, records, args.device)
     pure_trajectory_b = pure_actions_b = None
     if args.n_noises_per_obs == 2:
@@ -431,6 +471,13 @@ def main() -> None:
     hooks.close()
     pure_guard_summaries = {name: accumulator.summary() for name, accumulator in pure_guards.items()}
     del pure_guards
+    for bank in banks.values():
+        bank.finalize()
+        if not bank.ready:
+            raise RuntimeError(f"native FP16 reference bank is not ready: {bank.name}")
+    final_hidden_bank.finalize()
+    if not final_hidden_bank.ready:
+        raise RuntimeError("native FP16 action-expert final-hidden bank is not ready")
 
     runtime = enable_duquant_if_configured(model)
     model.to(args.device)
@@ -438,23 +485,7 @@ def main() -> None:
         raise RuntimeError(f"invalid quant runtime: {runtime}")
     set_all_bits(model, 0)
     modules = dict(model.named_modules())
-    # GR00T final uses local target-Linear output for CS and the action
-    # expert's final hidden representation for CKA.  ``action_out_proj`` sees
-    # exactly that representation as its input on every denoising step.
-    score_names = list(candidate_names)
-    banks = {name: LayerScoreBank(name, max_tokens=args.max_tokens) for name in score_names}
-    final_hidden_bank = LayerScoreBank(
-        "action_out_proj.input.final_hidden", max_tokens=args.max_tokens
-    )
-    hooks = HookGroup()
-    for name, bank in banks.items():
-        hooks.add(modules[name], lambda module, inputs, output, score_bank=bank: score_bank.accumulate_reference(output))
-    hooks.add_pre(
-        modules["action_out_proj"],
-        lambda module, inputs: final_hidden_bank.accumulate_reference(inputs[0]),
-    )
     wrapper_trajectory, wrapper_actions, wrapper_timings = run_records(policy, records, args.device)
-    hooks.close()
     reference_action_max_abs = float(np.max(np.abs(pure_actions - wrapper_actions)))
     reference_trajectory_max_abs = float(
         torch.max(torch.abs(pure_trajectory - wrapper_trajectory)).item()
@@ -473,13 +504,6 @@ def main() -> None:
             np.ascontiguousarray(pure_trajectory.numpy()).tobytes()
         ).hexdigest(),
     }
-    for bank in banks.values():
-        bank.finalize()
-        if not bank.ready:
-            raise RuntimeError(f"reference bank is not ready: {bank.name}")
-    final_hidden_bank.finalize()
-    if not final_hidden_bank.ready:
-        raise RuntimeError("action-expert final-hidden reference bank is not ready")
     check_bank = banks[candidate_names[0]]
     scaling_response = {}
     for multiplier in (2.0, 4.0, 8.0):
@@ -530,7 +554,8 @@ def main() -> None:
             "action_horizon": ACTION_HORIZON,
             "execute_actions": EXECUTED_ACTIONS,
             "intervention_bits": 4,
-            "reference": "all 180 wrappers with exact native-FP16 weight_bits=0 bypass",
+            "reference": "original native FP16 model (unique score-bank and functional teacher)",
+            "wrapped_zero_bit_role": "bitwise-equivalence debug diagnostic only",
             "reference_equivalence": {
                 "action_max_abs": reference_action_max_abs,
                 "trajectory_max_abs": reference_trajectory_max_abs,
@@ -549,6 +574,13 @@ def main() -> None:
                 "action_chunk": "first 16 executed actions only",
                 "extra_pi05_terms": "none",
                 "gamma": args.gamma,
+            },
+            "d_pac_formula": {
+                "formula_id": PAC_FORMULA_ID,
+                "teacher": "original_fp16",
+                "sequence_scope": "independent action-prefix (calibration rows are not asserted consecutive)",
+                "outer_cvar": 0.9,
+                "forecast_overlap_weight": 0.1,
             },
             "functional_metric_path": str(
                 (REPO_ROOT / "scripts/tools/pi05_func_metrics.py").resolve()
@@ -629,6 +661,11 @@ def main() -> None:
         )
         wrapper_repeats = [wrapper_func]
         pure_repeats = [pure_func]
+        pure_pac_sequences = independent_d_pac(
+            pure_trajectory[:, : args.n_rollout_obs],
+            q_trajectory[:, : args.n_rollout_obs],
+            gamma=args.gamma,
+        )["sequences"]
         if args.n_noises_per_obs == 2:
             module.weight_bits = 4
             try:
@@ -654,6 +691,13 @@ def main() -> None:
                     args.gamma,
                 )
             )
+            pure_pac_sequences.extend(
+                independent_d_pac(
+                    pure_trajectory_b[:, : args.n_rollout_obs],
+                    q_trajectory_b,
+                    gamma=args.gamma,
+                )["sequences"]
+            )
         wrapper_values = [float(value["d_func"]) for value in wrapper_repeats]
         pure_values = [float(value["d_func"]) for value in pure_repeats]
         wrapper_solver_values = [
@@ -676,6 +720,7 @@ def main() -> None:
         pure_func["d_func_std"] = float(np.std(pure_values))
         pure_func["d_solver"] = float(np.median(pure_solver_values))
         pure_func["d_solver_std"] = float(np.std(pure_solver_values))
+        pure_pac = aggregate_d_pac_sequences(pure_pac_sequences)
         row = {
             "block": block_name(name),
             "family": "action_expert_mlp" if ".gemma_expert." in name else "paligemma_language",
@@ -691,6 +736,9 @@ def main() -> None:
             "functional_vs_fp16": pure_func,
             "functional_repeats_vs_wrapper_ref": wrapper_repeats,
             "functional_repeats_vs_fp16": pure_repeats,
+            "d_pac_b4": float(pure_pac["d_pac"]),
+            "d_pac_b4_std": float(np.std(pure_pac["per_sequence"])),
+            "d_pac_vs_fp16": pure_pac,
             "guard_reference": serializable_guard(reference_guard),
             "elapsed_s": time.time() - layer_started,
         }
@@ -700,7 +748,8 @@ def main() -> None:
             f"[probe {args.shard_index}] {ordinal}/{len(shard_names)} {name} "
             f"cka_final_hidden={final_hidden_scores['cka']:.6f} "
             f"cs={representation_scores['cs']:.6g} "
-            f"d_func={wrapper_func['d_func']:.6g} elapsed={row['elapsed_s']:.1f}s",
+            f"d_func={pure_func['d_func']:.6g} d_pac={pure_pac['d_pac']:.6g} "
+            f"elapsed={row['elapsed_s']:.1f}s",
             flush=True,
         )
         del q_trajectory, q_actions, q_score_outputs, q_final_hidden_outputs

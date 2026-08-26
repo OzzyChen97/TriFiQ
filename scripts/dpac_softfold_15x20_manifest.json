@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "kind": "dpac_softfold_closed_loop_preregistration",
+  "run_id": "dpac_softfold_15x20_v1",
+  "models": ["gr00t", "pi05"],
+  "tasks": {
+    "atomic_seen": [
+      "CloseBlenderLid",
+      "CloseFridge",
+      "CloseToasterOvenDoor",
+      "NavigateKitchen",
+      "OpenDrawer"
+    ],
+    "composite_seen": [
+      "DeliverStraw",
+      "KettleBoiling",
+      "LoadDishwasher",
+      "PrepareCoffee",
+      "WashLettuce"
+    ],
+    "composite_unseen_long": [
+      "ArrangeBreadBasket",
+      "MakeIceLemonade",
+      "WaffleReheat",
+      "WashFruitColander",
+      "WeighIngredients"
+    ]
+  },
+  "seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+  "closed_loop_configs": [
+    "current_gdsq",
+    "hard_selector_v8",
+    "softfold_dfunc",
+    "softfold_dpac"
+  ],
+  "selection": {
+    "teacher": "original_fp16_only",
+    "grid": {
+      "gate_atm": [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0],
+      "gate_ohb": [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+    },
+    "rule": "one_standard_error_then_minimum_gate_amplitude",
+    "uses_task_labels": false,
+    "uses_rollout_success": false,
+    "folded_deployment": true,
+    "runtime_selector": false
+  },
+  "protocol": {
+    "split": "target",
+    "denoising_steps": 4,
+    "replan_steps": 16,
+    "paired_action_noise": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+    "official_task_horizons": true,
+    "episodes_per_config": 300,
+    "success_visible_only_after_configuration_freeze": true
+  },
+  "resource_policy": {
+    "model_gpu_indices": [1, 2, 3, 4, 5, 6, 7],
+    "egl_gpu_pool": [1, 2, 3, 4, 5, 6, 7],
+    "shared_execution": true,
+    "minimum_free_memory_mib_before_phase": 20000,
+    "minimum_free_memory_mib_before_closed_loop": 26000,
+    "eviction": false,
+    "pi05_calibration_shards": 7,
+    "pi05_calibration_gpu_placements": [1, 2, 4, 4, 5, 6, 7],
+    "gr00t_server_instances": {"softfold_dfunc": 3, "softfold_dpac": 4},
+    "gr00t_task_shards_per_config": 5,
+    "gr00t_task_seed_lanes_per_config": 20,
+    "gr00t_seed_shards_per_task": 4,
+    "pi05_server_instances": {"softfold_dfunc": 3, "softfold_dpac": 4},
+    "pi05_task_seed_lanes_per_config": 20,
+    "pi05_seed_shards_per_task": 4,
+    "resource_amendment": "Execution-only acceleration after the grid, metrics, samples, and selection rule were frozen; no outcome-dependent method change.",
+    "resource_amendment_2": "Before any new closed-loop episode was generated, remove redundant all-GPU phase gates and split each task's 20 frozen seeds into four disjoint five-seed lanes. Models, tasks, seeds, metrics, artifacts, and selection remain unchanged.",
+    "note": "Existing GPU processes are never stopped; phases share GPUs only after the free-memory gate passes."
+  },
+  "control_reuse": {
+    "reason": "matched target split, official horizons, seeds, replan interval, and paired-noise protocol",
+    "gr00t_current_gdsq": "runs/robocasa365_official_full_{task_set}_paired50/cscka_final_s*.jsonl",
+    "gr00t_hard_selector_v8": "runs/gdsq_week1_preregistered_v1/gr00t_selector_reuse/episode_attestation.jsonl",
+    "pi05_current_gdsq": "runs/pi05_gdsq_gr00t_aligned/official_target_paired50/results/gdsq_vla/*.jsonl",
+    "pi05_hard_selector_v8": "runs/gdsq_week1_preregistered_v1/pi05_selector_official50/results/gdsq_vla_runtime_selector/*.jsonl"
+  },
+  "scope_note": "This preregistration isolates D_PAC and selector-free SoftFold under the current GDSQ mask. Exact-byte/per-step-A8 is a separate implementation and ablation phase."
+}

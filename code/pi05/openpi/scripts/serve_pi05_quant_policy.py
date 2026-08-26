@@ -312,6 +312,8 @@ def _validate_formal_runtime(runtime: dict) -> None:
         "gdsq_vla_atm_only": {"wrapped": gdsq_wrapped, "enabled": True, "atm": True, "ohb": False},
         "gdsq_vla_ohb_only": {"wrapped": gdsq_wrapped, "enabled": True, "atm": False, "ohb": True, "runtime_selector": False},
         "gdsq_vla_runtime_selector": {"wrapped": gdsq_wrapped, "enabled": True, "atm": True, "ohb": True, "runtime_selector": True},
+        "gdsq_vla_softfold_dfunc": {"wrapped": gdsq_wrapped, "enabled": True, "atm": True, "ohb": True},
+        "gdsq_vla_softfold_dpac": {"wrapped": gdsq_wrapped, "enabled": True, "atm": True, "ohb": True},
         "gdsq_vla": {"wrapped": gdsq_wrapped, "enabled": False, "atm": False, "ohb": False, "runtime_selector": False},
     }
     if config_id not in expected:

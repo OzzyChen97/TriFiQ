@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""True-mixed-deployment TopK D_func adjudicator for the π0.5 final port."""
+"""True-mixed-deployment TopK D_PAC adjudicator for the π0.5 final port."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import re
 import sys
 import time
 from typing import Any
+from collections import defaultdict
 
 # Must be set before importing torch/openpi.  TopK mutates the module graph for
 # every candidate; compiling those transient graphs is both wasted work and a
@@ -48,7 +49,8 @@ from pi05_batched_policy import (  # noqa: E402
     load_records as load_calibration_records,
     sample_batch,
 )
-from pi05_func_metrics import d_func  # noqa: E402
+from gr00t_func_metrics import aggregate_d_pac_sequences  # noqa: E402
+from pi05_func_metrics import d_func, d_pac_sequence  # noqa: E402
 from pi05_sensitivity_probe import (  # noqa: E402
     load_records as load_sensitivity_records,
     run_records,
@@ -105,6 +107,33 @@ def atomic_json(path: Path, payload: dict[str, Any]) -> None:
     temporary = Path(str(path) + f".tmp.{os.getpid()}")
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temporary.replace(path)
+
+
+def sequence_d_pac(
+    reference: torch.Tensor,
+    candidate: torch.Tensor,
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Task/seed/replan grouping with singleton fallback for non-sequences."""
+    has_replans = all("replan" in record for record in records)
+    groups: dict[tuple[str, int, int | None], list[int]] = defaultdict(list)
+    for index, record in enumerate(records):
+        singleton = None if has_replans else index
+        groups[(str(record.get("task", "unknown")), int(record.get("seed", -1)), singleton)].append(index)
+    sequences = []
+    for (task, seed, _), positions in sorted(groups.items()):
+        selected = torch.tensor(positions, dtype=torch.long)
+        result = d_pac_sequence(
+            reference.index_select(1, selected),
+            candidate.index_select(1, selected),
+            [int(records[index].get("replan", 0)) for index in positions],
+        )
+        sequences.append({"task": task, "seed": seed, **result})
+    return {
+        **aggregate_d_pac_sequences(sequences),
+        "sequences": sequences,
+        "grouping": "task_seed_replan" if has_replans else "independent_action_prefix",
+    }
 
 
 def safe_source(value: Any) -> str:
@@ -449,16 +478,20 @@ def score(args: argparse.Namespace) -> Path:
             policy, score_records, args.device, noise_index=0
         )
         functional = d_func(reference_trajectory, candidate_trajectory, 1.2)
+        pac = sequence_d_pac(reference_trajectory, candidate_trajectory, score_records)
         full32_solver = solver_divergence(reference_trajectory, candidate_trajectory, 1.2)
         row = {
             "index": index,
             "source": descriptor["candidate"]["source"],
             "proxy": float(descriptor["candidate"]["objective"]),
             "d_func": float(functional["d_func"]),
+            "d_pac": float(pac["d_pac"]),
             "d_solver": float(functional["d_solver"]),
             "d_solver_full32": float(full32_solver),
             "d_func_components": {key: value for key, value in functional.items() if key != "per_obs"},
             "per_obs": functional["per_obs"],
+            "d_pac_per_sequence": pac["per_sequence"],
+            "d_pac_components": pac,
             "n_wrapped": runtime["wrapped_layers"],
             "n_native_skip": len(descriptor["candidate"]["skip_layers"]),
             "plan_path": str(descriptor["path"]),
@@ -477,7 +510,7 @@ def score(args: argparse.Namespace) -> Path:
         clear_quant_environment()
         print(
             f"[pi05 topk] {index + 1}/{len(files)} {row['source']} "
-            f"D_func={row['d_func']:.6g} wrapped={row['n_wrapped']} "
+            f"D_PAC={row['d_pac']:.6g} D_func={row['d_func']:.6g} wrapped={row['n_wrapped']} "
             f"elapsed={row['elapsed_s']:.1f}s",
             flush=True,
         )
@@ -533,15 +566,15 @@ def finalize(args: argparse.Namespace, own_journal: Path | None = None) -> tuple
     if provenance["selector_sha256"] != selector_hash:
         raise ValueError("TopK journals do not match selector")
 
-    final = select_final(scored, tol=args.tol, key="d_func")
+    final = select_final(scored, tol=args.tol, key="d_pac")
     if final is None:
         raise RuntimeError("5% tie-set selection returned no candidate")
-    sorted_rows = sorted(scored, key=lambda row: float(row["d_func"]))
+    sorted_rows = sorted(scored, key=lambda row: float(row["d_pac"]))
     bootstrap = None
     if len(sorted_rows) >= 2:
         best, runner = sorted_rows[:2]
-        best_values = np.asarray(best["per_obs"], dtype=np.float64)
-        runner_values = np.asarray(runner["per_obs"], dtype=np.float64)
+        best_values = np.asarray(best["d_pac_per_sequence"], dtype=np.float64)
+        runner_values = np.asarray(runner["d_pac_per_sequence"], dtype=np.float64)
         generator = np.random.default_rng(123)
         indices = generator.integers(0, len(best_values), size=(10000, len(best_values)))
         differences = (best_values[indices] - runner_values[indices]).mean(axis=1)
@@ -565,11 +598,12 @@ def finalize(args: argparse.Namespace, own_journal: Path | None = None) -> tuple
             "parent_selector_path": str(selector_path),
             "parent_selector_sha256": selector_hash,
             "final_source": final["source"],
-            "final_metric": "d_func",
+            "final_metric": "d_pac_v1",
+            "final_d_pac": final["d_pac"],
             "final_d_func": final["d_func"],
             "final_d_solver": final["d_solver"],
             "tie_tolerance": args.tol,
-            "tie_rule": "minimum D_func; candidates within +5% relative; minimum canonical proxy",
+            "tie_rule": "minimum D_PAC; candidates within relative tolerance; minimum canonical proxy",
             "calibration_buffer_sha256": provenance["buffer_sha256"],
             "pack_manifest_sha256": provenance["pack_manifest_sha256"],
             "reference_trajectory_sha256": provenance["reference_trajectory_sha256"],
@@ -587,10 +621,10 @@ def finalize(args: argparse.Namespace, own_journal: Path | None = None) -> tuple
         "meta": {
             "selector_path": str(selector_path),
             "selector_sha256": selector_hash,
-            "metric": "d_func",
+            "metric": "d_pac_v1",
             "n_obs": args.n_obs,
             "tol": args.tol,
-            "selection_rule": "minimum D_func; 5% relative tie set; canonical proxy tie-break",
+            "selection_rule": "minimum original-FP16-relative D_PAC; relative tie set; canonical proxy tie-break",
             "true_mixed_deployment": True,
             "skip_semantics": "native FP16 torch.nn.Linear",
             "shared_calibration_buffer_sha256": provenance["buffer_sha256"],
@@ -609,6 +643,7 @@ def finalize(args: argparse.Namespace, own_journal: Path | None = None) -> tuple
         json.dumps(
             {
                 "final_source": final["source"],
+                "final_d_pac": final["d_pac"],
                 "final_d_func": final["d_func"],
                 "final_proxy": final["proxy"],
                 "final_plan": str(final_plan_path),
@@ -625,12 +660,12 @@ def finalize(args: argparse.Namespace, own_journal: Path | None = None) -> tuple
 def selftest() -> None:
     selected = select_final(
         [
-            {"source": "a", "d_func": 1.0, "proxy": 2.0},
-            {"source": "b", "d_func": 1.04, "proxy": 1.0},
-            {"source": "c", "d_func": 1.06, "proxy": 0.0},
+            {"source": "a", "d_pac": 1.0, "proxy": 2.0},
+            {"source": "b", "d_pac": 1.04, "proxy": 1.0},
+            {"source": "c", "d_pac": 1.06, "proxy": 0.0},
         ],
         tol=0.05,
-        key="d_func",
+        key="d_pac",
     )
     assert selected["source"] == "b"
     assert parse_indices("0,2-3", 4) == [0, 2, 3]

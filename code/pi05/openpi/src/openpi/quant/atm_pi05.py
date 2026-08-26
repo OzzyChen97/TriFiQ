@@ -398,11 +398,8 @@ def enable_pi05_atm_if_configured(model: nn.Module) -> None:
     ohb_application = os.environ.get(OHB_APPLICATION_ENV, "runtime_output")
     if ohb_application not in ("runtime_output", "fold_o_weight", "fold_o_weight_perhead"):
         raise ValueError(f"unsupported OHB application: {ohb_application!r}")
-    if runtime_selector_enabled():
-        if atm_application == "fold_q_weight":
-            _require_uniform_selector_variant("atm")
-        if ohb_application in {"fold_o_weight", "fold_o_weight_perhead"}:
-            _require_uniform_selector_variant("ohb")
+    # Folded SoftFold artifacts are model-level static coefficients.  They are
+    # intentionally independent of the legacy request/task runtime selector.
     expected_ohb_application = os.environ.get(OHB_APPLICATION_ENV)
     artifact_ohb_application = metadata.get("ohb_application")
     fold_equivalent = (

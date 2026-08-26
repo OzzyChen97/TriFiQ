@@ -18,13 +18,12 @@ differences on identical inputs:
    with Gaussian kernel k(x, y) = exp(-||x - y||^2 / (2 sigma^2)),
    sigma fixed from the REFERENCE samples (median heuristic, floored at 1e-3).
 
-Semantics (v1.2): the "reference" is NOT necessarily the pure FP16 model. In the
-sensitivity probe the reference is the quantized pipeline with every target
-layer at weight_bits=0 (weights unquantized; rotations / permutation / A8
-activation quantization still active). This makes single-layer intervention
-confound-free: both sides share the same wrapper and upstream behavior, and
-only the target layer's weight quantization differs. The pure FP16 model is
-used only for the deploy-relevant global D_solver pairing.
+Teacher semantics (v2.0): the reference used for every deploy decision is the
+original, unwrapped FP16 model.  A wrapped pipeline with every target layer at
+``weight_bits=0`` may still be measured as an explicitly labelled debug
+diagnostic, but it must never populate the score bank used by layer/config
+selection or compensation fitting.  Paired observations and action noise are
+identical between the FP16 teacher and every intervention.
 
 Precise statements:
 - D_CS in [0, +inf] (extended reals): diverges when the cross term -> 0, i.e.
@@ -371,8 +370,9 @@ def _log_mean_gaussian_kernel(
 class LayerScoreBank:
     """Per-layer reference score bank: linear CKA + CS divergence.
 
-    "Reference" = the v1.2 reference protocol (wrapped pipeline with every
-    target layer at weight_bits=0), see module docstring.
+    Deploy-facing callers populate this bank only from the original FP16
+    teacher.  Wrapped-zero-bit banks are debug-only and must be labelled as
+    such by any diagnostic caller.
     """
 
     def __init__(self, name: str, max_tokens: int = 1024, eps: float = 1e-12):

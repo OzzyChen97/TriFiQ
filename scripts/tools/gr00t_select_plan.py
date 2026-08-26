@@ -95,6 +95,24 @@ def layer_bytes_fp16(out: int, inn: int, has_bias: bool) -> float:
     return out * inn * 2.0 + (out * 2.0 if has_bias else 0.0)
 
 
+def quantvla_w4_plan(
+    shapes: Dict[str, Dict[str, Any]], group: int, row_rot: str
+) -> Dict[str, Any]:
+    """The exact QuantVLA candidate-scope layout: every candidate is W4."""
+    del row_rot  # encoded by plan_total_bytes, not by individual plan entries
+    return {
+        name: {"bits": 4, "group": int(group), "skip": False}
+        for name in shapes
+    }
+
+
+def quantvla_w4_budget(
+    shapes: Dict[str, Dict[str, Any]], group: int, row_rot: str
+) -> float:
+    """Exact theoretical static bytes for QuantVLA's all-candidate W4 layout."""
+    return plan_total_bytes(quantvla_w4_plan(shapes, group, row_rot), shapes, row_rot)
+
+
 # --------------------------------------------------------------------------- #
 # Checkpoint shapes
 # --------------------------------------------------------------------------- #
@@ -215,10 +233,8 @@ def build_weights_with_log(
 ) -> Tuple[Dict[str, float], Dict[str, Any]]:
     """Layer importance weights + the v1.3 mandatory three-stage log.
 
-    metric ∈ {"d_solver", "d_func"} selects the per-layer functional
-    divergence source (v1.4 adds the tail-aware D_func from
-    gr00t_func_metrics; the probe now emits d_func_b{b} alongside
-    d_solver_b{b}).
+    metric ∈ {"d_solver", "d_func", "d_pac"} selects the per-layer
+    FP16-relative functional divergence source.  D_PAC is the v2 default.
 
     Definition (v1.2, boundary cases closed):
       w_i = n·d_i / Σ_j d_j, with
@@ -233,7 +249,7 @@ def build_weights_with_log(
     that action importance actually entered the search. The log enforces
     mean(final) ≈ 1 and 0.5 ≤ final ≤ 2.
     """
-    assert metric in ("d_solver", "d_func"), metric
+    assert metric in ("d_solver", "d_func", "d_pac"), metric
     lay = sensitivity.get("layers", {})
     raw: Dict[str, float] = {}
     for n in layer_names:
@@ -889,9 +905,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lambda-cs", type=float, default=1.0, help="Weight of the CS-divergence proxy term (primary).")
     p.add_argument("--group", type=int, default=64, help="DuQuant rotation block size (all plan layers; multi-block is P4).")
     p.add_argument("--row-rot", default="restore")
-    p.add_argument("--budget", default="uniform-w6",
-                   help="'uniform-w6' (v1.3 default: uniform-W6 static bytes), "
-                        "'v1-w4' (v1 W4A8 plan bytes) or a float byte budget.")
+    p.add_argument("--budget", default="quantvla-w4",
+                   help="'quantvla-w4' (default: exact all-candidate W4 static bytes), "
+                        "'uniform-w6' (legacy), 'v1-w4' (alias) or a float byte budget.")
     p.add_argument("--binary", action=argparse.BooleanOptionalAction, default=True,
                    help="v1.3 main path: binary W4/FP16 selection (--no-binary restores the mixed-bit space).")
     p.add_argument("--bits-order", default=None,
@@ -902,9 +918,9 @@ def parse_args() -> argparse.Namespace:
                    help="最低 bit 档（默认 4，v1.3 正式安全约束）：CKA/CS 对 W2/W3 的"
                         "输出幅度爆炸失明（几何保持但幅度放大数倍 → 下游 A8 饱和 → "
                         "成功率崩溃）。重开 W2/W3 需过设计文档 §1.3.2 的六项实验。")
-    p.add_argument("--weight-metric", default="d_solver", choices=["d_solver", "d_func"],
+    p.add_argument("--weight-metric", default="d_pac", choices=["d_solver", "d_func", "d_pac"],
                    help="v1.4: per-layer functional divergence source for w_i "
-                        "(d_func = tail-aware metric from gr00t_func_metrics).")
+                        "(default d_pac = FP16-anchored accumulated control divergence).")
     p.add_argument("--no-weights", action="store_true",
                    help="v1.4 ablation: uniform w_i = 1 (CS-only search, no action weighting).")
     p.add_argument("--solver", default="greedy", choices=["greedy", "evolution"])
@@ -1088,6 +1104,7 @@ def main() -> None:
 
     layer_names = list(shapes)
     scores = build_scores(sens, layer_names, args.lambda_cka, args.lambda_cs, args.cka_field)
+    unguarded_scores = scores
     if args.no_weights:
         weights = {n: 1.0 for n in layer_names}
         w_log = {
@@ -1109,7 +1126,7 @@ def main() -> None:
         print(f"  final_w_i:               min {w_log['final']['min']:.4f} / "
               f"max {w_log['final']['max']:.4f} / mean {w_log['final']['mean']:.4f}")
 
-    # ---- v1.3 feasibility guards (hard constraint, §3.1) ----
+    # ---- feasibility guards (diagnostic at exact QuantVLA bytes) ----
     meta_thr = sens.get("meta", {}).get("guard_thresholds", {})
     tau_rms = meta_thr.get("tau_rms")
     tau_sat = meta_thr.get("tau_sat")
@@ -1120,7 +1137,20 @@ def main() -> None:
         print(f"[select] guard thresholds auto-estimated (P99 × {args.guard_margin}): "
               f"τ_rms={tau_rms:.4f} τ_sat={tau_sat:.3e}")
     scores, removed = filter_guarded(scores, sens, layer_names, tau_rms, tau_sat)
-    if removed:
+    exact_quantvla_budget = args.budget in {"quantvla-w4", "exact-quantvla-w4", "v1-w4"}
+    guard_diagnostics = list(removed)
+    if exact_quantvla_budget:
+        # At the QuantVLA byte cap, retaining any FP16 candidate makes a binary
+        # W4/FP16 plan infeasible.  Guards remain diagnostics; D_PAC performs
+        # full-config adjudication of the mandatory all-W4 layout.
+        scores = unguarded_scores
+        removed = []
+    if exact_quantvla_budget and guard_diagnostics:
+        print(
+            f"[select] guard diagnostics flagged {len(guard_diagnostics)} layer(s); "
+            "exact QuantVLA bytes still require full W4 and D_PAC adjudication"
+        )
+    elif removed:
         print(f"[select] guard filter removed {len(removed)} layer(s) from the search space "
               f"(stay FP16): {[r['layer'] for r in removed[:5]]}{' ...' if len(removed) > 5 else ''}")
     else:
@@ -1132,17 +1162,22 @@ def main() -> None:
         w6 = {n: {"bits": 6, "group": args.group, "skip": False} for n in shapes}
         budget = plan_total_bytes(w6, shapes, args.row_rot)
         print(f"[select] budget (uniform-W6 static-byte reference, v1.3): {budget / 1e6:.1f} MB")
-    elif args.budget == "v1-w4":
-        v1 = {n: {"bits": 4, "group": args.group, "skip": False} for n in shapes}
-        budget = plan_total_bytes(v1, shapes, args.row_rot)
-        print(f"[select] budget (v1 W4A8 static-byte reference): {budget / 1e6:.1f} MB")
+    elif exact_quantvla_budget:
+        budget = quantvla_w4_budget(shapes, args.group, args.row_rot)
+        print(f"[select] budget (exact QuantVLA all-W4 static bytes): {budget / 1e6:.1f} MB")
     else:
         budget = float(args.budget)
     budget_fraction = budget / fp_total if fp_total > 0 else None
 
     # ---- candidate generation (v1.3: greedy + milp + perturbed + λ sweep) ----
     candidates: List[Dict[str, Any]] = []
-    if args.solver == "greedy":
+    if exact_quantvla_budget:
+        g_plan = quantvla_w4_plan(shapes, args.group, args.row_rot)
+        g_obj = plan_objective(g_plan, scores, weights)
+        candidates.append(
+            {"plan": g_plan, "objective": g_obj, "source": "quantvla_full_w4"}
+        )
+    elif args.solver == "greedy":
         g_plan, g_obj = greedy_plan(shapes, scores, weights, budget, args.row_rot)
         candidates.append({"plan": g_plan, "objective": g_obj, "source": "greedy"})
     else:
@@ -1152,7 +1187,7 @@ def main() -> None:
         g_plan, g_obj = greedy_plan(shapes, scores, weights, budget, args.row_rot)
         candidates.append({"plan": g_plan, "objective": g_obj, "source": "greedy"})
 
-    if args.binary and not args.no_milp:
+    if not exact_quantvla_budget and args.binary and not args.no_milp:
         m_plan, m_obj = milp_binary_plan(shapes, scores, weights, budget, args.row_rot, group=args.group)
         if m_plan is not None:
             candidates.append({"plan": m_plan, "objective": m_obj, "source": "milp"})
@@ -1161,18 +1196,19 @@ def main() -> None:
             print("[select] milp: unavailable/infeasible — greedy result stands")
 
     guarded_names = {r["layer"] for r in removed}
-    candidates += perturbed_plans(shapes, scores, weights, budget, args.row_rot,
-                                  n=args.n_perturb, sigma=args.perturb_sigma, seed=1)
-    # Q-DiT-style mutations: guaranteed mask diversity even when every
-    # continuous candidate collapses onto one mask
-    candidates += flip_neighbors_plans(shapes, scores, weights, budget, args.row_rot,
-                                       base_plan=g_plan, seed=3)
-    # P0-7: the λ sweep inherits the guard filter (guarded layers stay FP16
-    # in EVERY sweep candidate, not just the canonical scores).
-    candidates += lambda_sweep_plans(shapes, sens, layer_names, weights, budget, args.row_rot,
-                                     pairs=_parse_lambda_pairs(args.lambda_pairs),
-                                     guarded_names=guarded_names,
-                                     cka_field=args.cka_field)
+    if not exact_quantvla_budget:
+        candidates += perturbed_plans(shapes, scores, weights, budget, args.row_rot,
+                                      n=args.n_perturb, sigma=args.perturb_sigma, seed=1)
+        # Q-DiT-style mutations: guaranteed mask diversity even when every
+        # continuous candidate collapses onto one mask
+        candidates += flip_neighbors_plans(shapes, scores, weights, budget, args.row_rot,
+                                           base_plan=g_plan, seed=3)
+        candidates += lambda_sweep_plans(
+            shapes, sens, layer_names, weights, budget, args.row_rot,
+            pairs=_parse_lambda_pairs(args.lambda_pairs),
+            guarded_names=guarded_names,
+            cka_field=args.cka_field,
+        )
 
     # P0-7: all candidates are re-scored with the CANONICAL objective (λ=1,1,
     # guard-filtered scores). Objectives from different λ values are not
@@ -1206,10 +1242,21 @@ def main() -> None:
           f"bytes {total / 1e6:.1f} MB (budget {budget / 1e6:.1f} MB), proxy objective {obj:.4f}")
 
     # ---- w_i stability bootstrap (v1.3, §5.2) ----
-    bs = bootstrap_stability(sens, shapes, scores, budget, args.row_rot, n=args.n_bootstrap, seed=2)
-    print(f"[select] bootstrap ({bs['n_draws']} draws): mask Jaccard mean {bs['jaccard']['mean']:.3f} "
-          f"[p05 {bs['jaccard']['p05']:.3f}, p95 {bs['jaccard']['p95']:.3f}], "
-          f"weight Spearman {bs['spearman_mean']:.3f}")
+    if exact_quantvla_budget:
+        bs = {
+            "n_draws": 0,
+            "deterministic_full_w4": True,
+            "jaccard": {"mean": 1.0, "p05": 1.0, "p95": 1.0},
+            "spearman_mean": 1.0,
+        }
+        print("[select] bootstrap skipped: exact QuantVLA bytes force deterministic full W4")
+    else:
+        bs = bootstrap_stability(
+            sens, shapes, scores, budget, args.row_rot, n=args.n_bootstrap, seed=2
+        )
+        print(f"[select] bootstrap ({bs['n_draws']} draws): mask Jaccard mean {bs['jaccard']['mean']:.3f} "
+              f"[p05 {bs['jaccard']['p05']:.3f}, p95 {bs['jaccard']['p95']:.3f}], "
+              f"weight Spearman {bs['spearman_mean']:.3f}")
 
     out_plan: Dict[str, Any] = {
         "meta": {
@@ -1220,17 +1267,27 @@ def main() -> None:
             "min_bits": args.min_bits,
             "lambda": {"cka": args.lambda_cka, "cs": args.lambda_cs},
             "row_rot": args.row_rot,
-            "objective": "Σ w_i·S_i(b_i) — 层代理目标（一阶归因）；全局 D_solver 需对 TopK 完整配置做 GPU 配对 rollout 裁决（八步管线，设计文档 §3.1）",
+            "objective": "Σ w_i·S_i(b_i) layer proxy; full configurations are adjudicated by original-FP16-relative D_PAC",
             "budget_semantics": "静态权重存储字节（理论紧密打包；不含激活/峰值显存/时延/BitOps）",
             "budget_reference": args.budget,
+            "search_start": "QuantVLA full W4" if exact_quantvla_budget else "native FP16",
+            "full_config_adjudication_metric": "D_PAC against original FP16",
             "budget_fraction_of_fp16": budget_fraction,
             "skip_semantics": "不量化、保留 FP16（成本 2·d_out·d_in+bias 字节，失真 0）；0-bit 剪枝为第三阶段独立选项",
-            "guard_thresholds": {"tau_rms": tau_rms, "tau_sat": tau_sat,
-                                 "semantics": "硬约束（§3.1 3a/3b）：违例层从搜索空间删除、保留 FP16"},
+            "guard_thresholds": {
+                "tau_rms": tau_rms,
+                "tau_sat": tau_sat,
+                "semantics": (
+                    "diagnostic only at exact QuantVLA bytes; full-W4 is adjudicated by FP16-relative D_PAC"
+                    if exact_quantvla_budget
+                    else "hard constraint: violations are retained FP16"
+                ),
+            },
             "guard_filtered_layers": [r["layer"] for r in removed],
+            "guard_diagnostic_layers": [r["layer"] for r in guard_diagnostics],
             "w_i_log": w_log,
-            "w_i_log_note": "raw_d_solver 是原始单层散度（实验报告曾误报该值为 w_i）；"
-                            "final_w_i 才是进入搜索的权重，必须满足 mean≈1 且 ∈[0.5,2]",
+            "w_i_log_note": f"raw_{args.weight_metric} is the unnormalized per-layer divergence; "
+                            "final_w_i is the normalized search weight (mean approximately 1)",
         },
         "budget_bytes": budget,
         "fp16_total_bytes": fp_total,
@@ -1249,9 +1306,9 @@ def main() -> None:
         d_ref = None
         d_ref_std = None
         for k2, v2 in lay.items():
-            if k2.startswith("d_solver_b") and k2.endswith("_std"):
+            if k2.startswith(f"{args.weight_metric}_b") and k2.endswith("_std"):
                 d_ref_std = float(v2)
-            elif k2.startswith("d_solver_b") or k2.startswith("d_action_b"):
+            elif k2.startswith(f"{args.weight_metric}_b") and not k2.endswith("_std"):
                 d_ref = float(v2)
         out_plan["layers"][n] = {
             "bits": entry["bits"],
@@ -1264,7 +1321,8 @@ def main() -> None:
             "cs": lay.get(key, {}).get("cs") if key else None,
             "rms_ratio": lay.get(key, {}).get("rms_ratio") if key else None,
             "sat_rate": lay.get(key, {}).get("sat_rate") if key else None,
-            "d_solver_ref": d_ref,
+            "functional_ref_metric": args.weight_metric,
+            "functional_ref": d_ref,
         }
     for c in topk:
         topk_bytes = plan_total_bytes(c["plan"], shapes, args.row_rot)
@@ -1278,15 +1336,15 @@ def main() -> None:
             "skip_layers": list(plan_mask(c["plan"])),
             "d_solver": None,  # GPU 配对 rollout 后回填（TopK 裁决）
             "d_solver_std": None,
+            "d_pac": None,
         })
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(out_plan, f, indent=2)
     print(f"[select] saved plan -> {args.out}")
-    print("[select] NEXT: GPU 侧对 TopK 完整配置跑配对 rollout 得到全局 D_solver，")
-    print("[select]       按 select_final() 规则裁决（字典序：min D_solver，")
-    print("[select]       相对差 ≤5% 时以 proxy 目标打破平局），再按 LIBERO 协议验收")
+    print("[select] NEXT: run paired original-FP16 TopK rollouts and compute D_PAC;")
+    print("[select]       select minimum D_PAC (proxy tie-break within tolerance), then freeze evaluation")
 
     if args.emit_env:
         print("\n# --- run_quantvla.sh usage ---")

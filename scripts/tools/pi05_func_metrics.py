@@ -26,6 +26,7 @@ from typing import Any
 import torch
 
 from gr00t_func_metrics import d_func as gr00t_final_d_func
+from gr00t_func_metrics import d_pac_sequence as gr00t_d_pac_sequence
 
 
 ACTION_DIM = 12
@@ -35,6 +36,7 @@ FLOW_STEPS = 4
 GR00T_LAYOUT = {"trans": (0, 3), "rot": (3, 6), "grip": (6, 7)}
 GR00T_WEIGHTS = {"final": 1.0, "kin": 1.0, "grip": 1.0, "tail": 2.0}
 FUNCTIONAL_FORMULA_ID = "gr00t_final_v1_4_execute16_deployed12_grip6to7"
+PAC_FORMULA_ID = "d_pac_v1_pi05_execute16_deployed12_forecast50"
 
 
 def adapt_trajectory(trajectory: torch.Tensor) -> torch.Tensor:
@@ -94,6 +96,47 @@ def d_func(
     return result
 
 
+def d_pac_sequence(
+    reference: torch.Tensor,
+    candidate: torch.Tensor,
+    replan_indices,
+    *,
+    overlap_weight: float = 0.1,
+    gamma: float = 1.2,
+) -> dict[str, Any]:
+    """π0.5 D_PAC adapter: execute-16 primary loss plus low-weight 16:50 overlap."""
+    for name, trajectory in (("reference", reference), ("candidate", candidate)):
+        if trajectory.ndim not in (3, 4):
+            raise ValueError(f"{name} must be (R,H,D) or (T+1,R,H,D)")
+        if trajectory.shape[-2] != ACTION_HORIZON:
+            raise ValueError(
+                f"formal pi0.5 D_PAC requires horizon {ACTION_HORIZON}, "
+                f"got {trajectory.shape[-2]}"
+            )
+        if trajectory.shape[-1] < ACTION_DIM:
+            raise ValueError(f"{name} has fewer than {ACTION_DIM} deployed dimensions")
+    result = gr00t_d_pac_sequence(
+        reference,
+        candidate,
+        replan_indices,
+        executed_actions=EXECUTED_ACTIONS,
+        action_dim=ACTION_DIM,
+        layout=GR00T_LAYOUT,
+        weights={"overlap": float(overlap_weight)},
+        gamma=gamma,
+    )
+    result["adapter"] = {
+        "formula_id": PAC_FORMULA_ID,
+        "source_horizon": ACTION_HORIZON,
+        "executed_actions": EXECUTED_ACTIONS,
+        "forecast_overlap": [EXECUTED_ACTIONS, ACTION_HORIZON],
+        "forecast_overlap_weight": float(overlap_weight),
+        "deployed_action_dim": ACTION_DIM,
+        "layout": dict(GR00T_LAYOUT),
+    }
+    return result
+
+
 def selftest() -> None:
     generator = torch.Generator().manual_seed(0)
     reference = torch.randn(5, 8, 50, 32, generator=generator)
@@ -129,7 +172,16 @@ def selftest() -> None:
     assert base_result["d_kin"] == 0.0
     assert base_result["d_grip"] == 0.0
 
-    print("[pi05_func_metrics] selftest OK (exact GR00T authority + layout adapter)")
+    pac_same = d_pac_sequence(reference[:, :4], reference[:, :4], range(4))
+    assert pac_same["d_pac_sequence"] == 0.0
+
+    forecast_only = reference[:, :4].clone()
+    forecast_only[..., EXECUTED_ACTIONS:ACTION_HORIZON, :ACTION_DIM] += 0.1
+    pac_forecast = d_pac_sequence(reference[:, :4], forecast_only, range(4))
+    assert pac_forecast["d_overlap"] > 0.0
+    assert pac_forecast["d_func_mean"] == 0.0
+
+    print("[pi05_func_metrics] selftest OK (D_func adapter + D_PAC execute16/forecast50)")
 
 
 if __name__ == "__main__":

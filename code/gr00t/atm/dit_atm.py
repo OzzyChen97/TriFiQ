@@ -553,6 +553,42 @@ def _fold_atm_into_q_projection(module: Attention, alpha: torch.Tensor) -> None:
     setattr(module, "_gr00t_atm_q_weight_folded", True)
 
 
+def _fold_ohb_into_o_projection(module: Attention, beta: float) -> None:
+    """Fold scalar post-attention OHB into to_out[0] rows and bias."""
+    if getattr(module, "_gr00t_ohb_o_weight_folded", False):
+        raise RuntimeError("GR00T OHB o projection was already folded")
+    projection = module.to_out[0] if isinstance(module.to_out, (list, torch.nn.ModuleList)) else module.to_out
+    weight = getattr(projection, "weight", None)
+    if weight is None:
+        raise TypeError("fold_o_weight requires an unwrapped DiT to_out[0] weight")
+    with torch.no_grad():
+        weight.mul_(float(beta))
+        bias = getattr(projection, "bias", None)
+        if bias is not None:
+            bias.mul_(float(beta))
+    setattr(module, "_gr00t_ohb_o_weight_folded", True)
+
+
+def _fold_ohb_perhead_into_o_projection(module: Attention, beta: torch.Tensor) -> None:
+    """Fold pre-concatenation per-head OHB into to_out[0] input columns."""
+    if getattr(module, "_gr00t_ohb_o_perhead_weight_folded", False):
+        raise RuntimeError("GR00T per-head OHB o projection was already folded")
+    projection = module.to_out[0] if isinstance(module.to_out, (list, torch.nn.ModuleList)) else module.to_out
+    weight = getattr(projection, "weight", None)
+    if weight is None:
+        raise TypeError("fold_o_weight_perhead requires an unwrapped DiT to_out[0] weight")
+    heads = int(module.heads)
+    if weight.shape[1] % heads != 0:
+        raise ValueError(f"to_out input width {weight.shape[1]} is not divisible by {heads} heads")
+    head_dim = int(weight.shape[1]) // heads
+    if beta.numel() != heads:
+        raise ValueError(f"OHB beta has {beta.numel()} heads, expected {heads}")
+    scale = beta.to(device=weight.device, dtype=weight.dtype).repeat_interleave(head_dim)
+    with torch.no_grad():
+        weight.mul_(scale[None, :])
+    setattr(module, "_gr00t_ohb_o_perhead_weight_folded", True)
+
+
 @dataclass
 class _AlphaSummary:
     matched_layers: int = 0
@@ -577,7 +613,11 @@ def enable_dit_atm_if_configured(model: torch.nn.Module) -> None:
         return
 
     with open(alpha_path, "r", encoding="utf-8") as f:
-        alpha_data = json.load(f)
+        payload = json.load(f)
+    alpha_data = payload.get("layers", payload) if isinstance(payload, dict) else payload
+    metadata = payload.get("meta", {}) if isinstance(payload, dict) else {}
+    if not isinstance(alpha_data, dict):
+        raise ValueError("GR00T ATM/OHB artifact layers must be an object")
 
     scope = os.environ.get(ATM_SCOPE_ENV, "dit")
     ohb_scope = os.environ.get(OHB_SCOPE_ENV, None)
@@ -591,12 +631,15 @@ def enable_dit_atm_if_configured(model: torch.nn.Module) -> None:
     ohb_application = os.environ.get(OHB_APPLICATION_ENV, "runtime_output")
     if atm_application not in {"runtime_query", "fold_q_weight"}:
         raise ValueError(f"unsupported GR00T ATM application: {atm_application!r}")
-    if ohb_application != "runtime_output":
+    if ohb_application not in {"runtime_output", "fold_o_weight", "fold_o_weight_perhead"}:
         raise ValueError(f"unsupported GR00T OHB application: {ohb_application!r}")
     if atm_application == "fold_q_weight":
         if per_step := os.environ.get(ATM_PER_STEP_ENV, "0") not in ("0", "false", "False", ""):
             raise ValueError("fold_q_weight requires static ATM; per-step ATM cannot be folded")
-        _require_uniform_selector_variant("atm")
+    if ohb_application != "runtime_output" and os.environ.get(ATM_PER_STEP_ENV, "0") not in (
+        "0", "false", "False", "",
+    ):
+        raise ValueError("folded OHB requires a static factor; per-step OHB cannot be folded")
 
     ensure_dit_attention_patch(model, scope=scope)
 
@@ -652,14 +695,24 @@ def enable_dit_atm_if_configured(model: torch.nn.Module) -> None:
             # Check for per-head beta first
             beta_perhead_values = alpha_entry.get("beta_perhead") if alpha_entry else None
             if beta_perhead_values is not None:
-                # Per-head OHB
                 beta_tensor = torch.tensor(beta_perhead_values, dtype=torch.float32)
-                setattr(module, "_ohb_beta_perhead", beta_tensor)
+                if ohb_application == "fold_o_weight_perhead":
+                    _fold_ohb_perhead_into_o_projection(module, beta_tensor)
+                elif ohb_application == "fold_o_weight":
+                    raise ValueError(
+                        "per-head OHB artifact requires fold_o_weight_perhead, not fold_o_weight"
+                    )
+                else:
+                    setattr(module, "_ohb_beta_perhead", beta_tensor)
                 ohb_layers += 1
             else:
-                # Per-layer OHB (fallback)
                 beta = float(beta_value) if beta_value is not None else ohb_fallback
-                setattr(module, "_ohb_beta_scalar", beta)
+                if ohb_application == "fold_o_weight":
+                    _fold_ohb_into_o_projection(module, beta)
+                elif ohb_application == "fold_o_weight_perhead":
+                    raise ValueError("fold_o_weight_perhead requires beta_perhead in every matched layer")
+                else:
+                    setattr(module, "_ohb_beta_scalar", beta)
                 ohb_layers += 1
 
     if summary.matched_layers == 0 and atm_enabled:
@@ -685,6 +738,10 @@ def enable_dit_atm_if_configured(model: torch.nn.Module) -> None:
             "ohb_enabled": ohb_enabled,
             "atm_application": atm_application,
             "ohb_application": ohb_application,
+            "selector_free": bool((payload.get("selection") or {}).get("uses_task_labels") is False)
+            if isinstance(payload, dict)
+            else False,
+            "metric": metadata.get("metric") or (payload.get("metric") if isinstance(payload, dict) else None),
             "artifact_path": os.path.abspath(alpha_path),
             "matched_layers": summary.matched_layers,
             "total_heads": summary.total_heads,
