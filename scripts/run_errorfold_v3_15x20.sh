@@ -32,6 +32,7 @@ GR_MIN_FREE_MIB="${ERRORFOLD_V3_GR_MIN_FREE_MIB:-9000}"
 PI_MIN_FREE_MIB="${ERRORFOLD_V3_PI_MIN_FREE_MIB:-24000}"
 GPU_POLL_SECONDS="${ERRORFOLD_V3_GPU_POLL_SECONDS:-20}"
 SEED_SHARDS_PER_TASK="${ERRORFOLD_V3_SEED_SHARDS_PER_TASK:-2}"
+PI_SEED_SHARDS_PER_TASK="${ERRORFOLD_V3_PI_SEED_SHARDS_PER_TASK:-2}"
 CALIBRATION_GPUS_TEXT="${ERRORFOLD_V3_CALIBRATION_GPUS:-1,4,6,7}"
 IFS=',' read -r -a CALIBRATION_GPUS <<<"$CALIBRATION_GPUS_TEXT"
 ALL_GPUS=(0 1 2 3 4 5 6 7)
@@ -392,16 +393,21 @@ stop_pi_servers() {
 }
 
 run_pi_lane() {
-    local config="$1" port="$2" egl="$3" metadata_sha="$4" lane="$5"
+    local config="$1" port="$2" egl="$3" metadata_sha="$4" lane="$5" seed_shard="$6"
     local task_set task output directory="$ROOT/closed_loop/pi05/results/$config"
+    local seeds_per_shard=$(((20 + PI_SEED_SHARDS_PER_TASK - 1) / PI_SEED_SHARDS_PER_TASK))
+    local seed_start=$((seed_shard * seeds_per_shard))
+    local seed_end=$((seed_start + seeds_per_shard - 1))
+    (( seed_end > 19 )) && seed_end=19
+    (( seed_start <= seed_end )) || return
     mkdir -p "$directory"
     for task_set in "${TASK_SETS[@]}"; do
         IFS=',' read -r -a task_array <<<"${TASKS[$task_set]}"
         task="${task_array[$lane]}"
-        output="$directory/${task_set}_lane${lane}.jsonl"
+        output="$directory/${task_set}_lane${lane}_seedshard${seed_shard}.jsonl"
         PYTHONPATH="$PI_CLIENT${PYTHONPATH:+:$PYTHONPATH}" "$ROBOCASA_PY" "$PI_EVAL" \
             --host 127.0.0.1 --port "$port" --config-id "$config" \
-            --task-set "$task_set" --tasks "$task" --trial-seeds 0-19 \
+            --task-set "$task_set" --tasks "$task" --trial-seeds "$seed_start-$seed_end" \
             --split target --replan-steps 16 --action-noise-mode paired \
             --egl-device "$egl" --expected-server-metadata-sha256 "$metadata_sha" \
             --resume-dir "$directory" --out "$output"
@@ -448,20 +454,22 @@ pi05_closed_loop() {
     wait_many "${pids[@]}"
     write_pi_runtime_index
 
-    local lane server_index port metadata_sha egl failed=0
+    local lane seed_shard server_index port metadata_sha egl failed=0
     pids=()
     for index in 0 1 2 3; do
         config="${CONFIGS[$index]}"
         for lane in 0 1 2 3 4; do
-            replica=$((lane % 2))
-            server_index=$((index * 2 + replica))
-            port="${ports[$server_index]}"
-            instance="${config}_r${replica}"
-            metadata_sha="$(pi_runtime_hash "$PI_CONTROL/$instance.runtime.json")"
-            egl="${ALL_GPUS[$(((index * 5 + lane) % 8))]}"
-            run_pi_lane "$config" "$port" "$egl" "$metadata_sha" "$lane" \
-                >"$ROOT/closed_loop/pi05/${config}_lane${lane}.log" 2>&1 &
-            pids+=("$!")
+            for ((seed_shard=0; seed_shard<PI_SEED_SHARDS_PER_TASK; seed_shard++)); do
+                replica=$((seed_shard % 2))
+                server_index=$((index * 2 + replica))
+                port="${ports[$server_index]}"
+                instance="${config}_r${replica}"
+                metadata_sha="$(pi_runtime_hash "$PI_CONTROL/$instance.runtime.json")"
+                egl="${ALL_GPUS[$(((index * 5 * PI_SEED_SHARDS_PER_TASK + lane * PI_SEED_SHARDS_PER_TASK + seed_shard) % 8))]}"
+                run_pi_lane "$config" "$port" "$egl" "$metadata_sha" "$lane" "$seed_shard" \
+                    >"$ROOT/closed_loop/pi05/${config}_lane${lane}_seedshard${seed_shard}.log" 2>&1 &
+                pids+=("$!")
+            done
         done
     done
     QUEUE_CHILDREN=("${pids[@]}")
