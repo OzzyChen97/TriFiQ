@@ -28,7 +28,8 @@ PI_PLAN="$REPO/runs/pi05_gdsq_gr00t_aligned/plans/pi05_quantvla_uniform_w4a8_d4.
 
 # Shared GPUs are allowed.  The only launch gate is enough currently-free
 # memory for one model process; no exclusive-idle or predecessor gate exists.
-MIN_FREE_MIB="${ERRORFOLD_V3_MIN_FREE_MIB:-18000}"
+GR_MIN_FREE_MIB="${ERRORFOLD_V3_GR_MIN_FREE_MIB:-9000}"
+PI_MIN_FREE_MIB="${ERRORFOLD_V3_PI_MIN_FREE_MIB:-24000}"
 GPU_POLL_SECONDS="${ERRORFOLD_V3_GPU_POLL_SECONDS:-20}"
 SEED_SHARDS_PER_TASK="${ERRORFOLD_V3_SEED_SHARDS_PER_TASK:-2}"
 CALIBRATION_GPUS_TEXT="${ERRORFOLD_V3_CALIBRATION_GPUS:-1,4,6,7}"
@@ -71,7 +72,7 @@ gpu_free_mib() {
 }
 
 wait_gpu_headroom() {
-    local gpu="$1" threshold="${2:-$MIN_FREE_MIB}" free=""
+    local gpu="$1" threshold="$2" free=""
     while true; do
         free="$(gpu_free_mib "$gpu")"
         if [[ "$free" =~ ^[0-9]+$ ]] && (( free >= threshold )); then
@@ -132,7 +133,9 @@ run_calibration_job() {
         return
     fi
     mkdir -p "$directory"
-    wait_gpu_headroom "$gpu"
+    local threshold="$PI_MIN_FREE_MIB"
+    [[ "$model" == "gr00t" ]] && threshold="$GR_MIN_FREE_MIB"
+    wait_gpu_headroom "$gpu" "$threshold"
     CUDA_VISIBLE_DEVICES="$gpu" PYTHONUNBUFFERED=1 "$python" \
         "$REPO/scripts/tools/calibrate_errorfold_v3.py" \
         --model "$model" --checkpoint "$checkpoint" --plan "$plan" \
@@ -163,7 +166,9 @@ run_grid_job() {
     local python="$OPENPI_PY"
     [[ "$model" == "gr00t" ]] && directory="$directory/$label" && python="$GROOT_PY"
     mkdir -p "$directory/grid_shard${shard}"
-    wait_gpu_headroom "$gpu"
+    local threshold="$PI_MIN_FREE_MIB"
+    [[ "$model" == "gr00t" ]] && threshold="$GR_MIN_FREE_MIB"
+    wait_gpu_headroom "$gpu" "$threshold"
     if [[ "$model" == "gr00t" ]]; then
         CUDA_VISIBLE_DEVICES="$gpu" PYTHONUNBUFFERED=1 GR00T_DUQUANT_FUSED=1 \
             "$python" "$REPO/scripts/tools/gr00t_score_softfold_grid.py" \
@@ -256,7 +261,9 @@ run_noise_b_job() {
         echo "[errorfold-v3] reuse noise-B model=$model label=$label"
         return
     fi
-    wait_gpu_headroom "$gpu"
+    local threshold="$PI_MIN_FREE_MIB"
+    [[ "$model" == "gr00t" ]] && threshold="$GR_MIN_FREE_MIB"
+    wait_gpu_headroom "$gpu" "$threshold"
     CUDA_VISIBLE_DEVICES="$gpu" PYTHONUNBUFFERED=1 "$python" \
         "$REPO/scripts/tools/audit_errorfold_v3_noise_b.py" \
         --model "$model" --checkpoint "$checkpoint" --plan "$plan" \
@@ -420,7 +427,7 @@ pi05_closed_loop() {
         for replica in 0 1; do
             instance="${config}_r${replica}"
             PI_INSTANCES+=("$instance")
-            wait_gpu_headroom "${ALL_GPUS[$index]}"
+            wait_gpu_headroom "${ALL_GPUS[$index]}" "$PI_MIN_FREE_MIB"
             start_pi_server "$config" "${ALL_GPUS[$index]}" "${ports[$index]}" "$instance" &
             pids+=("$!")
             index=$((index + 1))
