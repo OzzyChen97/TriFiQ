@@ -549,6 +549,28 @@ def main() -> None:
         "gradient_updates": False,
         "fp16_weight_updates": False,
         "success_labels_used": False,
+        "source_sha256": {
+            "calibrator": sha256_file(Path(__file__)),
+            "capture": sha256_file(REPO / "scripts/tools/quantvla_v3_capture.py"),
+            "model_adapter": sha256_file(
+                REPO / "scripts/tools/quantvla_model_adapters.py"
+            ),
+            "a8_builder": sha256_file(
+                REPO / "scripts/tools/build_v3_a8_artifact.py"
+            ),
+            "hessian_builder": sha256_file(
+                REPO / "scripts/tools/build_hessian_w4_artifact.py"
+            ),
+            "errorfold_builder": sha256_file(
+                REPO / "scripts/tools/build_errorfold_artifact.py"
+            ),
+            "hessian_method": sha256_file(
+                REPO / "scripts/tools/quantvla_hessian_w4.py"
+            ),
+            "errorfold_method": sha256_file(
+                REPO / "scripts/tools/quantvla_errorfold.py"
+            ),
+        },
         "runtimes": runtimes,
         "artifacts": {
             key: {"path": str(path), "sha256": sha256_file(path)}

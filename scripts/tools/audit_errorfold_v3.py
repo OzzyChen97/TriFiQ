@@ -80,6 +80,18 @@ def _audit_calibration_lineage(path: Path) -> None:
     _require(manifest.get("success_labels_used") is False, "success label leaked into calibration")
     _require(manifest.get("gradient_updates") is False, "gradient update declared")
     _require(manifest.get("fp16_weight_updates") is False, "FP16 weight update declared")
+    source_paths = {
+        "calibrator": REPO / "scripts/tools/calibrate_errorfold_v3.py",
+        "capture": REPO / "scripts/tools/quantvla_v3_capture.py",
+        "model_adapter": REPO / "scripts/tools/quantvla_model_adapters.py",
+        "a8_builder": REPO / "scripts/tools/build_v3_a8_artifact.py",
+        "hessian_builder": REPO / "scripts/tools/build_hessian_w4_artifact.py",
+        "errorfold_builder": REPO / "scripts/tools/build_errorfold_artifact.py",
+        "hessian_method": REPO / "scripts/tools/quantvla_hessian_w4.py",
+        "errorfold_method": REPO / "scripts/tools/quantvla_errorfold.py",
+    }
+    expected_sources = {name: sha256_file(value) for name, value in source_paths.items()}
+    _require(manifest.get("source_sha256") == expected_sources, "calibration source lineage drift")
     for name, row in (manifest.get("artifacts") or {}).items():
         artifact = Path(row["path"])
         _require(artifact.is_file(), f"calibration artifact missing: {name}/{artifact}")

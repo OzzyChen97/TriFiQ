@@ -117,7 +117,9 @@ calibration_complete() {
         [[ -s "$directory/quant_attention.npz" ]] &&
         [[ -s "$directory/paired_errorfold_capture.npz" ]] &&
         [[ -s "$directory/raw_errorfold.json" ]] &&
-        [[ -s "$directory/identity_pack/manifest.json" ]]
+        [[ -s "$directory/identity_pack/manifest.json" ]] &&
+        [[ "$(jq -r '.source_sha256.calibrator // empty' "$directory/calibration_manifest.json")" == \
+            "$(sha256sum "$REPO/scripts/tools/calibrate_errorfold_v3.py" | cut -d' ' -f1)" ]]
 }
 
 run_calibration_job() {

@@ -30,7 +30,11 @@ def _stratified_rows(value: Any, rows: int) -> torch.Tensor:
     flat = tensor.reshape(-1, tensor.shape[-1])
     if flat.shape[0] <= rows:
         return flat.cpu()
-    indices = torch.linspace(0, flat.shape[0] - 1, rows).round().to(torch.long)
+    indices = (
+        torch.linspace(0, flat.shape[0] - 1, rows, device=flat.device)
+        .round()
+        .to(torch.long)
+    )
     return flat.index_select(0, indices).cpu()
 
 

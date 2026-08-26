@@ -26,6 +26,31 @@ GR00T_PHYSICAL_ACTION_KEYS = (
 )
 
 
+def _resize_uint8_image(image: np.ndarray, size: int) -> np.ndarray:
+    """Deterministic adapter-local resize without changing shared buffer bytes."""
+    value = np.asarray(image)
+    if value.shape == (size, size, 3):
+        return value
+    if value.ndim != 3 or value.shape[-1] != 3 or value.dtype != np.uint8:
+        raise ValueError(f"expected uint8 HWC image, got {value.shape}/{value.dtype}")
+    tensor = torch.from_numpy(np.ascontiguousarray(value)).permute(2, 0, 1)[None]
+    resized = torch.nn.functional.interpolate(
+        tensor.to(torch.float32),
+        size=(size, size),
+        mode="bilinear",
+        align_corners=False,
+        antialias=True,
+    )
+    return (
+        resized.round()
+        .clamp_(0, 255)
+        .to(torch.uint8)[0]
+        .permute(1, 2, 0)
+        .contiguous()
+        .numpy()
+    )
+
+
 def _load_archive_rows(path: str | Path, n_obs: int) -> list[dict[str, Any]]:
     resolved = Path(path).expanduser().resolve()
     with np.load(resolved, allow_pickle=False) as archive:
@@ -85,9 +110,9 @@ def _gr00t_observation(row: dict[str, Any]) -> dict[str, Any]:
     # base-rot, gripper. GR00T's data adapter expects gripper before base.
     state = row["state"]
     return {
-        "video.robot0_agentview_left": row["image"][None, ...],
-        "video.robot0_agentview_right": row["right_image"][None, ...],
-        "video.robot0_eye_in_hand": row["wrist_image"][None, ...],
+        "video.robot0_agentview_left": _resize_uint8_image(row["image"], 256)[None, ...],
+        "video.robot0_agentview_right": _resize_uint8_image(row["right_image"], 256)[None, ...],
+        "video.robot0_eye_in_hand": _resize_uint8_image(row["wrist_image"], 256)[None, ...],
         "state.end_effector_position_relative": state[0:3][None, ...],
         "state.end_effector_rotation_relative": state[3:7][None, ...],
         "state.gripper_qpos": state[14:16][None, ...],

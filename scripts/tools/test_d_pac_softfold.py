@@ -41,7 +41,11 @@ from quantvla_metric_protocol import (  # noqa: E402
     summarize_noise_a_b,
     summarize_pair,
 )
-from quantvla_model_adapters import canonical_physical_chunk  # noqa: E402
+from quantvla_model_adapters import (  # noqa: E402
+    _resize_uint8_image,
+    canonical_physical_chunk,
+)
+from quantvla_v3_capture import _stratified_rows  # noqa: E402
 
 
 def _records(count: int = 8) -> list[dict]:
@@ -86,6 +90,24 @@ def test_dfunc_one_se_samples_are_task_seed_sequences_not_replans() -> None:
     assert summary["per_sequence"][0] == pytest.approx(
         sum(summary["per_obs"][:4]) / 4.0
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA capture regression")
+def test_v3_capture_stratified_indices_follow_tensor_device() -> None:
+    value = torch.arange(64, device="cuda", dtype=torch.float32).reshape(8, 8)
+    rows = _stratified_rows(value, 3)
+    assert rows.device.type == "cpu"
+    assert rows.shape == (3, 8)
+
+
+def test_gr00t_adapter_resizes_shared_224_images_deterministically() -> None:
+    image = torch.arange(224 * 224 * 3, dtype=torch.int64).remainder(256)
+    image = image.to(torch.uint8).reshape(224, 224, 3).numpy()
+    first = _resize_uint8_image(image, 256)
+    second = _resize_uint8_image(image, 256)
+    assert first.shape == (256, 256, 3)
+    assert first.dtype == image.dtype
+    assert (first == second).all()
 
 
 def test_global_scale_is_finite_for_static_and_tiny_mad_dimensions() -> None:
