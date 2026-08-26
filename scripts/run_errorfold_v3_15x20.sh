@@ -35,6 +35,12 @@ SEED_SHARDS_PER_TASK="${ERRORFOLD_V3_SEED_SHARDS_PER_TASK:-2}"
 CALIBRATION_GPUS_TEXT="${ERRORFOLD_V3_CALIBRATION_GPUS:-1,4,6,7}"
 IFS=',' read -r -a CALIBRATION_GPUS <<<"$CALIBRATION_GPUS_TEXT"
 ALL_GPUS=(0 1 2 3 4 5 6 7)
+GRID_GPUS_TEXT="${ERRORFOLD_V3_GRID_GPUS:-0,1,2,3,4,5,6,7}"
+IFS=',' read -r -a GRID_GPUS <<<"$GRID_GPUS_TEXT"
+if (( ${#GRID_GPUS[@]} < 8 )); then
+    echo "ERRORFOLD_V3_GRID_GPUS must provide at least 8 lane assignments" >&2
+    exit 2
+fi
 CONFIGS=(fp16 quantvla_w4a8_paper errorfold_dfunc errorfold_dpac_v2)
 TASK_SETS=(atomic_seen composite_seen composite_unseen)
 QUEUE_CHILDREN=()
@@ -206,13 +212,13 @@ score_all_grids() {
     local pids=() gpu_index=0 model label shard
     for label in "${TASK_SETS[@]}"; do
         for shard in 0 1; do
-            run_grid_job gr00t "$label" "$shard" "${ALL_GPUS[$gpu_index]}" &
+            run_grid_job gr00t "$label" "$shard" "${GRID_GPUS[$gpu_index]}" &
             pids+=("$!")
             gpu_index=$((gpu_index + 1))
         done
     done
     for shard in 0 1; do
-        run_grid_job pi05 shared "$shard" "${ALL_GPUS[$gpu_index]}" &
+        run_grid_job pi05 shared "$shard" "${GRID_GPUS[$gpu_index]}" &
         pids+=("$!")
         gpu_index=$((gpu_index + 1))
     done
