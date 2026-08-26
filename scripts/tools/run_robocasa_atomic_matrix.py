@@ -39,6 +39,7 @@ from typing import Any
 
 from quantvla_cross_model_protocol import (
     PROTOCOL,
+    PROTOCOL_SHA256,
     closed_loop_runtime_protocol,
     require_protocol_attestation,
     validate_quant_plan,
@@ -593,6 +594,24 @@ def build_manifest(
     for raw in configs:
         plan_artifact = artifact(raw.get("plan"))
         act_scale_artifact = artifact(raw.get("act_scale"))
+        hessian_w4_artifact = artifact(raw.get("hessian_w4"))
+        errorfold_artifact = artifact(raw.get("errorfold"))
+        if errorfold_artifact:
+            errorfold_document = json.loads(
+                Path(errorfold_artifact["path"]).read_text(encoding="utf-8")
+            )
+            require_protocol_attestation(
+                errorfold_document, source=errorfold_artifact["path"]
+            )
+            if (
+                errorfold_document.get("schema_version") != 3
+                or errorfold_document.get("kind") != "errorfold_compensation"
+                or (errorfold_document.get("selection") or {}).get(
+                    "uses_rollout_success"
+                )
+                is not False
+            ):
+                raise SystemExit(f"{raw['id']}: invalid frozen ErrorFold artifact")
         omega_pack_artifact = artifact(raw.get("omega_pack"))
         omega_attestation_artifact = None
         omega_calibration_artifact = artifact(raw.get("omega_calibration_manifest"))
@@ -633,21 +652,39 @@ def build_manifest(
             meta_path = Path(act_scale_artifact["path"] + ".meta.json")
             act_scale_meta = artifact(str(meta_path))
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            a8_checks = {
-                "plan": plan_artifact is not None
-                and meta.get("plan_sha256") == plan_artifact["sha256"],
-                "wrapped": int(meta.get("wrapped_layers", -1))
-                == int(raw.get("expected_wrapped", 0)),
-                "observations": int(meta.get("calib_batches", -1)) == 32,
-                "seed": int(meta.get("calibration_seed", -1)) == 0,
-                "percentile": float(meta.get("act_percentile", -1.0)) == 99.9,
-                "denoising": int(meta.get("denoising_steps", -1)) == 4,
-                "obs_format": meta.get("obs_format") == "robocasa365",
-                "checkpoint": str(Path(meta.get("checkpoint_path", "")).resolve())
-                == str(checkpoint),
-                "shared_source_buffer": meta.get("source_buffer_sha256")
-                == PROTOCOL["data"]["calibration_buffer"]["sha256"],
-            }
+            if int(meta.get("schema_version", 0)) == 3:
+                a8_checks = {
+                    "kind": meta.get("kind") == "v3_per_flow_step_a8",
+                    "protocol": meta.get("protocol_sha256")
+                    == PROTOCOL_SHA256,
+                    "plan": plan_artifact is not None
+                    and meta.get("plan_sha256") == plan_artifact["sha256"],
+                    "wrapped": int(meta.get("wrapped_layers", -1))
+                    == int(raw.get("expected_wrapped", 0)),
+                    "observations": int(meta.get("calib_batches", -1)) == 32,
+                    "percentile": float(meta.get("act_percentile", -1.0)) == 99.9,
+                    "denoising": int(meta.get("denoising_steps", -1)) == 4,
+                    "prefix_tables": int(meta.get("prefix_llm_tables", -1)) == 1,
+                    "dit_tables": int(meta.get("dit_flow_step_tables", -1)) == 4,
+                    "shared_source_buffer": meta.get("source_buffer_sha256")
+                    == PROTOCOL["data"]["calibration_buffer"]["sha256"],
+                }
+            else:
+                a8_checks = {
+                    "plan": plan_artifact is not None
+                    and meta.get("plan_sha256") == plan_artifact["sha256"],
+                    "wrapped": int(meta.get("wrapped_layers", -1))
+                    == int(raw.get("expected_wrapped", 0)),
+                    "observations": int(meta.get("calib_batches", -1)) == 32,
+                    "seed": int(meta.get("calibration_seed", -1)) == 0,
+                    "percentile": float(meta.get("act_percentile", -1.0)) == 99.9,
+                    "denoising": int(meta.get("denoising_steps", -1)) == 4,
+                    "obs_format": meta.get("obs_format") == "robocasa365",
+                    "checkpoint": str(Path(meta.get("checkpoint_path", "")).resolve())
+                    == str(checkpoint),
+                    "shared_source_buffer": meta.get("source_buffer_sha256")
+                    == PROTOCOL["data"]["calibration_buffer"]["sha256"],
+                }
             failed = [name for name, valid in a8_checks.items() if not valid]
             if failed:
                 raise SystemExit(f"{raw['id']}: invalid plan-specific A8 metadata: {failed}")
@@ -668,6 +705,8 @@ def build_manifest(
             "plan": plan_artifact,
             "packdir": pack_cache[pack_key],
             "act_scale": act_scale_artifact,
+            "hessian_w4": hessian_w4_artifact,
+            "errorfold": errorfold_artifact,
             "omega_pack": omega_pack_artifact,
             "omega_pack_attestation": omega_attestation_artifact,
             "omega_calibration_manifest": omega_calibration_artifact,
@@ -702,6 +741,8 @@ def build_manifest(
             raise SystemExit(f"{config['id']}: quantized config requires act_scale")
         if config["expected_wrapped"] and config["plan"] and not config["packdir"]:
             raise SystemExit(f"{config['id']}: quantized config requires packdir")
+        if config["errorfold"] and not config["hessian_w4"]:
+            raise SystemExit(f"{config['id']}: ErrorFold requires Hessian W4")
         if config["omega_pack"] and not config["omega_include"]:
             raise SystemExit(f"{config['id']}: Omega-QVLA requires omega_include")
         if config["egl_device"] not in range(0, 8):
@@ -861,6 +902,7 @@ def start_server(
     env["GR00T_GPU"] = str(instance["gpu"])
     env["GR00T_PORT"] = str(instance["port"])
     env["GR00T_DENOISING_STEPS"] = "4"
+    env["GR00T_CONFIG_ID"] = str(config["id"])
     env["GR00T_MODEL_PATH"] = manifest["checkpoint_path"]
     env["GR00T_DATA_CONFIG"] = manifest["data_config"]
     if int(manifest.get("schema_version", 1)) >= 2:
@@ -897,6 +939,10 @@ def start_server(
         env["GR00T_DUQUANT_PLAN"] = config["plan"]["path"]
         env["GR00T_DUQUANT_PACKDIR"] = config["packdir"]["path"]
         env["GR00T_DUQUANT_ACT_SCALE_PATH"] = config["act_scale"]["path"]
+        if config.get("hessian_w4"):
+            env["GR00T_DUQUANT_HESSIAN_W4_PATH"] = config["hessian_w4"]["path"]
+        if config.get("errorfold"):
+            env["GR00T_ERRORFOLD_PATH"] = config["errorfold"]["path"]
         cmd = ["bash", str(QUANT_SERVER)]
     else:
         env["CUDA_VISIBLE_DEVICES"] = str(instance["gpu"])
@@ -972,6 +1018,24 @@ def wait_and_verify(
             expected_scale = config["act_scale"]["path"] if config["act_scale"] else None
             if info.get("act_scale_path") != expected_scale:
                 raise RuntimeError(f"A8 scale mismatch: {info}")
+            expected_hessian = (
+                config["hessian_w4"]["path"] if config.get("hessian_w4") else None
+            )
+            if info.get("hessian_w4_path") != expected_hessian:
+                raise RuntimeError(f"Hessian W4 path mismatch: {info}")
+            if config.get("hessian_w4") and info.get("hessian_w4_sha256") != config[
+                "hessian_w4"
+            ]["sha256"]:
+                raise RuntimeError(f"Hessian W4 hash mismatch: {info}")
+            expected_errorfold = (
+                config["errorfold"]["path"] if config.get("errorfold") else None
+            )
+            if info.get("errorfold_path") != expected_errorfold:
+                raise RuntimeError(f"ErrorFold path mismatch: {info}")
+            if config.get("errorfold") and info.get("errorfold_sha256") != config[
+                "errorfold"
+            ]["sha256"]:
+                raise RuntimeError(f"ErrorFold hash mismatch: {info}")
             expected_omega = config["omega_pack"]["path"] if config["omega_pack"] else None
             if info.get("omega_pack_path") != expected_omega:
                 raise RuntimeError(f"Omega-QVLA pack mismatch: {info}")
@@ -1009,6 +1073,13 @@ def wait_and_verify(
                 or int(runtime_contract.get("fp_weight_sized_buffers", -1)) != 0
             ):
                 raise RuntimeError(f"inference-only W4 residency is required: {info}")
+            if config.get("errorfold"):
+                if int(info.get("hessian_group_size", 0)) != 64:
+                    raise RuntimeError(f"v3 Hessian group size mismatch: {info}")
+                if runtime_contract.get("row_rotation") != "0":
+                    raise RuntimeError(f"v3 row rotation must be identity: {info}")
+                if (info.get("runtime_selector") or {}).get("enabled") is True:
+                    raise RuntimeError(f"v3 ErrorFold cannot use a selector: {info}")
             runtime_atm_application = info.get(
                 "atm_application", runtime_contract.get("atm_application")
             )

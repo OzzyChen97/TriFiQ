@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Strictly aggregate the frozen 15-task x 20-seed SoftFold experiment."""
+"""Strictly aggregate the frozen four-config v3 15-task x 20-seed experiment."""
 
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -191,10 +192,27 @@ def comparison(
     }
 
 
+def holm_adjust(rows: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Holm-adjust preregistered exact McNemar p-values within one model."""
+    ordered = sorted(
+        rows,
+        key=lambda name: float(rows[name]["mcnemar_exact_two_sided_p"]),
+    )
+    running = 0.0
+    count = len(ordered)
+    result = copy.deepcopy(rows)
+    for rank, name in enumerate(ordered):
+        raw = float(rows[name]["mcnemar_exact_two_sided_p"])
+        running = max(running, min(1.0, (count - rank) * raw))
+        result[name]["holm_adjusted_p"] = running
+        result[name]["holm_family_size"] = count
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--root", default=str(REPO / "runs/dpac_softfold_adapter_only_v2")
+        "--root", default=str(REPO / "runs/errorfold_v3_15x20")
     )
     args = parser.parse_args()
     root = Path(args.root).expanduser().resolve()
@@ -202,24 +220,17 @@ def main() -> None:
     task_to_set, expected = expected_layout(manifest)
     closed_loop_manifest = manifest.get("closed_loop", manifest)
 
-    sources: dict[tuple[str, str], tuple[list[Path], bool]] = {
-        ("gr00t", "softfold_dfunc"): (
-            list((root / "closed_loop/gr00t").glob("*/softfold_dfunc_s*.jsonl")),
+    config_ids = [row["id"] for row in manifest["evaluation_matrix"]["configs"]]
+    sources: dict[tuple[str, str], tuple[list[Path], bool]] = {}
+    for config_id in config_ids:
+        sources[("gr00t", config_id)] = (
+            list((root / "closed_loop/gr00t").glob(f"*/{config_id}_s*.jsonl")),
             False,
-        ),
-        ("gr00t", "softfold_dpac"): (
-            list((root / "closed_loop/gr00t").glob("*/softfold_dpac_s*.jsonl")),
+        )
+        sources[("pi05", config_id)] = (
+            list((root / f"closed_loop/pi05/results/{config_id}").glob("*.jsonl")),
             False,
-        ),
-        ("pi05", "softfold_dfunc"): (
-            list((root / "closed_loop/pi05/results/quantvla_w4a8_softfold_dfunc").glob("*.jsonl")),
-            False,
-        ),
-        ("pi05", "softfold_dpac"): (
-            list((root / "closed_loop/pi05/results/quantvla_w4a8_softfold_dpac").glob("*.jsonl")),
-            False,
-        ),
-    }
+        )
 
     all_rows: dict[str, dict[str, dict[tuple[str, int], dict[str, Any]]]] = {}
     provenance: dict[str, Any] = {
@@ -242,8 +253,8 @@ def main() -> None:
         atomic_text(output, rendered)
 
     summary: dict[str, Any] = {
-        "schema_version": 2,
-        "kind": "dpac_softfold_15x20_closed_loop_summary",
+        "schema_version": 3,
+        "kind": "errorfold_v3_four_config_15x20_closed_loop_summary",
         "cross_model_protocol": protocol_attestation(),
         "cross_model_protocol_sha256": PROTOCOL_SHA256,
         "manifest_sha256": provenance["manifest"]["sha256"],
@@ -253,17 +264,27 @@ def main() -> None:
         "models": {},
     }
     for model, configs in sorted(all_rows.items()):
-        model_summary = {
+        model_summary: dict[str, Any] = {
             "configs": {name: summarize_config(rows, task_to_set) for name, rows in sorted(configs.items())},
         }
-        model_summary["paired_dpac_vs_dfunc"] = comparison(
-            configs["softfold_dfunc"], configs["softfold_dpac"]
-        )
+        preregistered = {
+            "quantvla_vs_fp16": comparison(configs["fp16"], configs["quantvla_w4a8_paper"]),
+            "errorfold_dfunc_vs_quantvla": comparison(
+                configs["quantvla_w4a8_paper"], configs["errorfold_dfunc"]
+            ),
+            "errorfold_dpac_v2_vs_quantvla": comparison(
+                configs["quantvla_w4a8_paper"], configs["errorfold_dpac_v2"]
+            ),
+            "dpac_v2_vs_dfunc_selection": comparison(
+                configs["errorfold_dfunc"], configs["errorfold_dpac_v2"]
+            ),
+        }
+        model_summary["preregistered_comparisons"] = holm_adjust(preregistered)
         summary["models"][model] = model_summary
 
     atomic_text(root / "source_provenance.json", json.dumps(provenance, indent=2, sort_keys=True) + "\n")
     atomic_text(root / "summary.json", json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    markdown = ["# D_PAC + SoftFold 15 x 20 closed-loop", ""]
+    markdown = ["# D_PAC-v2 + ErrorFold v3: 15 x 20 closed-loop", ""]
     markdown.append("| Model | Config | Success | Episodes | SR |")
     markdown.append("|---|---|---:|---:|---:|")
     for model, model_summary in summary["models"].items():

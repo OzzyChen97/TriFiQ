@@ -16,13 +16,19 @@ GDSQ_A8="${PI05_GDSQ_A8:-$ALIGNED_ROOT/a8/pi05_gdsq_cscka_16to1_d4_p999_b32x8.np
 FULL_ATM="${PI05_FULL_ATM:-$ALIGNED_ROOT/atm_ohb/pi05_quantvla_uniform_w4a8_d4_static_perhead.json}"
 GDSQ_ATM="${PI05_GDSQ_ATM:-$ALIGNED_ROOT/atm_ohb/pi05_gdsq_cscka_16to1_d4_static_perhead.json}"
 SOFTFOLD_ATM="${PI05_SOFTFOLD_ATM:-$GDSQ_ATM}"
+V3_ROOT="${PI05_V3_ROOT:-$REPO_ROOT/runs/errorfold_v3_15x20/calibration/pi05}"
+V3_PACK_DIR="${PI05_V3_PACK_DIR:-$V3_ROOT/identity_pack}"
+V3_A8="${PI05_V3_A8:-$V3_ROOT/a8_scales.npz}"
+V3_HESSIAN_W4="${PI05_V3_HESSIAN_W4:-$V3_ROOT/hessian_w4.npz}"
+V3_ERRORFOLD_DFUNC="${PI05_V3_ERRORFOLD_DFUNC:-$V3_ROOT/errorfold_dfunc.json}"
+V3_ERRORFOLD_DPAC="${PI05_V3_ERRORFOLD_DPAC:-$V3_ROOT/errorfold_dpac_v2.json}"
 RUNTIME_SELECTOR="${PI05_RUNTIME_SELECTOR:-$REPO_ROOT/runs/atmohb_dynamic_selector_v8/selector.json}"
 CONTROL_DIR="${PI05_CONTROL_DIR:-$ALIGNED_ROOT/official_target_paired50/control}"
 CONTROL_DIR="$(mkdir -p "$CONTROL_DIR" && cd "$CONTROL_DIR" && pwd)"
 
 usage() {
     echo "usage: $0 start CONFIG GPU PORT INSTANCE | stop INSTANCE | status" >&2
-    echo "CONFIG: fp16 | quantvla_w4a8_atmohb | quantvla_w4a8_softfold_dfunc | quantvla_w4a8_softfold_dpac | gdsq_vla_atmohb | gdsq_vla_atm_only | gdsq_vla_ohb_only | gdsq_vla_runtime_selector | gdsq_vla_softfold_dfunc | gdsq_vla_softfold_dpac | gdsq_vla" >&2
+    echo "CONFIG: fp16 | quantvla_w4a8_paper | errorfold_dfunc | errorfold_dpac_v2 | legacy configs" >&2
 }
 
 sha256_file() {
@@ -58,7 +64,7 @@ clear_quant_environment() {
     local variable
     while IFS='=' read -r variable _; do
         case "$variable" in
-            OPENPI_DUQUANT_*|OPENPI_ATM_*|OPENPI_OHB_*|OPENPI_RUNTIME_SELECTOR_*|QUANTVLA_ADAPTER_ONLY) unset "$variable" ;;
+            OPENPI_DUQUANT_*|OPENPI_ATM_*|OPENPI_OHB_*|OPENPI_RUNTIME_SELECTOR_*|OPENPI_ERRORFOLD_PATH|QUANTVLA_ADAPTER_ONLY) unset "$variable" ;;
         esac
     done < <(env)
 }
@@ -67,6 +73,8 @@ configure_quant() {
     local plan="$1"
     local scale="$2"
     local wrapped="$3"
+    local pack_dir="${4:-$PACK_DIR}"
+    local row_rotation="${5:-restore}"
     export OPENPI_DUQUANT_PLAN="$plan"
     export OPENPI_DUQUANT_PLAN_STRICT=1
     export OPENPI_DUQUANT_WBITS_DEFAULT=4
@@ -77,11 +85,11 @@ configure_quant() {
     export OPENPI_DUQUANT_EXPECT_WRAPPED="$wrapped"
     export OPENPI_DUQUANT_LS=0.15
     export OPENPI_DUQUANT_PERMUTE=0
-    export OPENPI_DUQUANT_ROW_ROT=restore
+    export OPENPI_DUQUANT_ROW_ROT="$row_rotation"
     export OPENPI_DUQUANT_ACT_PCT=99.9
     export OPENPI_DUQUANT_CALIB_STEPS=32
     export OPENPI_DUQUANT_DENOISING_STEPS=4
-    export OPENPI_DUQUANT_PACKDIR="$PACK_DIR"
+    export OPENPI_DUQUANT_PACKDIR="$pack_dir"
     export OPENPI_DUQUANT_ACT_SCALE_PATH="$scale"
     export OPENPI_DUQUANT_REQUIRE_ACT_SCALE=1
     export OPENPI_DUQUANT_CALIB_BUFFER_SHA256
@@ -91,6 +99,16 @@ configure_quant() {
     export OPENPI_DUQUANT_TRITON=1
     export OPENPI_DUQUANT_QUIET=1
     export OPENPI_CHECKPOINT_SHA256="$CHECKPOINT_SHA256"
+}
+
+configure_errorfold_v3() {
+    local artifact="$1"
+    export OPENPI_DUQUANT_HESSIAN_W4_PATH="$V3_HESSIAN_W4"
+    export OPENPI_ERRORFOLD_PATH="$artifact"
+    configure_atm "$artifact" "$FULL_PLAN" 1 1
+    unset OPENPI_OHB_EXPECT_MODE
+    export OPENPI_ATM_APPLICATION=fold_q_weight
+    export OPENPI_OHB_APPLICATION=fold_o_weight_perhead
 }
 
 configure_atm() {
@@ -154,10 +172,22 @@ start_server() {
     local gdsq_wrapped=""
     case "$config" in
         fp16) ;;
-        quantvla_w4a8_atmohb)
+        quantvla_w4a8_atmohb|quantvla_w4a8_paper)
             for artifact in "$PACK_DIR/manifest.json" "$FULL_PLAN" "$FULL_A8" "$FULL_A8.json" "$FULL_ATM"; do
                 require_file "$artifact"
             done
+            ;;
+        errorfold_dfunc|errorfold_dpac_v2)
+            local selected="$V3_ERRORFOLD_DFUNC"
+            [[ "$config" == "errorfold_dpac_v2" ]] && selected="$V3_ERRORFOLD_DPAC"
+            for artifact in "$FULL_PLAN" "$V3_A8" "$V3_A8.json" \
+                "$V3_HESSIAN_W4" "$V3_HESSIAN_W4.json" "$selected"; do
+                require_file "$artifact"
+            done
+            if [[ ! -d "$V3_PACK_DIR" ]]; then
+                echo "missing v3 identity pack directory: $V3_PACK_DIR" >&2
+                exit 1
+            fi
             ;;
         quantvla_w4a8_softfold_dfunc|quantvla_w4a8_softfold_dpac)
             for artifact in "$PACK_DIR/manifest.json" "$FULL_PLAN" "$FULL_A8" "$FULL_A8.json" "$SOFTFOLD_ATM"; do
@@ -194,10 +224,18 @@ start_server() {
         export OPENPI_RUNTIME_INFO_PATH="$runtime_file"
         case "$config" in
             fp16) ;;
-            quantvla_w4a8_atmohb)
+            quantvla_w4a8_atmohb|quantvla_w4a8_paper)
                 export QUANTVLA_ADAPTER_ONLY=1
                 configure_quant "$FULL_PLAN" "$FULL_A8" 180
                 configure_atm "$FULL_ATM" "$FULL_PLAN"
+                ;;
+            errorfold_dfunc|errorfold_dpac_v2)
+                local selected="$V3_ERRORFOLD_DFUNC"
+                [[ "$config" == "errorfold_dpac_v2" ]] && selected="$V3_ERRORFOLD_DPAC"
+                export OPENPI_FORMAL_EXPECT_WRAPPED=180
+                export QUANTVLA_ADAPTER_ONLY=1
+                configure_quant "$FULL_PLAN" "$V3_A8" 180 "$V3_PACK_DIR" 0
+                configure_errorfold_v3 "$selected"
                 ;;
             quantvla_w4a8_softfold_dfunc|quantvla_w4a8_softfold_dpac)
                 export OPENPI_FORMAL_EXPECT_WRAPPED=180
