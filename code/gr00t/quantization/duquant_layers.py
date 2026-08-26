@@ -354,7 +354,7 @@ class DuQuantLinear(nn.Module):
                 self.bias.copy_(self._errorfold_base_bias)
 
     def fold_errorfold(self, gain: torch.Tensor, correction_bias: torch.Tensor) -> None:
-        """Fold a positive output affine into group scales and the native bias."""
+        """Fold an output affine into signed group scales and native bias."""
         if not self._hessian_w4_loaded or self._inference_only_ready:
             raise RuntimeError(f"{self.name}: ErrorFold requires loaded, unfinalized Hessian W4")
         gain = gain.detach().to(device=self._w_scales.device, dtype=self._w_scales.dtype).reshape(-1)
@@ -363,8 +363,8 @@ class DuQuantLinear(nn.Module):
         ).reshape(-1)
         if gain.numel() != self.out_features or correction_bias.numel() != self.out_features:
             raise ValueError(f"{self.name}: ErrorFold channel mismatch")
-        if bool((gain <= 0).any()) or not torch.isfinite(gain).all():
-            raise ValueError(f"{self.name}: ErrorFold gain must be positive and finite")
+        if not torch.isfinite(gain).all():
+            raise ValueError(f"{self.name}: ErrorFold gain must be finite")
         self._w_scales.mul_(gain[:, None])
         with torch.no_grad():
             if self.bias is None:

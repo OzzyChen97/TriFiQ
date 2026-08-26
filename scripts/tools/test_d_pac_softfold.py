@@ -230,6 +230,21 @@ def test_errorfold_runtime_affine_equals_folded_linear_and_scales() -> None:
     torch.testing.assert_close(fold_dequant_scales(scales, gain), scales * gain[:, None])
 
 
+def test_errorfold_supports_direction_reversing_static_fold() -> None:
+    generator = torch.Generator().manual_seed(51)
+    x = torch.randn(5, 8, generator=generator)
+    weight = torch.randn(4, 8, generator=generator)
+    bias = torch.randn(4, generator=generator)
+    gain = torch.tensor([-0.75, 0.0, 0.5, 1.25])
+    correction_bias = torch.linspace(-0.2, 0.2, 4)
+    runtime = torch.nn.functional.linear(x, weight, bias) * gain + correction_bias
+    folded_weight, folded_bias = fold_linear_parameters(
+        weight, bias, gain, correction_bias
+    )
+    folded = torch.nn.functional.linear(x, folded_weight, folded_bias)
+    torch.testing.assert_close(folded, runtime, atol=2e-5, rtol=2e-5)
+
+
 def test_hessian_w4_is_group64_packed_and_reconstructable() -> None:
     generator = torch.Generator().manual_seed(53)
     weight = torch.randn(10, 128, generator=generator) * 0.1

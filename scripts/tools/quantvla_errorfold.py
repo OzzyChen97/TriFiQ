@@ -143,8 +143,8 @@ def gated_affine(entry: Mapping[str, Any], gate: float) -> tuple[torch.Tensor, t
     bias_rel = torch.as_tensor(entry["bias_reliability"], dtype=torch.float32)
     gain = 1.0 + float(gate) * gain_rel * (raw_gain - 1.0)
     bias = float(gate) * bias_rel * raw_bias
-    if bool((gain <= 0.0).any()) or not torch.isfinite(gain).all() or not torch.isfinite(bias).all():
-        raise ValueError("folded ErrorFold affine must have finite positive gains")
+    if not torch.isfinite(gain).all() or not torch.isfinite(bias).all():
+        raise ValueError("folded ErrorFold affine must be finite")
     return gain, bias
 
 
