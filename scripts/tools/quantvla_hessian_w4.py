@@ -185,16 +185,19 @@ def a8_scale_table(
     quantile = percentile / 100.0
     if flow_steps is None:
         flat = value.reshape(-1, value.shape[-1])
-        return torch.quantile(flat, quantile, dim=0).clamp_min(1e-6) / 127.0
+        return (torch.quantile(flat, quantile, dim=0) / 127.0).clamp_min(1e-6)
     if int(flow_steps) != int(PROTOCOL["closed_loop"]["flow_steps"]):
         raise ValueError("v3 DiT A8 requires exactly four flow-step tables")
     if value.shape[0] != flow_steps:
         raise ValueError(f"step activation axis {value.shape[0]} != {flow_steps}")
     return torch.stack(
         [
-            torch.quantile(value[step].reshape(-1, value.shape[-1]), quantile, dim=0)
-            .clamp_min(1e-6)
-            / 127.0
+            (
+                torch.quantile(
+                    value[step].reshape(-1, value.shape[-1]), quantile, dim=0
+                )
+                / 127.0
+            ).clamp_min(1e-6)
             for step in range(flow_steps)
         ]
     )

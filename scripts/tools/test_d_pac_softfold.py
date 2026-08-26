@@ -245,6 +245,16 @@ def test_hessian_w4_is_group64_packed_and_reconstructable() -> None:
     assert torch.isfinite(result.dequantized).all()
 
 
+def test_a8_scale_floor_survives_fp16_residency() -> None:
+    activations = torch.zeros(32, 64)
+    prefix = a8_scale_table(activations)
+    flow = a8_scale_table(activations.reshape(4, 8, 64), flow_steps=4)
+    assert torch.all(prefix >= 1e-6)
+    assert torch.all(flow >= 1e-6)
+    assert torch.all(prefix.to(torch.float16) > 0)
+    assert torch.all(flow.to(torch.float16) > 0)
+
+
 def test_a8_has_one_prefix_table_and_four_deterministic_flow_tables() -> None:
     generator = torch.Generator().manual_seed(59)
     prefix = a8_scale_table(torch.randn(8, 12, 64, generator=generator))
