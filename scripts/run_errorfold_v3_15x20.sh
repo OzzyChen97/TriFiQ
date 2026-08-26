@@ -35,10 +35,12 @@ SEED_SHARDS_PER_TASK="${ERRORFOLD_V3_SEED_SHARDS_PER_TASK:-2}"
 CALIBRATION_GPUS_TEXT="${ERRORFOLD_V3_CALIBRATION_GPUS:-1,4,6,7}"
 IFS=',' read -r -a CALIBRATION_GPUS <<<"$CALIBRATION_GPUS_TEXT"
 ALL_GPUS=(0 1 2 3 4 5 6 7)
-GRID_GPUS_TEXT="${ERRORFOLD_V3_GRID_GPUS:-0,1,2,3,4,5,6,7}"
+SOFTFOLD_SHARDS="${ERRORFOLD_V3_SOFTFOLD_SHARDS:-4}"
+GRID_GPUS_TEXT="${ERRORFOLD_V3_GRID_GPUS:-0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7}"
 IFS=',' read -r -a GRID_GPUS <<<"$GRID_GPUS_TEXT"
-if (( ${#GRID_GPUS[@]} < 8 )); then
-    echo "ERRORFOLD_V3_GRID_GPUS must provide at least 8 lane assignments" >&2
+required_grid_lanes=$((4 * SOFTFOLD_SHARDS))
+if (( ${#GRID_GPUS[@]} < required_grid_lanes )); then
+    echo "ERRORFOLD_V3_GRID_GPUS must provide at least $required_grid_lanes lane assignments" >&2
     exit 2
 fi
 CONFIGS=(fp16 quantvla_w4a8_paper errorfold_dfunc errorfold_dpac_v2)
@@ -185,7 +187,7 @@ run_grid_job() {
             --buffer "$SELECTION_BUFFER" \
             --artifact-calibration-buffer "$CALIBRATION_BUFFER" \
             --n-obs 32 --batch-size 8 --denoising-steps 4 \
-            --shard-index "$shard" --shard-count 2 \
+            --shard-index "$shard" --shard-count "$SOFTFOLD_SHARDS" \
             --grid-dir "$directory/grid_shard${shard}" \
             --out "$directory/scores_shard${shard}.json" \
             >"$directory/grid_shard${shard}.log" 2>&1
@@ -200,7 +202,7 @@ run_grid_job() {
             --hessian-w4 "$directory/hessian_w4.npz" \
             --v3-plan "$PI_PLAN" --v3-a8 "$directory/a8_scales.npz" \
             --softfold-grid-shard-index "$shard" \
-            --softfold-grid-shard-count 2 \
+            --softfold-grid-shard-count "$SOFTFOLD_SHARDS" \
             --softfold-grid-dir "$directory/grid_shard${shard}" \
             --out "$directory/scores_shard${shard}.json" \
             >"$directory/grid_shard${shard}.log" 2>&1
@@ -211,13 +213,13 @@ score_all_grids() {
     phase softfold_complete_9x9_four_bindings_all_gpus
     local pids=() gpu_index=0 model label shard
     for label in "${TASK_SETS[@]}"; do
-        for shard in 0 1; do
+        for ((shard=0; shard<SOFTFOLD_SHARDS; shard++)); do
             run_grid_job gr00t "$label" "$shard" "${GRID_GPUS[$gpu_index]}" &
             pids+=("$!")
             gpu_index=$((gpu_index + 1))
         done
     done
-    for shard in 0 1; do
+    for ((shard=0; shard<SOFTFOLD_SHARDS; shard++)); do
         run_grid_job pi05 shared "$shard" "${GRID_GPUS[$gpu_index]}" &
         pids+=("$!")
         gpu_index=$((gpu_index + 1))
@@ -230,9 +232,12 @@ merge_and_fit() {
     local model="$1" label="$2"
     local directory="$ROOT/calibration/$model" python="$OPENPI_PY"
     [[ "$model" == "gr00t" ]] && directory="$directory/$label" && python="$GROOT_PY"
+    local shard_inputs=() shard
+    for ((shard=0; shard<SOFTFOLD_SHARDS; shard++)); do
+        shard_inputs+=(--input "$directory/scores_shard${shard}.json")
+    done
     "$python" "$REPO/scripts/tools/merge_softfold_grid_scores.py" \
-        --input "$directory/scores_shard0.json" \
-        --input "$directory/scores_shard1.json" \
+        "${shard_inputs[@]}" \
         --out "$directory/scores_merged.json" >"$directory/grid_merge.log" 2>&1
     local checkpoint_sha plan_sha buffer_sha
     checkpoint_sha="$(jq -er '.checkpoint_sha256' "$directory/scores_merged.json")"

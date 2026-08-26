@@ -280,6 +280,8 @@ def materialize_grid(
     raw_path: str | Path,
     output_dir: str | Path,
     base_spec: Mapping[str, Any] | None = None,
+    shard_index: int = 0,
+    shard_count: int = 1,
 ) -> dict[str, dict[str, Any]]:
     raw_path = Path(raw_path).expanduser().resolve()
     output_dir = Path(output_dir).expanduser().resolve()
@@ -290,8 +292,15 @@ def materialize_grid(
     raw_meta = validate_raw_correction_protocol(raw, source=str(raw_path))
     registry: dict[str, dict[str, Any]] = {}
     output_dir.mkdir(parents=True, exist_ok=True)
+    if shard_count < 1 or not 0 <= shard_index < shard_count:
+        raise ValueError("invalid SoftFold materialization shard")
+    candidate_index = 0
     for gate_atm in GRID:
         for gate_errorfold in GRID:
+            selected = candidate_index % shard_count == shard_index
+            candidate_index += 1
+            if not selected:
+                continue
             layers, correction_norm = fold_layers(
                 raw_layers, gate_atm=gate_atm, gate_errorfold=gate_errorfold
             )

@@ -144,8 +144,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def materialize_candidates(raw_path: Path, grid_dir: Path) -> dict[str, dict[str, Any]]:
-    return materialize_grid(raw_path=raw_path, output_dir=grid_dir)
+def materialize_candidates(
+    raw_path: Path, grid_dir: Path, *, shard_index: int, shard_count: int
+) -> dict[str, dict[str, Any]]:
+    return materialize_grid(
+        raw_path=raw_path,
+        output_dir=grid_dir,
+        shard_index=shard_index,
+        shard_count=shard_count,
+    )
 
 
 def score(args: argparse.Namespace) -> dict[str, Any]:
@@ -182,13 +189,13 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
     if not pack_dir.is_dir():
         raise FileNotFoundError(pack_dir)
 
-    registry = materialize_candidates(raw, grid_dir)
-    all_ids = sorted(registry)
-    selected_ids = [
-        identifier
-        for index, identifier in enumerate(all_ids)
-        if index % args.shard_count == args.shard_index
-    ]
+    registry = materialize_candidates(
+        raw,
+        grid_dir,
+        shard_index=args.shard_index,
+        shard_count=args.shard_count,
+    )
+    selected_ids = sorted(registry)
     if not selected_ids:
         raise ValueError("SoftFold grid shard is empty")
 

@@ -223,11 +223,15 @@ def materialize_softfold_grid(
     raw_path: Path,
     base_spec: dict[str, Any],
     output_dir: Path,
+    shard_index: int = 0,
+    shard_count: int = 1,
 ) -> dict[str, dict[str, Any]]:
     return materialize_grid(
         raw_path=raw_path,
         output_dir=output_dir,
         base_spec=base_spec,
+        shard_index=shard_index,
+        shard_count=shard_count,
     )
 
 
@@ -376,6 +380,8 @@ def main() -> None:
                 raw_path=Path(args.softfold_raw).expanduser().resolve(),
                 base_spec=base_spec,
                 output_dir=grid_dir,
+                shard_index=args.softfold_grid_shard_index,
+                shard_count=args.softfold_grid_shard_count,
             )
         )
         all_grid_config_ids = sorted(key for key in registry if key.startswith("softfold_"))
@@ -383,11 +389,7 @@ def main() -> None:
             raise ValueError("--softfold-grid-shard-count must be positive")
         if not 0 <= args.softfold_grid_shard_index < args.softfold_grid_shard_count:
             raise ValueError("invalid --softfold-grid-shard-index")
-        config_ids = [
-            config_id
-            for index, config_id in enumerate(all_grid_config_ids)
-            if index % args.softfold_grid_shard_count == args.softfold_grid_shard_index
-        ]
+        config_ids = all_grid_config_ids
         if not config_ids:
             raise ValueError("SoftFold grid shard is empty")
     else:
