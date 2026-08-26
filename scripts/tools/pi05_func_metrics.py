@@ -1,187 +1,113 @@
 #!/usr/bin/env python3
-"""GR00T-final functional metric with the minimal pi0.5 action adapter.
+"""pi0.5 model adapter for the shared QuantVLA functional metrics.
 
-The metric itself is not reimplemented here.  The authoritative
-``gr00t_func_metrics.d_func`` function is called directly after adapting the
-pi0.5 trajectory to the action chunk that is actually deployed by the frozen
-RoboCasa protocol:
-
-* first 16 of pi0.5's 50 predicted actions (execute-16),
-* first 12 action dimensions (the environment action, excluding 20 padding
-  dimensions), and
-* the embodiment-specific gripper slice ``6:7``.
-
-The 12-D vector is deliberately retained for GR00T's final-action and tail
-terms, so mobile-base/torso and control-mode deviations are not discarded.
-They do not receive new hand-written kinematic or discrete penalties: the
-only embodiment adaptation inside the GR00T formula is that pi0.5 has one
-gripper dimension rather than GR00T's default two.  In particular, there is
-no chunk-50 auxiliary loss and no ``16/50`` multiplier.
+No metric formula lives here. The adapter only converts pi0.5's native
+``(50, 32)`` solver trajectory to the shared executed ``(16, 12)`` action
+space; GR00T and pi0.5 then call the same metric functions.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 import torch
 
-from gr00t_func_metrics import d_func as gr00t_final_d_func
-from gr00t_func_metrics import d_pac_sequence as gr00t_d_pac_sequence
+from quantvla_cross_model_protocol import PROTOCOL_SHA256, adapter_attestation
+from quantvla_metric_protocol import (
+    ACTION_DIM,
+    ACTION_HORIZON as EXECUTED_ACTIONS,
+    FUNCTIONAL_FORMULA_ID,
+    GAMMA,
+    PAC_FORMULA_ID,
+    d_func as canonical_d_func,
+    d_pac_sequence as canonical_d_pac_sequence,
+)
+from quantvla_model_adapters import FLOW_STEPS, canonical_trajectory
 
 
-ACTION_DIM = 12
 ACTION_HORIZON = 50
-EXECUTED_ACTIONS = 16
-FLOW_STEPS = 4
-GR00T_LAYOUT = {"trans": (0, 3), "rot": (3, 6), "grip": (6, 7)}
-GR00T_WEIGHTS = {"final": 1.0, "kin": 1.0, "grip": 1.0, "tail": 2.0}
-FUNCTIONAL_FORMULA_ID = "gr00t_final_v1_4_execute16_deployed12_grip6to7"
-PAC_FORMULA_ID = "d_pac_v1_pi05_execute16_deployed12_forecast50"
 
 
 def adapt_trajectory(trajectory: torch.Tensor) -> torch.Tensor:
-    """Map a pi0.5 flow trajectory to GR00T-final action-chunk semantics."""
-    if trajectory.ndim != 4:
-        raise ValueError(
-            f"trajectory must be (T+1,B,H,D), got {tuple(trajectory.shape)}"
-        )
-    if trajectory.shape[0] != FLOW_STEPS + 1:
-        raise ValueError(
-            f"formal pi0.5 metric requires {FLOW_STEPS} flow steps, "
-            f"got trajectory length {trajectory.shape[0] - 1}"
-        )
-    if trajectory.shape[-2] != ACTION_HORIZON:
-        raise ValueError(
-            f"formal pi0.5 metric requires action horizon {ACTION_HORIZON}, "
-            f"got {trajectory.shape[-2]}"
-        )
-    if trajectory.shape[-1] < ACTION_DIM:
-        raise ValueError(
-            f"trajectory action dimension {trajectory.shape[-1]} is smaller "
-            f"than deployed dimension {ACTION_DIM}"
-        )
-    return trajectory[..., :EXECUTED_ACTIONS, :ACTION_DIM].float()
+    return canonical_trajectory(trajectory, model="pi05")
+
+
+def _adapter() -> dict[str, Any]:
+    return {
+        **adapter_attestation("pi05", native_action_horizon=ACTION_HORIZON),
+        "source_action_dimension": 32,
+        "trajectory_conversion": "prefix_16_actions_prefix_12_dimensions",
+    }
 
 
 def d_func(
     reference: torch.Tensor,
     candidate: torch.Tensor,
-    gamma: float = 1.2,
+    gamma: float = GAMMA,
 ) -> dict[str, Any]:
-    """Apply the authoritative GR00T-final metric after layout adaptation."""
-    adapted_reference = adapt_trajectory(reference)
-    adapted_candidate = adapt_trajectory(candidate)
-    if adapted_reference.shape != adapted_candidate.shape:
-        raise ValueError(
-            "paired trajectory shape mismatch after adaptation: "
-            f"{tuple(adapted_reference.shape)} != {tuple(adapted_candidate.shape)}"
-        )
-    result = gr00t_final_d_func(
-        adapted_reference,
-        adapted_candidate,
+    result = canonical_d_func(
+        adapt_trajectory(reference),
+        adapt_trajectory(candidate),
         gamma=gamma,
-        layout=GR00T_LAYOUT,
-        weights=GR00T_WEIGHTS,
     )
-    # Provenance only; no pi0.5-specific term is added to the scalar metric.
-    result["adapter"] = {
-        "formula_id": FUNCTIONAL_FORMULA_ID,
-        "source_horizon": ACTION_HORIZON,
-        "executed_actions": EXECUTED_ACTIONS,
-        "deployed_action_dim": ACTION_DIM,
-        "layout": dict(GR00T_LAYOUT),
-        "excluded_horizon": [EXECUTED_ACTIONS, ACTION_HORIZON],
-        "excluded_padding_dims": [ACTION_DIM, int(reference.shape[-1])],
-    }
+    result["adapter"] = _adapter()
     return result
 
 
 def d_pac_sequence(
     reference: torch.Tensor,
     candidate: torch.Tensor,
-    replan_indices,
+    replan_indices: Sequence[int],
     *,
-    overlap_weight: float = 0.1,
-    gamma: float = 1.2,
+    overlap_weight: float = 0.0,
+    gamma: float = GAMMA,
 ) -> dict[str, Any]:
-    """π0.5 D_PAC adapter: execute-16 primary loss plus low-weight 16:50 overlap."""
-    for name, trajectory in (("reference", reference), ("candidate", candidate)):
-        if trajectory.ndim not in (3, 4):
-            raise ValueError(f"{name} must be (R,H,D) or (T+1,R,H,D)")
-        if trajectory.shape[-2] != ACTION_HORIZON:
-            raise ValueError(
-                f"formal pi0.5 D_PAC requires horizon {ACTION_HORIZON}, "
-                f"got {trajectory.shape[-2]}"
-            )
-        if trajectory.shape[-1] < ACTION_DIM:
-            raise ValueError(f"{name} has fewer than {ACTION_DIM} deployed dimensions")
-    result = gr00t_d_pac_sequence(
-        reference,
-        candidate,
+    # Retain the old keyword only to turn historical pi-only configurations
+    # into an explicit error instead of silently changing their meaning.
+    if float(overlap_weight) != 0.0:
+        raise ValueError(
+            "pi0.5-only forecast overlap is forbidden by the adapter-only protocol"
+        )
+    result = canonical_d_pac_sequence(
+        adapt_trajectory(reference),
+        adapt_trajectory(candidate),
         replan_indices,
-        executed_actions=EXECUTED_ACTIONS,
-        action_dim=ACTION_DIM,
-        layout=GR00T_LAYOUT,
-        weights={"overlap": float(overlap_weight)},
         gamma=gamma,
     )
-    result["adapter"] = {
-        "formula_id": PAC_FORMULA_ID,
-        "source_horizon": ACTION_HORIZON,
-        "executed_actions": EXECUTED_ACTIONS,
-        "forecast_overlap": [EXECUTED_ACTIONS, ACTION_HORIZON],
-        "forecast_overlap_weight": float(overlap_weight),
-        "deployed_action_dim": ACTION_DIM,
-        "layout": dict(GR00T_LAYOUT),
-    }
+    result["adapter"] = _adapter()
     return result
 
 
 def selftest() -> None:
     generator = torch.Generator().manual_seed(0)
-    reference = torch.randn(5, 8, 50, 32, generator=generator)
-
+    reference = torch.randn(
+        FLOW_STEPS + 1, 8, ACTION_HORIZON, 32, generator=generator
+    )
     same = d_func(reference, reference)
-    assert same["d_func"] == 0.0 and same["d_solver"] == 0.0
+    assert same["d_func"] == 0.0
+    assert same["formula_id"] == FUNCTIONAL_FORMULA_ID
+    assert same["protocol_sha256"] == PROTOCOL_SHA256
 
     candidate = reference.clone()
-    candidate[..., :EXECUTED_ACTIONS, :ACTION_DIM] *= 2.0
-    direct = gr00t_final_d_func(
-        adapt_trajectory(reference),
-        adapt_trajectory(candidate),
-        gamma=1.2,
-        layout=GR00T_LAYOUT,
-        weights=GR00T_WEIGHTS,
-    )
-    adapted = d_func(reference, candidate)
-    for key in ("d_func", "d_final", "d_kin", "d_grip", "d_solver"):
-        assert adapted[key] == direct[key], (key, adapted[key], direct[key])
+    candidate[..., :EXECUTED_ACTIONS, :ACTION_DIM] += 0.1
+    assert d_func(reference, candidate)["d_func"] > 0.0
 
-    nonexecuted = reference.clone()
-    nonexecuted[..., EXECUTED_ACTIONS:, :ACTION_DIM] *= 100.0
-    assert d_func(reference, nonexecuted)["d_func"] == 0.0
+    excluded = reference.clone()
+    excluded[..., EXECUTED_ACTIONS:, :] += 100.0
+    excluded[..., :, ACTION_DIM:] += 100.0
+    assert d_func(reference, excluded)["d_func"] == 0.0
 
-    padding = reference.clone()
-    padding[..., ACTION_DIM:] *= 100.0
-    assert d_func(reference, padding)["d_func"] == 0.0
-
-    base_only = reference.clone()
-    base_only[-1, ..., :EXECUTED_ACTIONS, 7:11] *= 2.0
-    base_result = d_func(reference, base_only)
-    assert base_result["d_final"] > 0.0
-    assert base_result["d_kin"] == 0.0
-    assert base_result["d_grip"] == 0.0
-
-    pac_same = d_pac_sequence(reference[:, :4], reference[:, :4], range(4))
-    assert pac_same["d_pac_sequence"] == 0.0
-
-    forecast_only = reference[:, :4].clone()
-    forecast_only[..., EXECUTED_ACTIONS:ACTION_HORIZON, :ACTION_DIM] += 0.1
-    pac_forecast = d_pac_sequence(reference[:, :4], forecast_only, range(4))
-    assert pac_forecast["d_overlap"] > 0.0
-    assert pac_forecast["d_func_mean"] == 0.0
-
-    print("[pi05_func_metrics] selftest OK (D_func adapter + D_PAC execute16/forecast50)")
+    pac = d_pac_sequence(reference[:, :4], candidate[:, :4], range(4))
+    assert pac["d_pac_sequence"] > 0.0
+    assert pac["weights"]["overlap"] == 0.0
+    assert pac["formula_id"] == PAC_FORMULA_ID
+    try:
+        d_pac_sequence(reference[:, :4], candidate[:, :4], range(4), overlap_weight=0.1)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("nonzero pi0.5 overlap must fail")
+    print("[pi05_func_metrics] selftest OK (adapter-only, shared formulas)")
 
 
 if __name__ == "__main__":

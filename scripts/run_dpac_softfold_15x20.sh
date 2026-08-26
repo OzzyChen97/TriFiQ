@@ -2,19 +2,19 @@
 set -euo pipefail
 
 REPO="/home1/gyy/vla/QuantVLA"
-ROOT="$REPO/runs/dpac_softfold_15x20_v1"
+ROOT="$REPO/runs/dpac_softfold_adapter_only_v2"
 LOG="$ROOT/orchestrator.log"
 PID_FILE="$ROOT/orchestrator.pid"
 PHASE_FILE="$ROOT/phase.txt"
-MANIFEST="$REPO/scripts/dpac_softfold_15x20_manifest.json"
+MANIFEST="$REPO/scripts/quantvla_cross_model_protocol.json"
 GROOT_PY="/home1/gyy/probe/miniforge3/envs/groot_test/bin/python"
 OPENPI_PY="/home1/gyy/probe/miniforge3/envs/openpi/bin/python"
 ROBOCASA_PY="/home1/gyy/probe/miniforge3/envs/robocasa365/bin/python"
 PI_CLIENT="$REPO/code/pi05/openpi/packages/openpi-client/src"
 PI_BUFFER="$REPO/runs/pi05_gdsq_gr00t_aligned/diagnostics/fp16_onpolicy_probe/fp16_onpolicy_target_4tasks_s0-1_r4_n32.npz"
 PI_ARTIFACT_BUFFER="$REPO/runs/pi05_gdsq_gr00t_aligned/calibration/pi05_robocasa365_seed0_n256.npz"
-PI_RAW="$REPO/runs/pi05_gdsq_gr00t_aligned/atm_ohb/pi05_gdsq_cscka_16to1_d4_static_perhead.json"
-PI_PLAN="$REPO/runs/pi05_gdsq_gr00t_aligned/plans/pi05_gdsq_cscka_16to1_d4.final_plan.json"
+PI_RAW="$REPO/runs/pi05_gdsq_gr00t_aligned/atm_ohb/pi05_quantvla_uniform_w4a8_d4_static_perhead.json"
+PI_PLAN="$REPO/runs/pi05_gdsq_gr00t_aligned/plans/pi05_quantvla_uniform_w4a8_d4.plan.json"
 PI_CONTROL="$ROOT/closed_loop/pi05/control"
 PI_SERVER="$REPO/scripts/run_pi05_formal_server.sh"
 PI_EVAL="$REPO/scripts/run_robocasa365_pi05_eval.py"
@@ -26,7 +26,7 @@ GPU_E=5
 GPU_F=6
 GPU_G=7
 ACTIVE_GPUS=("$GPU_A" "$GPU_B" "$GPU_C" "$GPU_D" "$GPU_E" "$GPU_F" "$GPU_G")
-CALIBRATION_GPUS=(1 2 4 4 5 6 7)
+CALIBRATION_GPUS=(1 2 3 4 5 6 7)
 ALLOW_SHARED="${DPAC_ALLOW_SHARED:-0}"
 MIN_FREE_MIB="${DPAC_MIN_FREE_MIB:-20000}"
 SEED_SHARDS_PER_TASK="${DPAC_SEED_SHARDS_PER_TASK:-4}"
@@ -126,6 +126,30 @@ calibration_complete() {
     [[ -s "$directory/softfold_dpac.json" ]] || return 1
 }
 
+prepare_gr00t_artifacts() {
+    local task_set="$1" checkpoint="$2" plan="$3" pack="$4" gpu="$5"
+    local directory="$ROOT/calibration/gr00t/$task_set/shared_protocol_artifacts"
+    local a8="$directory/a8_shared_n256.npz"
+    local raw="$directory/atm_ohb_shared_n16.json"
+    mkdir -p "$directory"
+    if [[ ! -s "$a8" || ! -s "$a8.meta.json" ]]; then
+        CUDA_VISIBLE_DEVICES="$gpu" GR00T_DUQUANT_FUSED=1 "$GROOT_PY" \
+            "$REPO/scripts/tools/calibrate_a8_plan_gr00t.py" \
+            --model-path "$checkpoint" --plan "$plan" --packdir "$pack" \
+            --buffer "$PI_ARTIFACT_BUFFER" --out "$a8" \
+            >"$directory/a8.log" 2>&1
+    fi
+    if [[ ! -s "$raw" ]]; then
+        CUDA_VISIBLE_DEVICES="$gpu" GR00T_DUQUANT_FUSED=1 "$GROOT_PY" \
+            "$REPO/scripts/tools/calibrate_atm_perstep_gr00t.py" \
+            --suite robocasa365_atomic --model-path "$checkpoint" \
+            --denoising-steps 4 --n-obs 16 --batch-size 8 \
+            --plan "$plan" --packdir "$pack" --act-scale-path "$a8" \
+            --buffer "$PI_ARTIFACT_BUFFER" --out "$raw" \
+            >"$directory/atm_ohb.log" 2>&1
+    fi
+}
+
 wait_pair() {
     local first="$1" second="$2" failed=0
     wait "$first" || failed=1
@@ -150,15 +174,17 @@ gr00t_grid() {
     fi
     mkdir -p "$directory/grid_shard0" "$directory/grid_shard1"
     phase "calibration_gr00t_${task_set}"
-    CUDA_VISIBLE_DEVICES="$GPU_A" "$GROOT_PY" "$REPO/scripts/tools/gr00t_score_softfold_grid.py" \
+    CUDA_VISIBLE_DEVICES="$GPU_A" GR00T_DUQUANT_FUSED=1 "$GROOT_PY" "$REPO/scripts/tools/gr00t_score_softfold_grid.py" \
         --checkpoint "$checkpoint" --plan "$plan" --pack-dir "$pack" --a8 "$a8" \
-        --raw-correction "$raw" --n-obs 32 --batch-size 8 \
+        --raw-correction "$raw" --buffer "$PI_BUFFER" \
+        --artifact-calibration-buffer "$PI_ARTIFACT_BUFFER" --n-obs 32 --batch-size 8 \
         --shard-index 0 --shard-count 2 --grid-dir "$directory/grid_shard0" \
         --out "$directory/scores_shard0.json" >"$directory/shard0.log" 2>&1 &
     local first=$!
-    CUDA_VISIBLE_DEVICES="$GPU_B" "$GROOT_PY" "$REPO/scripts/tools/gr00t_score_softfold_grid.py" \
+    CUDA_VISIBLE_DEVICES="$GPU_B" GR00T_DUQUANT_FUSED=1 "$GROOT_PY" "$REPO/scripts/tools/gr00t_score_softfold_grid.py" \
         --checkpoint "$checkpoint" --plan "$plan" --pack-dir "$pack" --a8 "$a8" \
-        --raw-correction "$raw" --n-obs 32 --batch-size 8 \
+        --raw-correction "$raw" --buffer "$PI_BUFFER" \
+        --artifact-calibration-buffer "$PI_ARTIFACT_BUFFER" --n-obs 32 --batch-size 8 \
         --shard-index 1 --shard-count 2 --grid-dir "$directory/grid_shard1" \
         --out "$directory/scores_shard1.json" >"$directory/shard1.log" 2>&1 &
     local second=$!
@@ -194,9 +220,10 @@ gr00t_grid4() {
     for shard in 0 1 2 3; do
         gpu="${ACTIVE_GPUS[$shard]}"
         mkdir -p "$directory/grid_shard${shard}"
-        CUDA_VISIBLE_DEVICES="$gpu" "$GROOT_PY" "$REPO/scripts/tools/gr00t_score_softfold_grid.py" \
+        CUDA_VISIBLE_DEVICES="$gpu" GR00T_DUQUANT_FUSED=1 "$GROOT_PY" "$REPO/scripts/tools/gr00t_score_softfold_grid.py" \
             --checkpoint "$checkpoint" --plan "$plan" --pack-dir "$pack" --a8 "$a8" \
-            --raw-correction "$raw" --n-obs 32 --batch-size 8 \
+            --raw-correction "$raw" --buffer "$PI_BUFFER" \
+            --artifact-calibration-buffer "$PI_ARTIFACT_BUFFER" --n-obs 32 --batch-size 8 \
             --shard-index "$shard" --shard-count 4 --grid-dir "$directory/grid_shard${shard}" \
             --out "$directory/scores_shard${shard}.json" >"$directory/shard${shard}.log" 2>&1 &
         pid=$!
@@ -307,7 +334,7 @@ PY
 
 start_pi_server() {
     local config="$1" artifact="$2" gpu="$3" port="$4" instance="$5"
-    PI05_CONTROL_DIR="$PI_CONTROL" PI05_GDSQ_ATM="$artifact" \
+    PI05_CONTROL_DIR="$PI_CONTROL" PI05_SOFTFOLD_ATM="$artifact" \
         bash "$PI_SERVER" start "$config" "$gpu" "$port" "$instance"
     PI_INSTANCES+=("$instance")
     "$ROBOCASA_PY" - "$PI_CONTROL/$instance.runtime.json" "$artifact" "$config" <<'PY'
@@ -317,7 +344,7 @@ runtime = json.load(runtime_path.open(encoding="utf-8"))["openpi_runtime"]
 atm = runtime["atm_ohb"]
 checks = {
     "config": runtime.get("config_id") == config,
-    "wrapped": int(runtime["duquant"]["wrapped_layers"]) == 80,
+    "wrapped": int(runtime["duquant"]["wrapped_layers"]) == 180,
     "artifact": atm.get("artifact_sha256") == hashlib.sha256(artifact_path.read_bytes()).hexdigest(),
     "atm_application": atm.get("atm_application") == "fold_q_weight",
     "ohb_application": atm.get("ohb_application") == "fold_o_weight_perhead",
@@ -375,7 +402,7 @@ stop_pi_servers() {
 pi05_closed_loop() {
     local dfunc="$ROOT/calibration/pi05/softfold_dfunc.json"
     local dpac="$ROOT/calibration/pi05/softfold_dpac.json"
-    local config_a="gdsq_vla_softfold_dfunc" config_b="gdsq_vla_softfold_dpac"
+    local config_a="quantvla_w4a8_softfold_dfunc" config_b="quantvla_w4a8_softfold_dpac"
     local instance_a1="dpac15x20_dfunc_g${GPU_A}" instance_a2="dpac15x20_dfunc_g${GPU_B}"
     local instance_a3="dpac15x20_dfunc_g${GPU_C}"
     local instance_b1="dpac15x20_dpac_g${GPU_D}" instance_b2="dpac15x20_dpac_g${GPU_E}"
@@ -467,24 +494,40 @@ run_all() {
 
     local pack_root="$REPO/checkpoints/packs/robocasa365"
     local checkpoint_root="$REPO/checkpoints/robocasa365/gr00t_n1-5/foundation_model_learning/target_posttraining"
+    phase "prepare_gr00t_shared_protocol_artifacts"
+    local prep_pids=()
+    prepare_gr00t_artifacts atomic_seen \
+        "$checkpoint_root/atomic_seen/checkpoint-60000" \
+        "$pack_root/quantvla_v1_uniform_w4a8.json" \
+        "$pack_root/duquant_packed_robocasa365_protocolfix_d4_w4a8_b64c32ls015" "$GPU_A" & prep_pids+=("$!")
+    prepare_gr00t_artifacts composite_seen \
+        "$checkpoint_root/composite_seen/checkpoint-60000" \
+        "$pack_root/quantvla_v1_uniform_w4a8_composite_seen.json" \
+        "$pack_root/duquant_packed_robocasa365_composite_seen_d4_w4a8_b64c32ls015" "$GPU_B" & prep_pids+=("$!")
+    prepare_gr00t_artifacts composite_unseen \
+        "$checkpoint_root/composite_unseen/checkpoint-60000" \
+        "$pack_root/quantvla_v1_uniform_w4a8_composite_unseen.json" \
+        "$pack_root/duquant_packed_robocasa365_composite_unseen_d4_w4a8_b64c32ls015" "$GPU_C" & prep_pids+=("$!")
+    QUEUE_CHILDREN=("${prep_pids[@]}")
+    wait_many "${prep_pids[@]}"
     gr00t_grid atomic_seen \
         "$checkpoint_root/atomic_seen/checkpoint-60000" \
-        "$pack_root/gr00t_quant_plan_robocasa365_cscka_16to1_adjudicated.final_plan.json" \
+        "$pack_root/quantvla_v1_uniform_w4a8.json" \
         "$pack_root/duquant_packed_robocasa365_protocolfix_d4_w4a8_b64c32ls015" \
-        "$pack_root/a8_scales_cscka_16to1_protocolfix_d4.npz" \
-        "$pack_root/atm_alpha_beta_static_cscka_16to1_protocolfix_d4.json"
+        "$ROOT/calibration/gr00t/atomic_seen/shared_protocol_artifacts/a8_shared_n256.npz" \
+        "$ROOT/calibration/gr00t/atomic_seen/shared_protocol_artifacts/atm_ohb_shared_n16.json"
     gr00t_grid composite_seen \
         "$checkpoint_root/composite_seen/checkpoint-60000" \
-        "$pack_root/gr00t_quant_plan_robocasa365_cscka_16to1_composite_seen.final_plan.json" \
+        "$pack_root/quantvla_v1_uniform_w4a8_composite_seen.json" \
         "$pack_root/duquant_packed_robocasa365_composite_seen_d4_w4a8_b64c32ls015" \
-        "$pack_root/a8_scales_cscka_16to1_composite_seen_d4.npz" \
-        "$pack_root/atm_alpha_beta_static_cscka_16to1_composite_seen_d4.json"
+        "$ROOT/calibration/gr00t/composite_seen/shared_protocol_artifacts/a8_shared_n256.npz" \
+        "$ROOT/calibration/gr00t/composite_seen/shared_protocol_artifacts/atm_ohb_shared_n16.json"
     gr00t_grid4 composite_unseen \
         "$checkpoint_root/composite_unseen/checkpoint-60000" \
-        "$pack_root/gr00t_quant_plan_robocasa365_cscka_16to1_composite_unseen.final_plan.json" \
+        "$pack_root/quantvla_v1_uniform_w4a8_composite_unseen.json" \
         "$pack_root/duquant_packed_robocasa365_composite_unseen_d4_w4a8_b64c32ls015" \
-        "$pack_root/a8_scales_cscka_16to1_composite_unseen_d4.npz" \
-        "$pack_root/atm_alpha_beta_static_cscka_16to1_composite_unseen_d4.json"
+        "$ROOT/calibration/gr00t/composite_unseen/shared_protocol_artifacts/a8_shared_n256.npz" \
+        "$ROOT/calibration/gr00t/composite_unseen/shared_protocol_artifacts/atm_ohb_shared_n16.json"
     pi05_grid
 
     gr00t_closed_loop atomic_seen \
@@ -504,6 +547,10 @@ run_all() {
     phase "aggregate"
     "$GROOT_PY" "$REPO/scripts/tools/aggregate_dpac_softfold_15x20.py" --root "$ROOT" \
         >"$ROOT/aggregate.log" 2>&1
+    phase "adapter_only_audit"
+    "$GROOT_PY" "$REPO/scripts/tools/audit_quantvla_adapter_only.py" \
+        --run-root "$ROOT" --out "$ROOT/adapter_only_audit.json" --strict \
+        >"$ROOT/adapter_only_audit.log" 2>&1
     phase "complete"
 }
 

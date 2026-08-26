@@ -20,19 +20,33 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "code"))
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "tools"))
 
-from fit_softfold_compensation import GRID, fold_layers  # noqa: E402
-from gr00t_func_metrics import aggregate_d_pac_sequences, d_func, d_pac_sequence  # noqa: E402
+from fit_softfold_compensation import materialize_grid  # noqa: E402
 from gr00t_sensitivity_probe import run_rollouts  # noqa: E402
+from quantvla_cross_model_protocol import (  # noqa: E402
+    PROTOCOL,
+    PROTOCOL_SHA256,
+    protocol_artifact,
+    protocol_attestation,
+    validate_quant_plan,
+)
+from quantvla_metric_protocol import summarize_pair  # noqa: E402
+from quantvla_model_adapters import (  # noqa: E402
+    canonical_trajectory,
+    gr00t_rollout_inputs,
+    load_model_records,
+    record_metadata,
+    validate_calibration_artifact,
+)
 from gr00t_v2_common import (  # noqa: E402
     DEFAULT_EXCLUDE,
     DEFAULT_INCLUDE,
     ensure_a8_calibrated,
     ensure_flash_attn_rpath,
-    fixed_calibration_buffer,
     load_policy,
     set_quant_env,
     strip_quant_env,
 )
+from gr00t.quantization import finalize_real_quant  # noqa: E402
 
 
 DEFAULT_CHECKPOINT = REPO_ROOT / (
@@ -41,20 +55,22 @@ DEFAULT_CHECKPOINT = REPO_ROOT / (
 )
 DEFAULT_PLAN = REPO_ROOT / (
     "checkpoints/packs/robocasa365/"
-    "gr00t_quant_plan_robocasa365_cscka_16to1_adjudicated.final_plan.json"
+    "quantvla_v1_uniform_w4a8.json"
 )
 DEFAULT_PACK = REPO_ROOT / (
     "checkpoints/packs/robocasa365/"
     "duquant_packed_robocasa365_protocolfix_d4_w4a8_b64c32ls015"
 )
 DEFAULT_A8 = REPO_ROOT / (
-    "checkpoints/packs/robocasa365/a8_scales_cscka_16to1_protocolfix_d4.npz"
+    "checkpoints/packs/robocasa365/a8_scales_quantvla_v1_w4a8_protocolfix_d4.npz"
 )
 DEFAULT_RAW = REPO_ROOT / (
     "checkpoints/packs/robocasa365/"
-    "atm_alpha_beta_static_cscka_16to1_protocolfix_d4.json"
+    "atm_alpha_beta_static_quantvla_v1_w4a8_protocolfix_d4.json"
 )
 DEFAULT_DATA_CONFIG = "examples.RoboCasa365.custom_data_config:RoboCasa365DataConfig"
+DEFAULT_BUFFER = protocol_artifact("selection_buffer", verify=False)
+DEFAULT_CALIBRATION_BUFFER = protocol_artifact("calibration_buffer", verify=False)
 
 
 def sha256_file(path: str | Path) -> str:
@@ -78,6 +94,20 @@ def sha256_tree(path: str | Path) -> str:
     return digest.hexdigest()
 
 
+def sha256_checkpoint(path: str | Path) -> str:
+    root = Path(path).expanduser().resolve()
+    files = [root] if root.is_file() else sorted(root.glob("*.safetensors"))
+    if not files:
+        raise FileNotFoundError(f"no checkpoint safetensors under {root}")
+    digest = hashlib.sha256()
+    for candidate in files:
+        digest.update(candidate.name.encode("utf-8") + b"\0")
+        with candidate.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
 def atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp.{os.getpid()}")
@@ -93,6 +123,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--a8", default=str(DEFAULT_A8))
     parser.add_argument("--raw-correction", default=str(DEFAULT_RAW))
     parser.add_argument("--data-config", default=DEFAULT_DATA_CONFIG)
+    parser.add_argument("--buffer", default=str(DEFAULT_BUFFER))
+    parser.add_argument(
+        "--artifact-calibration-buffer", default=str(DEFAULT_CALIBRATION_BUFFER)
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--n-obs", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -105,60 +139,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def config_id(gate_atm: float, gate_ohb: float) -> str:
-    return f"softfold_a{int(round(gate_atm * 8)):02d}_b{int(round(gate_ohb * 8)):02d}"
-
-
 def materialize_candidates(raw_path: Path, grid_dir: Path) -> dict[str, dict[str, Any]]:
-    raw = json.loads(raw_path.read_text(encoding="utf-8"))
-    raw_layers = raw.get("layers", raw)
-    if not isinstance(raw_layers, dict) or not raw_layers:
-        raise ValueError("raw correction artifact has no layers")
-    raw_meta = raw.get("meta", {}) if isinstance(raw, dict) else {}
-    registry: dict[str, dict[str, Any]] = {}
-    grid_dir.mkdir(parents=True, exist_ok=True)
-    for gate_atm in GRID:
-        for gate_ohb in GRID:
-            layers, ohb_mode = fold_layers(
-                raw_layers,
-                gate_atm=gate_atm,
-                gate_ohb=gate_ohb,
-            )
-            identifier = config_id(gate_atm, gate_ohb)
-            path = grid_dir / f"{identifier}.json"
-            candidate = {
-                "schema_version": 1,
-                "kind": "softfold_grid_candidate",
-                "meta": {
-                    **raw_meta,
-                    "metric": "d_pac_v1",
-                    "ohb_mode": ohb_mode,
-                    "atm_application": "fold_q_weight",
-                    "ohb_application": "fold_o_weight_perhead",
-                    "selector_free": True,
-                },
-                "gate": {"atm": gate_atm, "ohb": gate_ohb},
-                "layers": layers,
-                "selection": {
-                    "uses_task_labels": False,
-                    "uses_rollout_success": False,
-                    "status": "grid_candidate_not_selected",
-                },
-            }
-            rendered = json.dumps(candidate, indent=2, sort_keys=True) + "\n"
-            if path.exists() and path.read_text(encoding="utf-8") != rendered:
-                raise ValueError(f"frozen grid candidate drift: {path}")
-            if not path.exists():
-                path.write_text(rendered, encoding="utf-8")
-            registry[identifier] = {
-                "path": path,
-                "gate": candidate["gate"],
-                "ohb_mode": ohb_mode,
-            }
-    return registry
+    return materialize_grid(raw_path=raw_path, output_dir=grid_dir)
 
 
 def score(args: argparse.Namespace) -> dict[str, Any]:
+    if float(args.gamma) != float(PROTOCOL["metrics"]["d_func"]["gamma"]):
+        raise ValueError("adapter-only protocol freezes gamma=1.2")
+    if int(args.denoising_steps) != int(PROTOCOL["closed_loop"]["flow_steps"]):
+        raise ValueError("adapter-only protocol freezes four denoising steps")
     if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
         raise ValueError("invalid SoftFold grid shard")
     if args.n_obs < 1 or args.batch_size < 1:
@@ -168,9 +157,11 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
     pack_dir = Path(args.pack_dir).expanduser().resolve()
     a8 = Path(args.a8).expanduser().resolve()
     raw = Path(args.raw_correction).expanduser().resolve()
+    buffer_path = Path(args.buffer).expanduser().resolve()
+    artifact_buffer_path = Path(args.artifact_calibration_buffer).expanduser().resolve()
     grid_dir = Path(args.grid_dir).expanduser().resolve()
     output = Path(args.out).expanduser().resolve()
-    for path in (checkpoint / "config.json", plan, a8, raw):
+    for path in (checkpoint / "config.json", plan, a8, raw, buffer_path, artifact_buffer_path):
         if not path.is_file():
             raise FileNotFoundError(path)
     if not pack_dir.is_dir():
@@ -188,18 +179,32 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
 
     a8_meta_path = Path(str(a8) + ".meta.json")
     a8_meta = json.loads(a8_meta_path.read_text(encoding="utf-8")) if a8_meta_path.is_file() else {}
+    calibration_attestation = validate_calibration_artifact(
+        a8,
+        model="gr00t",
+        expected_buffer_sha256=sha256_file(artifact_buffer_path),
+    )
+    quant_selection_attestation = validate_quant_plan(
+        json.loads(plan.read_text(encoding="utf-8")),
+        model="gr00t",
+        source=str(plan),
+    )
     payload: dict[str, Any] = {
         "schema_version": 1,
         "kind": "gr00t_softfold_grid_score",
+        "cross_model_protocol": protocol_attestation(),
         "checkpoint": str(checkpoint),
-        "checkpoint_sha256": sha256_file(checkpoint / "config.json"),
+        "checkpoint_sha256": sha256_checkpoint(checkpoint),
         "plan": str(plan),
         "plan_sha256": sha256_file(plan),
         "pack_dir": str(pack_dir),
         "pack_dir_sha256": sha256_tree(pack_dir),
         "a8": str(a8),
         "a8_sha256": sha256_file(a8),
-        "artifact_calibration_buffer_sha256": a8_meta.get("buffer_sha256"),
+        "artifact_calibration_buffer_sha256": sha256_file(artifact_buffer_path),
+        "artifact_declared_buffer_sha256": a8_meta.get("buffer_sha256"),
+        "calibration_attestation": calibration_attestation,
+        "quantization_selection": quant_selection_attestation,
         "raw_correction": str(raw),
         "raw_correction_sha256": sha256_file(raw),
         "selection_metric": "d_pac",
@@ -218,7 +223,12 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
         },
         "source_sha256": {
             "scorer": sha256_file(Path(__file__)),
-            "d_pac_metrics": sha256_file(REPO_ROOT / "scripts/tools/gr00t_func_metrics.py"),
+            "metric_protocol": sha256_file(
+                REPO_ROOT / "scripts/tools/quantvla_metric_protocol.py"
+            ),
+            "model_adapter": sha256_file(
+                REPO_ROOT / "scripts/tools/quantvla_model_adapters.py"
+            ),
             "softfold_fitter": sha256_file(
                 REPO_ROOT / "scripts/tools/fit_softfold_compensation.py"
             ),
@@ -234,6 +244,7 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
             "a8_sha256",
             "raw_correction_sha256",
             "pack_dir_sha256",
+            "cross_model_protocol",
             "n_obs",
             "gamma",
             "softfold_grid_shard",
@@ -254,28 +265,28 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
     )
     horizon = int(fp16.model.action_head.config.action_horizon)
     action_dim = int(fp16.model.action_head.config.action_dim)
-    observations, noises, scoring_buffer_sha = fixed_calibration_buffer(
-        0,
-        args.n_obs,
-        horizon,
-        action_dim,
-        fmt="robocasa365",
+    if (horizon, action_dim) != (16, 32):
+        raise ValueError(f"GR00T adapter shape drift: {(horizon, action_dim)}")
+    records, buffer_provenance = load_model_records(
+        buffer_path, args.n_obs, model="gr00t"
     )
-    payload["buffer_sha256"] = scoring_buffer_sha
+    observations, noises = gr00t_rollout_inputs(records)
+    details = record_metadata(records)
+    payload["buffer"] = str(buffer_path)
+    payload["buffer_sha256"] = buffer_provenance["sha256"]
+    payload["records"] = details
+    payload["model_adapter"] = buffer_provenance["adapter"]
     reference = run_rollouts(fp16.model, fp16, observations, noises, args.batch_size)
     del fp16
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    warm_obs, warm_noises, warm_sha = fixed_calibration_buffer(
-        0,
-        32 * args.batch_size,
-        horizon,
-        action_dim,
-        fmt="robocasa365",
+    warm_records, warm_provenance = load_model_records(
+        artifact_buffer_path, 32 * args.batch_size, model="gr00t"
     )
-    payload["a8_reproduction_buffer_sha256"] = warm_sha
+    warm_obs, warm_noises = gr00t_rollout_inputs(warm_records)
+    payload["a8_reproduction_buffer_sha256"] = warm_provenance["sha256"]
     expected_wrapped = sum(
         not bool(row.get("skip", not int(row.get("bits", 0) or 0)))
         and int(row.get("bits", 0) or 0) > 0
@@ -290,6 +301,7 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
         set_quant_env(DEFAULT_INCLUDE, DEFAULT_EXCLUDE, str(pack_dir))
         os.environ.update(
             {
+                "GR00T_DUQUANT_FUSED": "1",
                 "GR00T_DUQUANT_PLAN": str(plan),
                 "GR00T_DUQUANT_ACT_SCALE_PATH": str(a8),
                 "GR00T_ATM_ENABLE": "1",
@@ -317,33 +329,33 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
             expected_wrapped=expected_wrapped,
             act_scale_path=str(a8),
         )
+        real_quant = finalize_real_quant(policy.model)
+        if not real_quant["packed_low_bit_residency"]:
+            raise RuntimeError(f"{identifier}: packed W4 residency was not finalized")
         runtime = getattr(policy.model, "_gr00t_atm_runtime", {})
         if not runtime.get("enabled") or not runtime.get("selector_free"):
             raise RuntimeError(f"{identifier}: selector-free SoftFold was not loaded: {runtime}")
         trajectory = run_rollouts(policy.model, policy, observations, noises, args.batch_size)
-        func = d_func(reference, trajectory, args.gamma)
-        sequences = [
-            d_pac_sequence(
-                reference[:, index : index + 1],
-                trajectory[:, index : index + 1],
-                [0],
-                executed_actions=min(16, horizon),
-                gamma=args.gamma,
-            )
-            for index in range(args.n_obs)
-        ]
-        pac = aggregate_d_pac_sequences(sequences)
+        pair = summarize_pair(
+            canonical_trajectory(reference, model="gr00t"),
+            canonical_trajectory(trajectory, model="gr00t"),
+            details,
+        )
+        func = pair["d_func_summary"]
+        pac = pair["d_pac_summary"]
         payload["scores"][identifier] = {
             "gate": registry[identifier]["gate"],
             "artifact": str(registry[identifier]["path"]),
             "artifact_sha256": sha256_file(registry[identifier]["path"]),
             "wrapped_layers": expected_wrapped,
             "atm_runtime": runtime,
+            "real_quant_residency": real_quant,
             "d_func": float(func["d_func"]),
             "d_func_summary": func,
             "per_obs": [float(value) for value in func["per_obs"]],
             "d_pac": float(pac["d_pac"]),
             "d_pac_summary": pac,
+            "cross_model_protocol_sha256": PROTOCOL_SHA256,
             "elapsed_s": time.time() - started,
         }
         atomic_json(output, payload)
@@ -364,7 +376,9 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
         "value": payload["scores"][best]["d_pac"],
         "d_func": payload["scores"][best]["d_func"],
         "d_pac": payload["scores"][best]["d_pac"],
-        "selection_rule": "minimum original-FP16-relative D_PAC on the frozen scoring buffer",
+        "selection_rule": "diagnostic_argmin_only",
+        "final_selection_rule": "one_standard_error_then_minimum_gate_amplitude",
+        "status": "diagnostic_argmin_only_final_selection_uses_shared_one_standard_error_rule",
     }
     atomic_json(output, payload)
     return payload

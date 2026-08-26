@@ -17,7 +17,6 @@ from pathlib import Path
 import sys
 import time
 from typing import Any
-from collections import defaultdict
 
 import numpy as np
 import torch
@@ -30,24 +29,37 @@ sys.path.insert(0, str(OPENPI_ROOT / "packages" / "openpi-client" / "src"))
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "tools"))
 
 from openpi.policies import policy_config  # noqa: E402
-from openpi.quant import enable_duquant_if_configured, enable_pi05_atm_if_configured  # noqa: E402
+from openpi.quant import (  # noqa: E402
+    enable_duquant_if_configured,
+    enable_pi05_atm_if_configured,
+    finalize_real_quant,
+)
 from openpi.quant import sha256_file  # noqa: E402
 from openpi.training import config  # noqa: E402
-from gr00t_func_metrics import aggregate_d_pac_sequences  # noqa: E402
-from pi05_func_metrics import d_func, d_pac_sequence  # noqa: E402
-from pi05_sensitivity_probe import load_records, run_records  # noqa: E402
-from fit_softfold_compensation import GRID, fold_layers  # noqa: E402
+from pi05_sensitivity_probe import run_records  # noqa: E402
+from fit_softfold_compensation import materialize_grid  # noqa: E402
+from quantvla_cross_model_protocol import (  # noqa: E402
+    PROTOCOL,
+    PROTOCOL_SHA256,
+    protocol_artifact,
+    protocol_attestation,
+    validate_quant_plan,
+)
+from quantvla_metric_protocol import summarize_pair  # noqa: E402
+from quantvla_model_adapters import (  # noqa: E402
+    canonical_trajectory,
+    load_model_records,
+    record_metadata,
+    validate_calibration_artifact,
+)
 
 
 CHECKPOINT_SHA256 = "4174133479c6a51d79cac90d6a1739f32f928624eb529bf791cd5be942afdf1c"
 DEFAULT_CHECKPOINT = REPO_ROOT / "checkpoints/robocasa/pi05_pretrain_human300_pytorch"
 DEFAULT_PACK = REPO_ROOT / "runs/pi05_gdsq_port/packs/pi05_robocasa_block64_w4a8_ls015"
-DEFAULT_BUFFER = (
-    REPO_ROOT
-    / "runs/pi05_gdsq_gr00t_aligned/diagnostics/task_reset_probe/task_reset_4x4_target_n32.npz"
-)
-DEFAULT_ORIGINAL_CALIBRATION_BUFFER = (
-    REPO_ROOT / "runs/pi05_gdsq_gr00t_aligned/calibration/pi05_robocasa365_seed0_n256.npz"
+DEFAULT_BUFFER = protocol_artifact("selection_buffer", verify=False)
+DEFAULT_ORIGINAL_CALIBRATION_BUFFER = protocol_artifact(
+    "calibration_buffer", verify=False
 )
 ALIGNED_ROOT = REPO_ROOT / "runs/pi05_gdsq_gr00t_aligned"
 
@@ -135,8 +147,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--pac-overlap-weight",
         type=float,
-        default=0.1,
-        help="Low-weight pi0.5 16:50 forecast-overlap coefficient in D_PAC.",
+        default=0.0,
+        help="Compatibility flag; the adapter-only protocol requires exactly 0.",
     )
     parser.add_argument(
         "--include",
@@ -165,7 +177,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--softfold-base",
         choices=tuple(DEFAULT_CONFIGS),
-        default="gdsq_vla_atmohb",
+        default="quantvla_w4a8_atmohb",
         help="Quant plan/A8 configuration held fixed during the SoftFold grid.",
     )
     parser.add_argument(
@@ -194,58 +206,18 @@ def materialize_softfold_grid(
     base_spec: dict[str, Any],
     output_dir: Path,
 ) -> dict[str, dict[str, Any]]:
-    raw = json.loads(raw_path.read_text(encoding="utf-8"))
-    raw_layers = raw.get("layers", raw)
-    raw_meta = raw.get("meta", {}) if isinstance(raw, dict) else {}
-    if not isinstance(raw_layers, dict) or not raw_layers:
-        raise ValueError("SoftFold raw artifact has no layers")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    registry: dict[str, dict[str, Any]] = {}
-    for gate_atm in GRID:
-        for gate_ohb in GRID:
-            layers, ohb_mode = fold_layers(
-                raw_layers,
-                gate_atm=gate_atm,
-                gate_ohb=gate_ohb,
-            )
-            config_id = f"softfold_a{int(round(gate_atm * 8)):02d}_b{int(round(gate_ohb * 8)):02d}"
-            path = output_dir / f"{config_id}.json"
-            payload = {
-                "schema_version": 1,
-                "kind": "softfold_grid_candidate",
-                "meta": {
-                    **raw_meta,
-                    "metric": "d_pac_v1",
-                    "ohb_mode": ohb_mode,
-                    "atm_application": "fold_q_weight",
-                    "ohb_application": "fold_o_weight_perhead",
-                    "selector_free": True,
-                },
-                "gate": {"atm": gate_atm, "ohb": gate_ohb},
-                "layers": layers,
-                "selection": {
-                    "uses_task_labels": False,
-                    "uses_rollout_success": False,
-                    "status": "grid_candidate_not_selected",
-                },
-            }
-            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            registry[config_id] = {
-                **base_spec,
-                "atm": path,
-                "atm_enable": True,
-                "ohb_enable": True,
-                "gate": {"atm": gate_atm, "ohb": gate_ohb},
-                "atm_application": "fold_q_weight",
-                "ohb_application": "fold_o_weight_perhead",
-            }
-    return registry
+    return materialize_grid(
+        raw_path=raw_path,
+        output_dir=output_dir,
+        base_spec=base_spec,
+    )
 
 
 def clear_quant_environment() -> None:
     for key in list(os.environ):
         if key.startswith(("OPENPI_DUQUANT_", "OPENPI_ATM_", "OPENPI_OHB_")):
             os.environ.pop(key, None)
+    os.environ.pop("QUANTVLA_ADAPTER_ONLY", None)
 
 
 def configure_base() -> None:
@@ -291,7 +263,7 @@ def configure_quant(
             "OPENPI_DUQUANT_CALIB_BUFFER_SHA256": artifact_buffer_hash,
             "OPENPI_DUQUANT_STRICT_ARTIFACTS": "1" if strict_artifacts else "0",
             "OPENPI_DUQUANT_PRECACHE_WEIGHTS": "1",
-            "OPENPI_DUQUANT_TRITON": "0",
+            "OPENPI_DUQUANT_TRITON": "1",
             "OPENPI_DUQUANT_QUIET": "1",
         }
     )
@@ -331,98 +303,16 @@ def load_policy(checkpoint_dir: Path, device: str):
     return policy
 
 
-def _mean_by_key(values: list[float], records: list[dict[str, Any]], key: str) -> dict[str, float]:
-    groups: dict[str, list[float]] = defaultdict(list)
-    for value, record in zip(values, records):
-        if key in record:
-            groups[str(record[key])].append(float(value))
-    return {name: float(np.mean(items)) for name, items in sorted(groups.items())}
-
-
-def _mean_by_replan_bin(values: list[float], records: list[dict[str, Any]]) -> dict[str, float]:
-    groups: dict[str, list[float]] = defaultdict(list)
-    for value, record in zip(values, records):
-        if "replan" not in record:
-            continue
-        replan = int(record["replan"])
-        groups[f"{(replan // 4) * 4:02d}-{(replan // 4) * 4 + 3:02d}"].append(float(value))
-    return {name: float(np.mean(items)) for name, items in sorted(groups.items())}
-
-
-def summarize_metrics(metrics: dict[str, Any], records: list[dict[str, Any]]) -> dict[str, Any]:
-    per_obs = [float(value) for value in metrics["per_obs"]]
-    return {
-        "d_func": float(metrics["d_func"]),
-        "d_solver": float(metrics["d_solver"]),
-        "d_final": float(metrics["d_final"]),
-        "d_kin": float(metrics["d_kin"]),
-        "d_grip": float(metrics["d_grip"]),
-        "tail_cvar90": float(metrics["tail"]["cvar90"]),
-        "per_dim": metrics["per_dim"],
-        "per_obs": per_obs,
-        "by_task": _mean_by_key(per_obs, records, "task"),
-        "by_replan": _mean_by_key(per_obs, records, "replan"),
-        "by_replan_bin": _mean_by_replan_bin(per_obs, records),
-    }
-
-
-def summarize_d_pac(
-    reference: torch.Tensor,
-    candidate: torch.Tensor,
-    records: list[dict[str, Any]],
-    *,
-    overlap_weight: float,
-    gamma: float,
-) -> dict[str, Any]:
-    """Group paired trajectories by task/seed and aggregate sequence-level CVaR.
-
-    Buffers without replan metadata are handled conservatively as independent
-    one-observation action-prefix sequences; unrelated observations are never
-    presented as a synthetic control-time rollout.
-    """
-    groups: dict[tuple[str, int, int | None], list[int]] = defaultdict(list)
-    has_replans = all("replan" in record for record in records)
-    for index, record in enumerate(records):
-        identity = (str(record.get("task", "unknown")), int(record.get("seed", -1)))
-        singleton = None if has_replans else index
-        groups[(*identity, singleton)].append(index)
-
-    sequence_rows = []
-    for (task, seed, _singleton), positions in sorted(groups.items()):
-        replans = [int(records[index].get("replan", 0)) for index in positions]
-        selected = torch.tensor(positions, dtype=torch.long)
-        result = d_pac_sequence(
-            reference.index_select(1, selected),
-            candidate.index_select(1, selected),
-            replans,
-            overlap_weight=overlap_weight,
-            gamma=gamma,
-        )
-        sequence_rows.append(
-            {
-                "task": task,
-                "seed": seed,
-                "record_indices": positions,
-                **result,
-            }
-        )
-    aggregate = aggregate_d_pac_sequences(sequence_rows, tail_weight=1.0, cvar_alpha=0.9)
-    return {
-        **aggregate,
-        "metric": "d_pac_v1",
-        "teacher": "original_fp16",
-        "overlap_weight": float(overlap_weight),
-        "sequence_grouping": "task_seed_replan" if has_replans else "independent_action_prefix",
-        "sequences": sequence_rows,
-    }
-
-
 def digest_path(path: Path | None) -> str | None:
     return sha256_file(path) if path is not None and path.is_file() else None
 
 
 def main() -> None:
     args = parse_args()
+    if float(args.gamma) != float(PROTOCOL["metrics"]["d_func"]["gamma"]):
+        raise ValueError("adapter-only protocol freezes gamma=1.2")
+    if float(args.pac_overlap_weight) != 0.0:
+        raise ValueError("pi0.5-only forecast overlap is forbidden")
     registry = dict(DEFAULT_CONFIGS)
     if args.softfold_grid:
         if not args.softfold_raw:
@@ -462,28 +352,35 @@ def main() -> None:
     buffer_path = Path(args.buffer).expanduser().resolve()
     pack_dir = Path(args.pack_dir).expanduser().resolve()
     artifact_buffer_hash = sha256_file(Path(args.artifact_calibration_buffer).expanduser().resolve())
-    records = load_records(buffer_path, args.n_obs)
-
-    record_details = [{"task": row["task"], "seed": row["seed"]} for row in records]
-    with np.load(buffer_path, allow_pickle=False) as archive:
-        if "env_steps" in archive.files:
-            env_steps = archive["env_steps"][: args.n_obs]
-            for row, env_step in zip(record_details, env_steps):
-                row["env_step"] = int(env_step)
-        if "replan_indices" in archive.files:
-            replans = archive["replan_indices"][: args.n_obs]
-            for row, replan in zip(record_details, replans):
-                row["replan"] = int(replan)
+    calibration_attestation = validate_calibration_artifact(
+        DEFAULT_CONFIGS[args.softfold_base]["a8"] if args.softfold_grid else registry[config_ids[0]]["a8"],
+        model="pi05",
+        expected_buffer_sha256=artifact_buffer_hash,
+    )
+    base_plan_path = Path(DEFAULT_CONFIGS[args.softfold_base]["plan"]).resolve()
+    quant_selection_attestation = validate_quant_plan(
+        json.loads(base_plan_path.read_text(encoding="utf-8")),
+        model="pi05",
+        source=str(base_plan_path),
+    )
+    records, buffer_provenance = load_model_records(
+        buffer_path, args.n_obs, model="pi05"
+    )
+    record_details = record_metadata(records)
 
     payload: dict[str, Any] = {
         "schema_version": 1,
         "kind": "fp16_guided_quant_config_score",
+        "cross_model_protocol": protocol_attestation(),
+        "model_adapter": buffer_provenance["adapter"],
         "checkpoint_dir": str(checkpoint_dir),
         "checkpoint_sha256": sha256_file(checkpoint_dir / "model.safetensors"),
         "buffer": str(buffer_path),
-        "buffer_sha256": sha256_file(buffer_path),
+        "buffer_sha256": buffer_provenance["sha256"],
         "artifact_calibration_buffer_sha256": artifact_buffer_hash,
         "strict_artifacts": bool(args.strict_artifacts),
+        "calibration_attestation": calibration_attestation,
+        "quantization_selection": quant_selection_attestation,
         "n_obs": args.n_obs,
         "gamma": args.gamma,
         "selection_metric": args.selection_metric,
@@ -501,7 +398,7 @@ def main() -> None:
             else None
         ),
         "quant_plan_sha256": (
-            sha256_file(Path(DEFAULT_CONFIGS[args.softfold_base]["plan"]).resolve())
+            sha256_file(base_plan_path)
             if args.softfold_grid
             else None
         ),
@@ -517,7 +414,12 @@ def main() -> None:
         ),
         "source_sha256": {
             "scorer": sha256_file(Path(__file__)),
-            "d_pac_metrics": sha256_file(REPO_ROOT / "scripts/tools/pi05_func_metrics.py"),
+            "metric_protocol": sha256_file(
+                REPO_ROOT / "scripts/tools/quantvla_metric_protocol.py"
+            ),
+            "model_adapter": sha256_file(
+                REPO_ROOT / "scripts/tools/quantvla_model_adapters.py"
+            ),
             "softfold_fitter": sha256_file(
                 REPO_ROOT / "scripts/tools/fit_softfold_compensation.py"
             ),
@@ -546,6 +448,7 @@ def main() -> None:
             "a8_sha256",
             "raw_correction_sha256",
             "source_sha256",
+            "cross_model_protocol",
         )
         if any(previous.get(key) != payload.get(key) for key in invariant_keys):
             raise ValueError(f"existing score shard provenance drift: {output}")
@@ -586,15 +489,18 @@ def main() -> None:
         if atm is not None:
             enable_pi05_atm_if_configured(policy._model)
             atm_runtime = getattr(policy._model, "_openpi_atm_runtime", {"enabled": False})
+        real_quant = finalize_real_quant(policy._model)
+        runtime = getattr(policy._model, "_openpi_duquant_runtime", runtime)
+        if not real_quant["packed_low_bit_residency"]:
+            raise RuntimeError(f"{config_id}: packed W4 residency was not finalized")
         trajectory, _actions, timings = run_records(policy, records, args.device, noise_index=0)
-        metrics = d_func(reference, trajectory, args.gamma)
-        pac_metrics = summarize_d_pac(
-            reference,
-            trajectory,
+        pair = summarize_pair(
+            canonical_trajectory(reference, model="pi05"),
+            canonical_trajectory(trajectory, model="pi05"),
             record_details,
-            overlap_weight=args.pac_overlap_weight,
-            gamma=args.gamma,
         )
+        metrics = pair["d_func_summary"]
+        pac_metrics = pair["d_pac_summary"]
         payload["scores"][config_id] = {
             "plan": str(plan),
             "plan_sha256": digest_path(plan),
@@ -604,10 +510,20 @@ def main() -> None:
             "atm_sha256": digest_path(atm),
             "wrapped_layers": int(runtime["wrapped_layers"]),
             "atm_enabled": bool(atm_runtime.get("enabled")),
+            "real_quant_residency": real_quant,
             "gate": spec.get("gate"),
-            **summarize_metrics(metrics, record_details),
+            "d_func": float(metrics["d_func"]),
+            "d_solver": float(metrics["d_solver"]),
+            "d_final": float(metrics["d_final"]),
+            "d_kin": float(metrics["d_kin"]),
+            "d_grip": float(metrics["d_grip"]),
+            "tail_cvar90": float(metrics["tail"]["cvar90"]),
+            "per_dim": metrics["per_dim"],
+            "per_obs": [float(value) for value in metrics["per_obs"]],
+            "d_func_summary": metrics,
             "d_pac": pac_metrics["d_pac"],
             "d_pac_summary": pac_metrics,
+            "cross_model_protocol_sha256": PROTOCOL_SHA256,
             "latency_mean_s": float(np.mean(timings)),
             "elapsed_s": time.time() - started,
         }
@@ -631,7 +547,9 @@ def main() -> None:
         "value": payload["scores"][best][metric_key],
         "d_func": payload["scores"][best]["d_func"],
         "d_pac": payload["scores"][best]["d_pac"],
-        "selection_rule": f"minimum FP16-teacher {metric_key} on the frozen scoring buffer",
+        "selection_rule": "diagnostic_argmin_only",
+        "final_selection_rule": "one_standard_error_then_minimum_gate_amplitude",
+        "status": "diagnostic_argmin_only_final_selection_uses_shared_one_standard_error_rule",
     }
     atomic_json(output, payload)
     print(

@@ -164,20 +164,29 @@ class DuQuantLinear(nn.Module):
 
         # Cache transformed weight
         self._cached_weight_key: Optional[Tuple[str, torch.dtype]] = None
-        self.register_buffer("_W_t", torch.zeros_like(self._weight))
+        self.register_buffer(
+            "_W_t", None if self.cfg.use_fused else torch.zeros_like(self._weight)
+        )
         self.register_buffer("_w_scales", torch.ones(self.out_features, dtype=self._weight.dtype))
 
         # Pre-cache quantized weights
-        self._precache_weight = os.environ.get("GR00T_DUQUANT_PRECACHE_WEIGHTS", "1") not in (
-            "0", "false", "False",
+        self._precache_weight = (
+            not self.cfg.use_fused
+            and os.environ.get("GR00T_DUQUANT_PRECACHE_WEIGHTS", "1")
+            not in ("0", "false", "False")
         )
         if self._precache_weight:
             self.register_buffer("_W_t_quantized", torch.zeros_like(self._weight))
         else:
             self._W_t_quantized = None
-        self.register_buffer("_W_packed_int8", torch.zeros(
-            self.out_features, self.in_features, dtype=torch.int8))
+        self.register_buffer(
+            "_W_packed_u4",
+            torch.zeros(
+                self.out_features, (self.in_features + 1) // 2, dtype=torch.uint8
+            ),
+        )
         self._fused_ready = False
+        self._inference_only_ready = False
         self._weight_quantized_cached = False
 
         self._bias_rot: Optional[torch.Tensor] = None
@@ -202,15 +211,21 @@ class DuQuantLinear(nn.Module):
 
     @property
     def weight(self) -> torch.Tensor:
-        """Expose packed weight buffer for compatibility."""
+        """Expose the foldable FP weight until real-quant finalization."""
+        if self._weight is None:
+            raise RuntimeError(f"{self.name}: FP weight was released for real-quant inference")
         return self._weight
 
     @weight.setter
     def weight(self, value: torch.Tensor) -> None:
+        if self._weight is None:
+            raise RuntimeError(f"{self.name}: cannot mutate a finalized real-quant layer")
         with torch.no_grad():
             self._weight.copy_(value)
 
     def _maybe_update_weight_cache(self) -> None:
+        if self._inference_only_ready:
+            return
         apply_row = (self.cfg.row_rot_mode != "0")
         key = (str(self._weight.device), self._weight.dtype, int(self.weight_bits), int(apply_row))
         if self._cached_weight_key == key:
@@ -229,7 +244,8 @@ class DuQuantLinear(nn.Module):
             block_size=self._block_size,
             block_out_size=self._block_out_size,
         )
-        self._W_t.copy_(W_t)
+        if self._W_t is not None:
+            self._W_t.copy_(W_t)
         self._w_scales.copy_(scales)
 
         # Pre-quantize weights if enabled
@@ -244,10 +260,10 @@ class DuQuantLinear(nn.Module):
 
         # v1.4 fast-path probe: packed int8 weights for the Triton fused kernel
         if self.cfg.use_fused and self.weight_bits == 4:
-            from .duquant_fused import pack_w4_int8
+            from .duquant_fused import pack_w4_nibbles
 
             with torch.no_grad():
-                self._W_packed_int8.copy_(pack_w4_int8(W_t, scales))
+                self._W_packed_u4.copy_(pack_w4_nibbles(W_t, scales))
             self._fused_ready = True
         else:
             self._fused_ready = False
@@ -271,6 +287,23 @@ class DuQuantLinear(nn.Module):
             )
             if self._weight_quantized_cached:
                 logging.info(f"[GR00T-DUQUANT][CACHE] {self.name} pre-quantized weights cached")
+
+    def finalize_real_quant(self) -> int:
+        """Freeze packed W4 residency and release all FP weight-sized buffers."""
+        if self._inference_only_ready:
+            return int(self._W_packed_u4.numel())
+        if not self.cfg.use_fused or self.weight_bits != 4:
+            raise RuntimeError(f"{self.name}: real-quant finalization requires fused W4")
+        if self.cfg.act_bits > 0 and not self._act_scale_initialized:
+            raise RuntimeError(f"{self.name}: static A8 scale is not ready")
+        self._maybe_update_weight_cache()
+        if not self._fused_ready:
+            raise RuntimeError(f"{self.name}: packed W4 cache is not ready")
+        self._weight = None
+        self._W_t = None
+        self._W_t_quantized = None
+        self._inference_only_ready = True
+        return int(self._W_packed_u4.numel())
 
     def _get_act_scale(self, x: torch.Tensor) -> torch.Tensor:
         if self.cfg.act_bits <= 0:
@@ -356,9 +389,9 @@ class DuQuantLinear(nn.Module):
         if self.cfg.use_fused and self.weight_bits == 4 and self._fused_ready:
             # v1.4 fast-path probe: Triton fused W4-dequant matmul (same math
             # as the eager fake-quant path; fp32 accumulation in-kernel)
-            from .duquant_fused import fused_linear_w4
+            from .duquant_fused import fused_linear_w4_nibbles
 
-            y_lin = fused_linear_w4(x_t, self._W_packed_int8, self._w_scales)
+            y_lin = fused_linear_w4_nibbles(x_t, self._W_packed_u4, self._w_scales)
         elif self._weight_quantized_cached:
             y_lin = torch.nn.functional.linear(x_t, self._W_t_quantized, None)
         elif self.weight_bits > 0:
@@ -684,6 +717,22 @@ def static_scales_ready(model: nn.Module) -> bool:
     return bool(static_layers) and all(
         m._act_scale_initialized and m._act_scale is not None for m in static_layers
     )
+
+
+def finalize_real_quant(model: nn.Module) -> Dict[str, int | bool]:
+    """Finalize every DuQuant layer into inference-only packed W4 residency."""
+    layers = [m for m in model.modules() if isinstance(m, DuQuantLinear)]
+    if not layers:
+        raise RuntimeError("real-quant finalization found no DuQuant layers")
+    packed_bytes = sum(layer.finalize_real_quant() for layer in layers)
+    if not all(layer._inference_only_ready for layer in layers):
+        raise RuntimeError("real-quant finalization is incomplete")
+    return {
+        "layers": len(layers),
+        "packed_weight_bytes": int(packed_bytes),
+        "fp_weight_sized_buffers": 0,
+        "packed_low_bit_residency": True,
+    }
 
 
 def save_act_scales(model: nn.Module, path: str, meta: Optional[Dict[str, Any]] = None) -> None:

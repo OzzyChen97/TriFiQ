@@ -11,9 +11,15 @@ import os
 from pathlib import Path
 from typing import Any, Iterable
 
+from quantvla_cross_model_protocol import (
+    PROTOCOL,
+    PROTOCOL_SHA256,
+    protocol_attestation,
+    validate_closed_loop_row,
+)
 
 REPO = Path(__file__).resolve().parents[2]
-MANIFEST = REPO / "scripts/dpac_softfold_15x20_manifest.json"
+MANIFEST = REPO / "scripts/quantvla_cross_model_protocol.json"
 TASK_SET_ALIASES = {"composite_unseen_long": "composite_unseen"}
 
 
@@ -33,6 +39,8 @@ def atomic_text(path: Path, value: str) -> None:
 
 
 def expected_layout(manifest: dict[str, Any]) -> tuple[dict[str, str], set[tuple[str, int]]]:
+    if "closed_loop" in manifest:
+        manifest = manifest["closed_loop"]
     task_to_set: dict[str, str] = {}
     for raw_set, tasks in manifest["tasks"].items():
         task_set = TASK_SET_ALIASES.get(raw_set, raw_set)
@@ -79,6 +87,9 @@ def read_rows(
             if not allow_attestation and row.get("status") not in (None, "complete"):
                 raise ValueError(f"{path}:{line_number}: selected row is not complete")
             normalized = dict(row)
+            validate_closed_loop_row(
+                normalized, source=f"{path}:{line_number}"
+            )
             normalized.update(
                 {
                     "model": model,
@@ -152,6 +163,9 @@ def summarize_config(
         "successes": successes,
         "episodes": len(rows),
         "success_rate": successes / len(rows),
+        "task_macro_success_rate": sum(
+            row["success_rate"] for row in by_task.values()
+        ) / len(by_task),
         "by_task_set": by_task_set,
         "by_task": by_task,
     }
@@ -179,26 +193,16 @@ def comparison(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=str(REPO / "runs/dpac_softfold_15x20_v1"))
+    parser.add_argument(
+        "--root", default=str(REPO / "runs/dpac_softfold_adapter_only_v2")
+    )
     args = parser.parse_args()
     root = Path(args.root).expanduser().resolve()
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     task_to_set, expected = expected_layout(manifest)
+    closed_loop_manifest = manifest.get("closed_loop", manifest)
 
-    gr00t_control_roots = {
-        "atomic_seen": REPO / "runs/robocasa365_official_full_atomic_paired50",
-        "composite_seen": REPO / "runs/robocasa365_official_full_composite_seen_paired50",
-        "composite_unseen": REPO / "runs/robocasa365_official_full_composite_unseen_paired50",
-    }
     sources: dict[tuple[str, str], tuple[list[Path], bool]] = {
-        ("gr00t", "current_gdsq"): (
-            [path for directory in gr00t_control_roots.values() for path in directory.glob("cscka_final_s*.jsonl")],
-            False,
-        ),
-        ("gr00t", "hard_selector_v8"): (
-            [REPO / "runs/gdsq_week1_preregistered_v1/gr00t_selector_reuse/episode_attestation.jsonl"],
-            True,
-        ),
         ("gr00t", "softfold_dfunc"): (
             list((root / "closed_loop/gr00t").glob("*/softfold_dfunc_s*.jsonl")),
             False,
@@ -207,20 +211,12 @@ def main() -> None:
             list((root / "closed_loop/gr00t").glob("*/softfold_dpac_s*.jsonl")),
             False,
         ),
-        ("pi05", "current_gdsq"): (
-            list((REPO / "runs/pi05_gdsq_gr00t_aligned/official_target_paired50/results/gdsq_vla").glob("*.jsonl")),
-            False,
-        ),
-        ("pi05", "hard_selector_v8"): (
-            list((REPO / "runs/gdsq_week1_preregistered_v1/pi05_selector_official50/results/gdsq_vla_runtime_selector").glob("*.jsonl")),
-            False,
-        ),
         ("pi05", "softfold_dfunc"): (
-            list((root / "closed_loop/pi05/results/gdsq_vla_softfold_dfunc").glob("*.jsonl")),
+            list((root / "closed_loop/pi05/results/quantvla_w4a8_softfold_dfunc").glob("*.jsonl")),
             False,
         ),
         ("pi05", "softfold_dpac"): (
-            list((root / "closed_loop/pi05/results/gdsq_vla_softfold_dpac").glob("*.jsonl")),
+            list((root / "closed_loop/pi05/results/quantvla_w4a8_softfold_dpac").glob("*.jsonl")),
             False,
         ),
     }
@@ -246,23 +242,20 @@ def main() -> None:
         atomic_text(output, rendered)
 
     summary: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "dpac_softfold_15x20_closed_loop_summary",
+        "cross_model_protocol": protocol_attestation(),
+        "cross_model_protocol_sha256": PROTOCOL_SHA256,
         "manifest_sha256": provenance["manifest"]["sha256"],
         "tasks": len(task_to_set),
-        "seeds": len(manifest["seeds"]),
+        "seeds": len(closed_loop_manifest["seeds"]),
         "episodes_per_config": len(expected),
         "models": {},
     }
     for model, configs in sorted(all_rows.items()):
         model_summary = {
             "configs": {name: summarize_config(rows, task_to_set) for name, rows in sorted(configs.items())},
-            "paired_vs_current_gdsq": {},
         }
-        baseline = configs["current_gdsq"]
-        for config, rows in sorted(configs.items()):
-            if config != "current_gdsq":
-                model_summary["paired_vs_current_gdsq"][config] = comparison(baseline, rows)
         model_summary["paired_dpac_vs_dfunc"] = comparison(
             configs["softfold_dfunc"], configs["softfold_dpac"]
         )

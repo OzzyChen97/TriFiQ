@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 import socket
 import json
+import sys
 
 import tyro
 import torch
@@ -32,8 +33,18 @@ from openpi.training import config as _config
 
 from openpi.quant import enable_duquant_if_configured
 from openpi.quant import enable_pi05_atm_if_configured
+from openpi.quant import finalize_real_quant
 from openpi.quant import configure_runtime_selector_from_env
 from openpi_client.paired_noise import PROTOCOL as PAIRED_NOISE_PROTOCOL
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "tools"))
+from quantvla_cross_model_protocol import (  # noqa: E402
+    adapter_attestation,
+    closed_loop_runtime_protocol,
+    protocol_attestation,
+    validate_quant_plan,
+)
 
 
 class EnvMode(enum.Enum):
@@ -107,9 +118,18 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
     policy._sample_kwargs["num_steps"] = int(denoising_steps)
     runtime_selector = configure_runtime_selector_from_env()
     model = policy._model
+    adapter_only = os.environ.get("QUANTVLA_ADAPTER_ONLY", "0") not in (
+        "0", "false", "False", ""
+    )
     duquant_runtime = enable_duquant_if_configured(model)
     model.to("cuda")
     enable_pi05_atm_if_configured(model)
+    if adapter_only and duquant_runtime.get("enabled"):
+        residency = finalize_real_quant(model)
+        duquant_runtime = getattr(model, "_openpi_duquant_runtime")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logging.info("real-quant finalized: %s", residency)
     atm_runtime = getattr(model, "_openpi_atm_runtime", {"enabled": False, "matched_layers": 0})
     runtime = policy._metadata.setdefault("openpi_runtime", {})
     runtime["config_id"] = os.environ.get("OPENPI_CONFIG_ID", "unspecified")
@@ -126,17 +146,30 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
         else {"enabled": False}
     )
     quantization_contract = {
-        "logical_profile": "gdsq_vla" if duquant_runtime.get("enabled") else "fp16",
-        "quantization_method": (
-            "duquant_fake_quant" if duquant_runtime.get("enabled") else "none"
+        "logical_profile": (
+            "quantvla_adapter_only_w4a8"
+            if duquant_runtime.get("enabled") and adapter_only
+            else ("gdsq_vla" if duquant_runtime.get("enabled") else "fp16")
         ),
-        "layer_selection_policy": "architecture_specific_gdsq_sensitivity_plan",
+        "quantization_method": (
+            "real_quant_packed_w4_dequant_fp16_gemm"
+            if duquant_runtime.get("packed_low_bit_residency")
+            else ("duquant_fake_quant" if duquant_runtime.get("enabled") else "none")
+        ),
+        "layer_selection_policy": (
+            "all_model_adapter_bound_target_linear_layers_uniform_w4"
+            if adapter_only else "architecture_specific_gdsq_sensitivity_plan"
+        ),
         "weight_quantizer": "signed_symmetric_per_output_channel",
         "activation_quantizer": "signed_symmetric_per_input_channel",
         "execution_backend": duquant_runtime.get("execution_backend"),
         "integer_gemm": bool(duquant_runtime.get("integer_gemm", False)),
         "packed_low_bit_residency": bool(
             duquant_runtime.get("packed_low_bit_residency", False)
+        ),
+        "packed_weight_bytes": int(duquant_runtime.get("packed_weight_bytes", 0)),
+        "fp_weight_sized_buffers": int(
+            duquant_runtime.get("fp_weight_sized_buffers", 0)
         ),
         "weight_bits": int(duquant_runtime.get("weight_bits", 4)),
         "activation_bits": int(duquant_runtime.get("act_bits", 8)),
@@ -175,17 +208,18 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             quantization_contract, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
     ).hexdigest()
-    runtime["protocol"] = {
-        "action_horizon": int(model.config.action_horizon),
-        "n_action_steps": 16,
-        "replan_steps": 16,
-        "flow_steps": int(denoising_steps),
-        "split": "target",
-        "fresh_environment_per_episode": True,
-        "official_task_horizon": True,
-        "render": True,
-        "paired_noise": PAIRED_NOISE_PROTOCOL,
-    }
+    runtime["cross_model_protocol"] = protocol_attestation()
+    runtime["model_adapter"] = adapter_attestation(
+        "pi05", native_action_horizon=int(model.config.action_horizon)
+    )
+    runtime["protocol"] = closed_loop_runtime_protocol()
+    plan_path = Path(os.environ.get("OPENPI_DUQUANT_PLAN", "")).expanduser()
+    if duquant_runtime.get("enabled") and adapter_only and plan_path.is_file():
+        runtime["quantization_selection"] = validate_quant_plan(
+            json.loads(plan_path.read_text(encoding="utf-8")),
+            model="pi05",
+            source=str(plan_path.resolve()),
+        )
     native_rng_seed = os.environ.get("OPENPI_NATIVE_RNG_SEED")
     if native_rng_seed is not None:
         seed = int(native_rng_seed)
@@ -210,17 +244,7 @@ def _validate_formal_runtime(runtime: dict) -> None:
         return
 
     config_id = runtime["config_id"]
-    required_protocol = {
-        "action_horizon": 50,
-        "n_action_steps": 16,
-        "replan_steps": 16,
-        "flow_steps": 4,
-        "split": "target",
-        "fresh_environment_per_episode": True,
-        "official_task_horizon": True,
-        "render": True,
-        "paired_noise": PAIRED_NOISE_PROTOCOL,
-    }
+    required_protocol = closed_loop_runtime_protocol()
     protocol = runtime.get("protocol") or {}
     mismatches = {
         key: (protocol.get(key), value)
@@ -228,7 +252,7 @@ def _validate_formal_runtime(runtime: dict) -> None:
         if protocol.get(key) != value
     }
     if mismatches:
-        raise RuntimeError(f"formal protocol is not GR00T N1.5 aligned: {mismatches}")
+        raise RuntimeError(f"formal cross-model protocol mismatch: {mismatches}")
     expected_checkpoint_sha256 = os.environ.get("OPENPI_CHECKPOINT_SHA256")
     if not expected_checkpoint_sha256:
         raise RuntimeError("formal runtime missing OPENPI_CHECKPOINT_SHA256")
@@ -308,6 +332,8 @@ def _validate_formal_runtime(runtime: dict) -> None:
     expected = {
         "fp16": {"wrapped": 0, "enabled": False, "atm": False, "ohb": False},
         "quantvla_w4a8_atmohb": {"wrapped": 180, "enabled": True, "atm": True, "ohb": True},
+        "quantvla_w4a8_softfold_dfunc": {"wrapped": 180, "enabled": True, "atm": True, "ohb": True},
+        "quantvla_w4a8_softfold_dpac": {"wrapped": 180, "enabled": True, "atm": True, "ohb": True},
         "gdsq_vla_atmohb": {"wrapped": gdsq_wrapped, "enabled": True, "atm": True, "ohb": True},
         "gdsq_vla_atm_only": {"wrapped": gdsq_wrapped, "enabled": True, "atm": True, "ohb": False},
         "gdsq_vla_ohb_only": {"wrapped": gdsq_wrapped, "enabled": True, "atm": False, "ohb": True, "runtime_selector": False},
@@ -349,6 +375,8 @@ def _validate_formal_runtime(runtime: dict) -> None:
             "weight_bits": 4,
             "calib_batches": 32,
             "denoising_steps": 4,
+            "packed_low_bit_residency": True,
+            "fp_weight_sized_buffers": 0,
         }
         for key, value in required.items():
             if duquant.get(key) != value:
@@ -357,6 +385,19 @@ def _validate_formal_runtime(runtime: dict) -> None:
                 )
         if not duquant.get("plan_sha256") or not duquant.get("act_scale_sha256"):
             raise RuntimeError(f"{config_id}: missing plan/A8 runtime hashes")
+        if int(duquant.get("packed_weight_bytes", 0)) <= 0:
+            raise RuntimeError(f"{config_id}: packed W4 bytes were not materialized")
+        if config_id.startswith("quantvla_"):
+            selection = runtime.get("quantization_selection") or {}
+            if (
+                selection.get("rule")
+                != "all_model_adapter_bound_target_linear_layers_uniform_w4"
+                or int(selection.get("quantized_w4_layers", -1)) != wanted["wrapped"]
+                or int(selection.get("retained_fp16_target_layers", -1)) != 0
+            ):
+                raise RuntimeError(
+                    f"{config_id}: adapter-only quantization selection mismatch: {selection}"
+                )
     elif duquant.get("enabled"):
         raise RuntimeError("fp16: DuQuant was unexpectedly enabled")
 

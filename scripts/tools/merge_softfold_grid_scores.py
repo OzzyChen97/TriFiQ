@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from fit_softfold_compensation import GRID
+from quantvla_cross_model_protocol import require_protocol_attestation
 
 
 def canonical_gate(row: dict[str, Any]) -> tuple[float, float]:
@@ -37,6 +38,8 @@ def main() -> None:
         "raw_correction_sha256",
         "pack_dir_sha256",
         "source_sha256",
+        "cross_model_protocol",
+        "quantization_selection",
     )
     invariants: dict[str, Any] | None = None
     seen_gates: dict[tuple[float, float], str] = {}
@@ -44,6 +47,7 @@ def main() -> None:
     for raw_path in args.input:
         path = Path(raw_path).expanduser().resolve()
         payload = json.loads(path.read_text(encoding="utf-8"))
+        require_protocol_attestation(payload, source=str(path))
         current = {key: payload.get(key) for key in invariant_keys}
         if invariants is None:
             invariants = current
@@ -86,7 +90,8 @@ def main() -> None:
                 "value": float(scores[best_id][metric]),
                 "d_func": float(scores[best_id]["d_func"]),
                 "d_pac": float(scores[best_id]["d_pac"]),
-                "selection_rule": f"minimum FP16-teacher {metric} on the frozen scoring buffer",
+                "selection_rule": "diagnostic_argmin_only",
+                "final_selection_rule": "one_standard_error_then_minimum_gate_amplitude",
             },
         }
     )

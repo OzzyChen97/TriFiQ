@@ -226,14 +226,24 @@ class DuQuantLinear(nn.Module):
         self.register_buffer("_act_scale", None)
         self._act_scale_initialized = False
 
-        # Cache transformed weight
+        self._triton_enabled = os.environ.get("OPENPI_DUQUANT_TRITON", "0") not in (
+            "0", "false", "False"
+        )
+
+        # Cache transformed weight only for the eager diagnostic path.  The
+        # real-quant path packs one layer at a time and never allocates a
+        # model-sized FP transformed-weight cache.
         self._cached_weight_key: Optional[Tuple[str, torch.dtype]] = None
-        self.register_buffer("_W_t", torch.zeros_like(self._weight))
+        self.register_buffer(
+            "_W_t", None if self._triton_enabled else torch.zeros_like(self._weight)
+        )
         self.register_buffer("_w_scales", torch.ones(self.out_features, dtype=self._weight.dtype))
 
         # Pre-cache quantized weights
-        self._precache_weight = os.environ.get("OPENPI_DUQUANT_PRECACHE_WEIGHTS", "1") not in (
-            "0", "false", "False",
+        self._precache_weight = (
+            not self._triton_enabled
+            and os.environ.get("OPENPI_DUQUANT_PRECACHE_WEIGHTS", "1")
+            not in ("0", "false", "False")
         )
         if self._precache_weight:
             self.register_buffer("_W_t_quantized", torch.zeros_like(self._weight))
@@ -248,11 +258,21 @@ class DuQuantLinear(nn.Module):
         # Triton fused fast path (QuantVLA "fast" variant). Math is identical
         # to the eager path; the kernel is used only after act-scale
         # calibration has frozen (see forward()).
-        self._triton_enabled = os.environ.get("OPENPI_DUQUANT_TRITON", "0") not in ("0", "false", "False")
         self._triton_cache_key = None
         self._triton_perm32 = None
         self._triton_rin = None
         self._triton_rout = None
+        self.register_buffer(
+            "_W_packed_u4",
+            torch.zeros(
+                self.out_features,
+                (self.in_features + 1) // 2,
+                dtype=torch.uint8,
+                device=self._weight.device,
+            ),
+        )
+        self._fused_ready = False
+        self._inference_only_ready = False
 
     def _get_R_in_cache(self) -> Dict[int, torch.Tensor]:
         """Get R_in rotation matrices on the correct device."""
@@ -272,11 +292,15 @@ class DuQuantLinear(nn.Module):
 
     @property
     def weight(self) -> torch.Tensor:
-        """Expose packed weight buffer for compatibility."""
+        """Expose the foldable FP weight until real-quant finalization."""
+        if self._weight is None:
+            raise RuntimeError(f"{self.name}: FP weight was released for real-quant inference")
         return self._weight
 
     @weight.setter
     def weight(self, value: torch.Tensor) -> None:
+        if self._weight is None:
+            raise RuntimeError(f"{self.name}: cannot mutate a finalized real-quant layer")
         with torch.no_grad():
             self._weight.copy_(value)
 
@@ -302,6 +326,8 @@ class DuQuantLinear(nn.Module):
             self.calibrator.mark_full()
 
     def _maybe_update_weight_cache(self) -> None:
+        if self._inference_only_ready:
+            return
         apply_row = (self.cfg.row_rot_mode != "0")
         key = (str(self._weight.device), self._weight.dtype, int(self.weight_bits), int(apply_row))
         if self._cached_weight_key == key:
@@ -320,7 +346,8 @@ class DuQuantLinear(nn.Module):
             block_size=self._block_size,
             block_out_size=self._block_out_size,
         )
-        self._W_t.copy_(W_t)
+        if self._W_t is not None:
+            self._W_t.copy_(W_t)
         self._w_scales.copy_(scales)
 
         # Pre-quantize weights if enabled
@@ -332,6 +359,15 @@ class DuQuantLinear(nn.Module):
             self._weight_quantized_cached = True
         else:
             self._weight_quantized_cached = False
+
+        if self._triton_enabled and self.weight_bits == 4:
+            from .duquant_triton import pack_w4_nibbles
+
+            with torch.no_grad():
+                self._W_packed_u4.copy_(pack_w4_nibbles(W_t, scales))
+            self._fused_ready = True
+        else:
+            self._fused_ready = False
 
         self._cached_weight_key = key
         if self.bias is not None:
@@ -392,6 +428,8 @@ class DuQuantLinear(nn.Module):
     def _prepare_triton_caches(self) -> bool:
         """Build (once) the stacked rotation/permutation tensors for the
         fused kernel. Returns False if the layer shape is unsupported."""
+        if self._inference_only_ready and self._triton_cache_key is not None:
+            return True
         key = (str(self._weight.device), self._weight.dtype, int(self._block_size))
         if self._triton_cache_key == key:
             return True
@@ -433,7 +471,7 @@ class DuQuantLinear(nn.Module):
         # The fused GEMM uses 64-wide tiles.
         if self.in_features % 64 != 0 or self.out_features % 64 != 0:
             return False
-        if not self._weight_quantized_cached:
+        if not self._fused_ready:
             return False
         # During act-scale calibration the eager path must observe the
         # rotated input; the fused path only handles the frozen static scale.
@@ -442,7 +480,7 @@ class DuQuantLinear(nn.Module):
         return self._prepare_triton_caches()
 
     def _forward_triton(self, x: torch.Tensor) -> torch.Tensor:
-        from .duquant_triton import duquant_linear_fused
+        from .duquant_triton import duquant_linear_fused_w4
 
         x2 = x.reshape(-1, self.in_features)
         sa = self._act_scale if self.cfg.act_bits > 0 else None
@@ -456,9 +494,10 @@ class DuQuantLinear(nn.Module):
                 if self.cfg.row_rot_mode == "propagate" and self._bias_rot is not None
                 else self.bias
             )
-        y = duquant_linear_fused(
+        y = duquant_linear_fused_w4(
             x2,
-            self._W_t_quantized,
+            self._W_packed_u4,
+            self._w_scales,
             bias_arg,
             self._triton_perm32,
             self._triton_rin,
@@ -467,6 +506,26 @@ class DuQuantLinear(nn.Module):
             B=self._block_size,
         )
         return y.reshape(*x.shape[:-1], self.out_features)
+
+    def finalize_real_quant(self) -> int:
+        """Freeze true W4 residency and discard all FP weight-sized buffers."""
+        if self._inference_only_ready:
+            return int(self._W_packed_u4.numel())
+        if not self._triton_enabled or self.weight_bits != 4:
+            raise RuntimeError(f"{self.name}: real-quant finalization requires Triton W4")
+        if self.cfg.act_bits > 0 and not self._act_scale_initialized:
+            raise RuntimeError(f"{self.name}: static A8 scale is not ready")
+        if self.in_features % 64 or self.out_features % 64:
+            raise RuntimeError(f"{self.name}: real-quant kernel requires 64-aligned shapes")
+        self._maybe_update_weight_cache()
+        if not self._prepare_triton_caches() or not self._fused_ready:
+            raise RuntimeError(f"{self.name}: packed W4 caches are not ready")
+        self._weight = None
+        self._W_t = None
+        self._W_t_quantized = None
+        self._weight_quantized_cached = False
+        self._inference_only_ready = True
+        return int(self._W_packed_u4.numel())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Probe-only true skip path.  A mixed deployment leaves skipped layers
@@ -485,6 +544,8 @@ class DuQuantLinear(nn.Module):
         # the eager path below.
         if self._triton_fast_ok(x):
             return self._forward_triton(x)
+        if self._inference_only_ready:
+            raise RuntimeError(f"{self.name}: finalized real-quant layer cannot fall back")
 
         # Apply optimized per-block input transform
         from .duquant_preprocess import apply_input_transform_optimized
@@ -784,10 +845,13 @@ def enable_duquant_if_configured(model: nn.Module) -> dict:
         "denoising_steps": int(env.get("OPENPI_DUQUANT_DENOISING_STEPS", 10)),
         "candidate_inventory_sha256": candidate_inventory_sha256,
         "execution_backend": (
-            "triton_w4_dequant_fp16_gemm" if triton_enabled else "fake_quant_fp16_gemm"
+            "triton_w4_nibble_dequant_fp16_gemm"
+            if triton_enabled else "fake_quant_fp16_gemm"
         ),
         "integer_gemm": False,
-        "packed_low_bit_residency": triton_enabled,
+        "packed_low_bit_residency": False,
+        "packed_weight_bytes": 0,
+        "fp_weight_sized_buffers": len(wrapped_modules),
     }
     if env.get("OPENPI_DUQUANT_PACK_MANIFEST_SHA256"):
         runtime["pack_manifest_sha256"] = env["OPENPI_DUQUANT_PACK_MANIFEST_SHA256"]
@@ -836,6 +900,30 @@ def enable_duquant_if_configured(model: nn.Module) -> dict:
 
 def iter_duquant_layers(model: nn.Module) -> List[Tuple[str, DuQuantLinear]]:
     return [(name, module) for name, module in model.named_modules() if isinstance(module, DuQuantLinear)]
+
+
+def finalize_real_quant(model: nn.Module) -> Dict[str, int | bool]:
+    """Finalize all OpenPI DuQuant layers to inference-only packed W4."""
+    layers = [module for _, module in iter_duquant_layers(model)]
+    if not layers:
+        raise RuntimeError("real-quant finalization found no DuQuant layers")
+    packed_bytes = sum(layer.finalize_real_quant() for layer in layers)
+    runtime = getattr(model, "_openpi_duquant_runtime", {})
+    runtime.update(
+        {
+            "packed_low_bit_residency": True,
+            "packed_weight_bytes": int(packed_bytes),
+            "fp_weight_sized_buffers": 0,
+            "execution_backend": "triton_w4_nibble_dequant_fp16_gemm",
+        }
+    )
+    setattr(model, "_openpi_duquant_runtime", runtime)
+    return {
+        "layers": len(layers),
+        "packed_weight_bytes": int(packed_bytes),
+        "fp_weight_sized_buffers": 0,
+        "packed_low_bit_residency": True,
+    }
 
 
 def static_scales_ready(model: nn.Module) -> bool:

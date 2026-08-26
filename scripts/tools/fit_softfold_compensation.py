@@ -30,8 +30,16 @@ from pathlib import Path
 import statistics
 from typing import Any, Iterable, Mapping, Sequence
 
+from quantvla_cross_model_protocol import (
+    PROTOCOL,
+    PROTOCOL_SHA256,
+    protocol_attestation,
+    require_protocol_attestation,
+)
 
-GRID = tuple(index / 8.0 for index in range(9))
+GRID = tuple(float(value) for value in PROTOCOL["softfold"]["grid"]["gate_atm"])
+if GRID != tuple(float(value) for value in PROTOCOL["softfold"]["grid"]["gate_ohb"]):
+    raise ValueError("cross-model SoftFold requires identical ATM/OHB grids")
 
 
 def sha256_file(path: str | Path) -> str:
@@ -246,6 +254,94 @@ def fold_layers(
     return layers, next(iter(ohb_modes), None)
 
 
+def softfold_config_id(gate_atm: float, gate_ohb: float) -> str:
+    return f"softfold_a{int(round(gate_atm * 8)):02d}_b{int(round(gate_ohb * 8)):02d}"
+
+
+def validate_raw_correction_protocol(
+    raw: Mapping[str, Any], *, source: str
+) -> Mapping[str, Any]:
+    raw_meta = raw.get("meta", {})
+    expected = {
+        "calibration_buffer_sha256": PROTOCOL["data"]["calibration_buffer"]["sha256"],
+        "flow_steps": PROTOCOL["closed_loop"]["flow_steps"],
+        "frames": 16,
+        "batch_size": 8,
+        "ohb_mode": "per_head_pre_projection",
+    }
+    mismatches = {
+        key: (raw_meta.get(key), value)
+        for key, value in expected.items()
+        if raw_meta.get(key) != value
+    }
+    if mismatches:
+        raise ValueError(f"{source}: raw correction protocol drift: {mismatches}")
+    return raw_meta
+
+
+def materialize_grid(
+    *,
+    raw_path: str | Path,
+    output_dir: str | Path,
+    base_spec: Mapping[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """The one SoftFold grid materializer used by both model adapters."""
+    raw_path = Path(raw_path).expanduser().resolve()
+    output_dir = Path(output_dir).expanduser().resolve()
+    raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    raw_layers = raw.get("layers", raw)
+    if not isinstance(raw_layers, Mapping) or not raw_layers:
+        raise ValueError("raw correction artifact has no layers")
+    raw_meta = validate_raw_correction_protocol(raw, source=str(raw_path))
+    registry: dict[str, dict[str, Any]] = {}
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for gate_atm in GRID:
+        for gate_ohb in GRID:
+            layers, ohb_mode = fold_layers(
+                raw_layers, gate_atm=gate_atm, gate_ohb=gate_ohb
+            )
+            identifier = softfold_config_id(gate_atm, gate_ohb)
+            path = output_dir / f"{identifier}.json"
+            payload = {
+                "schema_version": 1,
+                "kind": "softfold_grid_candidate",
+                "cross_model_protocol": protocol_attestation(),
+                "meta": {
+                    **raw_meta,
+                    "metric": PROTOCOL["metrics"]["d_pac"]["formula_id"],
+                    "ohb_mode": ohb_mode,
+                    "atm_application": PROTOCOL["deployment"]["atm_application"],
+                    "ohb_application": PROTOCOL["deployment"]["ohb_application"],
+                    "selector_free": True,
+                    "runtime_branch": False,
+                },
+                "gate": {"atm": gate_atm, "ohb": gate_ohb},
+                "layers": layers,
+                "selection": {
+                    "uses_task_labels": False,
+                    "uses_rollout_success": False,
+                    "status": "grid_candidate_not_selected",
+                },
+            }
+            rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+            if path.exists() and path.read_text(encoding="utf-8") != rendered:
+                raise ValueError(f"frozen grid candidate drift: {path}")
+            if not path.exists():
+                path.write_text(rendered, encoding="utf-8")
+            registry[identifier] = {
+                **dict(base_spec or {}),
+                "path": path,
+                "atm": path,
+                "atm_enable": True,
+                "ohb_enable": True,
+                "gate": payload["gate"],
+                "ohb_mode": ohb_mode,
+                "atm_application": PROTOCOL["deployment"]["atm_application"],
+                "ohb_application": PROTOCOL["deployment"]["ohb_application"],
+            }
+    return registry
+
+
 def _metadata_hash(
     explicit: str | None,
     metadata: Mapping[str, Any],
@@ -264,6 +360,41 @@ def fit(args: argparse.Namespace) -> dict[str, Any]:
     validation_path = Path(args.validation_scores).expanduser().resolve()
     raw = json.loads(raw_path.read_text(encoding="utf-8"))
     validation = json.loads(validation_path.read_text(encoding="utf-8"))
+    require_protocol_attestation(validation, source=str(validation_path))
+    raw_meta = validate_raw_correction_protocol(raw, source=str(raw_path))
+    expected_raw_hash = validation.get("raw_correction_sha256")
+    actual_raw_hash = sha256_file(raw_path)
+    if expected_raw_hash != actual_raw_hash:
+        raise ValueError(
+            "validation scores were not produced from this raw correction artifact: "
+            f"{expected_raw_hash!r} != {actual_raw_hash}"
+        )
+    raw_score_provenance = {
+        "checkpoint_sha256": validation.get("checkpoint_sha256"),
+        "plan_sha256": validation.get("plan_sha256")
+        or validation.get("quant_plan_sha256"),
+        "calibration_buffer_sha256": validation.get(
+            "artifact_calibration_buffer_sha256"
+        ),
+    }
+    raw_mismatches = {
+        key: (raw_meta.get(key), value)
+        for key, value in raw_score_provenance.items()
+        if raw_meta.get(key) != value
+    }
+    if raw_mismatches:
+        raise ValueError(f"raw correction/score provenance mismatch: {raw_mismatches}")
+    if args.allow_partial_grid:
+        raise ValueError("adapter-only SoftFold requires the complete shared 9x9 grid")
+    expected_identity = float(PROTOCOL["softfold"]["lambda_identity"])
+    expected_interaction = float(PROTOCOL["softfold"]["lambda_interaction"])
+    if (
+        float(args.lambda_identity) != expected_identity
+        or float(args.lambda_interaction) != expected_interaction
+    ):
+        raise ValueError(
+            "adapter-only SoftFold freezes lambda_identity=lambda_interaction=0"
+        )
     raw_layers = raw.get("layers", raw)
     if not isinstance(raw_layers, Mapping) or not raw_layers:
         raise ValueError("raw correction artifact has no layers")
@@ -281,7 +412,6 @@ def fit(args: argparse.Namespace) -> dict[str, Any]:
         gate_atm=float(gate["atm"]),
         gate_ohb=float(gate["ohb"]),
     )
-    raw_meta = raw.get("meta", {}) if isinstance(raw, Mapping) else {}
     checkpoint_hash = _metadata_hash(
         args.teacher_checkpoint_sha256,
         raw_meta,
@@ -297,6 +427,26 @@ def fit(args: argparse.Namespace) -> dict[str, Any]:
     )
     if not checkpoint_hash or not plan_hash or not buffer_hash:
         raise ValueError("teacher checkpoint, quant plan, and buffer SHA256 provenance are required")
+    score_provenance = {
+        "teacher_checkpoint_sha256": validation.get("checkpoint_sha256"),
+        "quant_plan_sha256": validation.get("plan_sha256")
+        or validation.get("quant_plan_sha256"),
+        "calibration_buffer_sha256": validation.get(
+            "artifact_calibration_buffer_sha256"
+        ),
+    }
+    requested_provenance = {
+        "teacher_checkpoint_sha256": checkpoint_hash,
+        "quant_plan_sha256": plan_hash,
+        "calibration_buffer_sha256": buffer_hash,
+    }
+    mismatches = {
+        key: (score_provenance[key], value)
+        for key, value in requested_provenance.items()
+        if score_provenance[key] != value
+    }
+    if mismatches:
+        raise ValueError(f"SoftFold score/fold provenance mismatch: {mismatches}")
     ohb_application = {
         "per_head_pre_projection": "fold_o_weight_perhead",
         "scalar_post_projection": "fold_o_weight",
@@ -305,6 +455,7 @@ def fit(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "kind": "softfold_compensation",
+        "cross_model_protocol": protocol_attestation(),
         "teacher_checkpoint_sha256": checkpoint_hash,
         "quant_plan_sha256": plan_hash,
         "buffer_sha256": buffer_hash,
@@ -312,11 +463,10 @@ def fit(args: argparse.Namespace) -> dict[str, Any]:
         "gate": {"atm": float(gate["atm"]), "ohb": float(gate["ohb"])},
         "layers": layers,
         "selection": {
-            "rule": "one_standard_error",
+            "rule": PROTOCOL["softfold"]["selection_rule"],
             "uses_task_labels": False,
             "uses_rollout_success": False,
-            "fit_split": "sample_sha256_parity",
-            "validation_only_for_gate": True,
+            "sample_unit": "shared_frozen_buffer_record_or_sequence",
             **{key: value for key, value in selection.items() if key != "candidates"},
         },
         "meta": {
@@ -329,6 +479,7 @@ def fit(args: argparse.Namespace) -> dict[str, Any]:
             "ohb_application": ohb_application,
             "selector_free": True,
             "runtime_branch": False,
+            "protocol_sha256": PROTOCOL_SHA256,
             "raw_correction_sha256": sha256_file(raw_path),
             "validation_scores_sha256": sha256_file(validation_path),
             "gate_grid": list(GRID),

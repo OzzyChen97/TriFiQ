@@ -14,6 +14,7 @@ TOOLS = Path(__file__).resolve().parent
 REPO_ROOT = TOOLS.parents[1]
 sys.path.insert(0, str(TOOLS))
 sys.path.insert(0, str(REPO_ROOT / "code"))
+sys.path.insert(0, str(REPO_ROOT / "code/pi05/openpi/src"))
 
 from fit_softfold_compensation import (  # noqa: E402
     GRID,
@@ -24,6 +25,13 @@ from fit_softfold_compensation import (  # noqa: E402
     softfold_value,
     summarize_candidates,
 )
+from pi05_func_metrics import d_pac_sequence as pi05_d_pac_sequence  # noqa: E402
+from quantvla_cross_model_protocol import (  # noqa: E402
+    PROTOCOL,
+    protocol_attestation,
+    validate_quant_plan,
+)
+from quantvla_model_adapters import canonical_trajectory  # noqa: E402
 from gr00t_func_metrics import aggregate_d_pac_sequences, d_pac_sequence  # noqa: E402
 from gr00t_select_plan import (  # noqa: E402
     layer_bytes_fp16,
@@ -168,10 +176,65 @@ def test_exact_quantvla_budget_forces_full_w4_in_binary_space() -> None:
     assert layer_bytes_fp16(512, 512, False) > 0.0
 
 
+def test_adapter_only_plan_rule_accepts_uniform_w4_and_rejects_retention() -> None:
+    valid = {
+        "layers": {
+            "adapter.layer.a": {"bits": 4, "group": 64, "skip": False},
+            "adapter.layer.b": {"bits": 4, "group": 64, "skip": False},
+        }
+    }
+    attestation = validate_quant_plan(valid, model="gr00t", source="test")
+    assert attestation["quantized_w4_layers"] == 2
+    invalid = copy.deepcopy(valid)
+    invalid["layers"]["adapter.layer.b"] = {"bits": None, "group": 64, "skip": True}
+    try:
+        validate_quant_plan(invalid, model="pi05", source="test")
+    except ValueError as error:
+        assert "every target W4/group64" in str(error)
+    else:
+        raise AssertionError("adapter-only protocol must reject FP16 target retention")
+
+
+def test_model_adapters_map_to_identical_canonical_metric_space() -> None:
+    generator = torch.Generator().manual_seed(29)
+    shared = torch.randn(5, 3, 16, 12, generator=generator)
+    gr00t = torch.zeros(5, 3, 16, 32)
+    pi05 = torch.zeros(5, 3, 50, 32)
+    gr00t[..., :12] = shared
+    pi05[..., :16, :12] = shared
+    torch.testing.assert_close(
+        canonical_trajectory(gr00t, model="gr00t"),
+        canonical_trajectory(pi05, model="pi05"),
+    )
+    try:
+        pi05_d_pac_sequence(pi05, pi05, range(3), overlap_weight=0.1)
+    except ValueError as error:
+        assert "overlap is forbidden" in str(error)
+    else:
+        raise AssertionError("pi0.5-only overlap must be rejected")
+
+
+def test_both_real_quant_backends_use_identical_two_values_per_byte_w4() -> None:
+    from gr00t.quantization.duquant_fused import pack_w4_nibbles as pack_gr00t
+    from openpi.quant.duquant_triton import pack_w4_nibbles as pack_pi05
+
+    weight = torch.tensor([[-8.0, -7.0, -1.0, 0.0, 1.0, 7.0]])
+    scales = torch.ones(1)
+    gr00t = pack_gr00t(weight, scales)
+    pi05 = pack_pi05(weight, scales)
+    assert torch.equal(gr00t, pi05)
+    assert gr00t.numel() == weight.numel() // 2
+    low = (gr00t & 0x0F).to(torch.int16)
+    high = ((gr00t >> 4) & 0x0F).to(torch.int16)
+    unpacked = torch.stack((low, high), dim=-1).reshape_as(weight)
+    unpacked = torch.where(unpacked >= 8, unpacked - 16, unpacked)
+    assert torch.equal(unpacked, weight.to(torch.int16))
+
+
 def test_softfold_fitter_emits_selector_free_fold_artifact(tmp_path: Path) -> None:
     digest_a = "a" * 64
     digest_b = "b" * 64
-    digest_c = "c" * 64
+    digest_c = PROTOCOL["data"]["calibration_buffer"]["sha256"]
     raw_path = tmp_path / "raw.json"
     scores_path = tmp_path / "scores.json"
     raw_path.write_text(
@@ -181,13 +244,30 @@ def test_softfold_fitter_emits_selector_free_fold_artifact(tmp_path: Path) -> No
                     "checkpoint_sha256": digest_a,
                     "plan_sha256": digest_b,
                     "calibration_buffer_sha256": digest_c,
+                    "flow_steps": 4,
+                    "frames": 16,
+                    "batch_size": 8,
+                    "ohb_mode": "per_head_pre_projection",
                 },
                 "layers": {"layer": {"all": [4.0], "beta_perhead": [9.0]}},
             }
         ),
         encoding="utf-8",
     )
-    scores_path.write_text(json.dumps({"scores": _grid_rows()}), encoding="utf-8")
+    raw_sha = __import__("hashlib").sha256(raw_path.read_bytes()).hexdigest()
+    scores_path.write_text(
+        json.dumps(
+            {
+                "cross_model_protocol": protocol_attestation(),
+                "checkpoint_sha256": digest_a,
+                "plan_sha256": digest_b,
+                "artifact_calibration_buffer_sha256": digest_c,
+                "raw_correction_sha256": raw_sha,
+                "scores": _grid_rows(),
+            }
+        ),
+        encoding="utf-8",
+    )
     payload = fit(
         SimpleNamespace(
             raw_correction=str(raw_path),

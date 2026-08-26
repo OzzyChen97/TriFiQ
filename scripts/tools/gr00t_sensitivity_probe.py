@@ -91,6 +91,21 @@ from gr00t_v2_common import (  # noqa: E402
     stack_obs,
     strip_quant_env,
 )
+from quantvla_cross_model_protocol import (  # noqa: E402
+    PROTOCOL,
+    protocol_artifact,
+    protocol_attestation,
+)
+from quantvla_metric_protocol import (  # noqa: E402
+    aggregate_d_pac_sequences as canonical_aggregate_d_pac_sequences,
+    d_func as canonical_d_func,
+    d_pac_sequence as canonical_d_pac_sequence,
+)
+from quantvla_model_adapters import (  # noqa: E402
+    canonical_trajectory,
+    gr00t_rollout_inputs,
+    load_model_records,
+)
 
 # Non-target background for a single-layer intervention and the wrapped debug
 # diagnostic: 0 = full-precision weight path inside the quantized pipeline.
@@ -463,7 +478,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--act-pct", type=float, default=99.9)
     p.add_argument("--row-rot", default="restore")
     p.add_argument("--calib-steps", type=int, default=32)
-    p.add_argument("--max-tokens", type=int, default=1024, help="Token cap per layer for CKA/CS pools.")
+    p.add_argument("--max-tokens", type=int, default=256, help="Frozen shared token cap for CKA/CS pools.")
     p.add_argument("--gamma", type=float, default=1.2, help="Late-denoising-step weight for solver divergence.")
     p.add_argument("--per-layer-bits", default="4", help="Probing bits for FP16-relative per-layer D_PAC importance weights.")
     p.add_argument("--n-rollout-obs", type=int, default=8,
@@ -476,7 +491,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--cs-in-situ-check", action="store_true",
                    help="v1.3: verify the CS cross term responds monotonically when a real "
                         "layer output is scaled by 2/4/8 (closing criterion, §5.1.2).")
-    p.add_argument("--cka-location", default="linear", choices=["linear", "dit"],
+    p.add_argument("--cka-location", default="dit", choices=["linear", "dit"],
                    help="v1.4 (D-024): where per-layer CKA is measured. 'linear' = raw Linear "
                         "outputs (v1.3 default, no functional signal); 'dit' = the DiT final "
                         "hidden states (action-conditioning representation; gate-0 rho 0.72-0.95 "
@@ -488,6 +503,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--exclude", default=DEFAULT_EXCLUDE)
     p.add_argument("--packdir", default=None, help="DuQuant pack dir (default derives from suite/group/calib/ls).")
     p.add_argument("--out", default=None, help="Output JSON path.")
+    p.add_argument(
+        "--buffer",
+        default=str(protocol_artifact("selection_buffer", verify=False)),
+        help="Shared cross-model RoboCasa selection buffer.",
+    )
     p.add_argument("--skip-per-layer", action="store_true", help="Skip per-layer CKA/CS attribution passes.")
     p.add_argument("--skip-layer-rollouts", action="store_true", help="Skip per-layer D_solver importance rollouts.")
     p.add_argument("--dry-run", action="store_true", help="Load FP model, list targets, exit.")
@@ -578,14 +598,27 @@ def main() -> None:
     action_dim = int(model_fp.action_head.config.action_dim)
 
     n_total = max(args.n_obs, args.n_rollout_obs)
-    obs_list = [make_obs(rng, args.obs_format) for _ in range(n_total)]
-    # 每个 obs 一个 2D 噪声 (H, D)：chunked 打包时叠加 batch 维 → (B, H, D)
-    noises = [torch.randn(horizon, action_dim) for _ in obs_list]
-    # v1.3: 每个 obs 2 个配对噪声（w_i 中位数聚合，降低单噪声方差）
-    if args.n_noises_per_obs >= 2:
-        noises_b = [torch.randn(horizon, action_dim) for _ in obs_list]
+    shared_buffer_provenance = None
+    if args.obs_format == "robocasa365":
+        shared_records, shared_buffer_provenance = load_model_records(
+            args.buffer, n_total, model="gr00t"
+        )
+        obs_list, noises = gr00t_rollout_inputs(shared_records)
+        if args.n_noises_per_obs >= 2 and any(
+            len(record["noises"]) < 2 for record in shared_records
+        ):
+            raise ValueError("formal sensitivity requires two shared paired noises")
+        noises_b = (
+            [torch.from_numpy(record["noises"][1]).float() for record in shared_records]
+            if args.n_noises_per_obs >= 2 else None
+        )
     else:
-        noises_b = None
+        obs_list = [make_obs(rng, args.obs_format) for _ in range(n_total)]
+        noises = [torch.randn(horizon, action_dim) for _ in obs_list]
+        noises_b = (
+            [torch.randn(horizon, action_dim) for _ in obs_list]
+            if args.n_noises_per_obs >= 2 else None
+        )
 
     teacher_checkpoint_sha256 = _sha256_checkpoint(args.model_path)
     observation_sha256 = _paired_buffer_sha256(obs_list[: args.n_obs], [])
@@ -680,11 +713,20 @@ def main() -> None:
 
     n_warm_batches = args.calib_steps  # GR00T_DUQUANT_CALIB_STEPS = batch count
     n_warm_obs = n_warm_batches * args.batch_size
-    # review round 3: self-contained seed-based canonical buffer (identical to
-    # the one used by baselines/topk/calibrator/server)
-    warm_obs, warm_noises, warm_sha = fixed_calibration_buffer(
-        0, n_warm_obs, horizon, action_dim, fmt=args.obs_format
-    )
+    # The formal RoboCasa probe uses the exact same frozen archive as both
+    # model adapters.  Legacy non-RoboCasa probes keep their historical local
+    # synthetic buffer and are outside the cross-model comparison protocol.
+    if args.obs_format == "robocasa365":
+        calibration_path = protocol_artifact("calibration_buffer")
+        warm_records, warm_provenance = load_model_records(
+            calibration_path, n_warm_obs, model="gr00t"
+        )
+        warm_obs, warm_noises = gr00t_rollout_inputs(warm_records)
+        warm_sha = warm_provenance["sha256"]
+    else:
+        warm_obs, warm_noises, warm_sha = fixed_calibration_buffer(
+            0, n_warm_obs, horizon, action_dim, fmt=args.obs_format
+        )
     print(f"[probe] A8 calibration: {n_warm_obs} obs = {n_warm_batches} batches "
           f"(state = weight_bits=0 reference; buffer sha256 {warm_sha[:16]}...)")
     t0 = time.time()
@@ -698,6 +740,7 @@ def main() -> None:
     print(f"[probe] A8 calibration done in {time.time() - t0:.1f}s ({full}/{total} layers frozen)")
 
     results: Dict[str, Any] = {
+        "cross_model_protocol": protocol_attestation(),
         "meta": {
             "suite": args.suite,
             "model_path": args.model_path,
@@ -713,7 +756,11 @@ def main() -> None:
             "denoising_steps": args.denoising_steps,
             "calib_steps": args.calib_steps,
             "per_layer_bits": args.per_layer_bits,
-            "obs_source": "L1 synthetic (data-free)",
+            "obs_source": (
+                "shared_cross_model_archive"
+                if shared_buffer_provenance is not None else "L1 synthetic (data-free)"
+            ),
+            "shared_buffer": shared_buffer_provenance,
             "token_mix": "position-stratified: vision-front block + text-back block each capped at max_tokens/2 (stride subsample); zero rows in the back block dropped (padding heuristic)",
             "teacher": "original unwrapped FP16 checkpoint (unique optimization reference)",
             "teacher_attention_processor": "diffusers AttnProcessor2_0 (ATM instrumentation removed)",
@@ -727,7 +774,7 @@ def main() -> None:
             "base_mode": "ATM OFF, OHB OFF, per-step OFF, static activation scale",
             "global_dsolver_pairing": "original FP16 model vs full config",
             "guard_reference": "pure FP16 model (deployment pairing); D_sat proxied by P99.9(|fp_out|)/127",
-            "calibration_buffer_sha256": warm_sha[:16],
+            "calibration_buffer_sha256": warm_sha,
             "guard_thresholds": None,  # filled at the end: τ = P99(W4 candidates) × margin
         },
         "layers": {n: {} for n in banks},
@@ -853,14 +900,11 @@ def main() -> None:
         set_all_bits(model_q, b)
         q_traj = run_rollouts(model_q, policy_q, obs_list[: args.n_obs], noises[: args.n_obs], args.batch_size)
         mean_div, per_obs = solver_divergence(fp_traj, q_traj, args.gamma)
-        from gr00t_func_metrics import aggregate_d_pac_sequences, d_pac_sequence
-
         pac_sequences = [
-            d_pac_sequence(
-                fp_traj[:, index : index + 1],
-                q_traj[:, index : index + 1],
+            canonical_d_pac_sequence(
+                canonical_trajectory(fp_traj[:, index : index + 1], model="gr00t"),
+                canonical_trajectory(q_traj[:, index : index + 1], model="gr00t"),
                 [0],
-                executed_actions=min(16, horizon),
             )
             for index in range(q_traj.shape[1])
         ]
@@ -868,7 +912,7 @@ def main() -> None:
             "d_solver": mean_div,
             "d_solver_std": float(np.std(per_obs)) if len(per_obs) > 1 else 0.0,
             "per_obs": per_obs,
-            "d_pac": aggregate_d_pac_sequences(pac_sequences),
+            "d_pac": canonical_aggregate_d_pac_sequences(pac_sequences),
         }
         del q_traj
         gc.collect()
@@ -900,16 +944,15 @@ def main() -> None:
                 all_per_obs.extend(per_obs_a)
                 # v1.4 (D-020 route 3): tail-aware functional metric from the
                 # SAME paired trajectories (no extra rollouts)
-                from gr00t_func_metrics import d_func, d_pac_sequence
-
-                df_a = d_func(ref_sub_a, q_traj, args.gamma)["d_func"]
+                ref_can_a = canonical_trajectory(ref_sub_a, model="gr00t")
+                quant_can_a = canonical_trajectory(q_traj, model="gr00t")
+                df_a = canonical_d_func(ref_can_a, quant_can_a, args.gamma)["d_func"]
                 all_d_func.append(df_a)
                 all_d_pac.extend(
-                    d_pac_sequence(
-                        ref_sub_a[:, index : index + 1],
-                        q_traj[:, index : index + 1],
+                    canonical_d_pac_sequence(
+                        ref_can_a[:, index : index + 1],
+                        quant_can_a[:, index : index + 1],
                         [0],
-                        executed_actions=min(16, horizon),
                     )["d_pac_sequence"]
                     for index in range(q_traj.shape[1])
                 )
@@ -925,13 +968,16 @@ def main() -> None:
                     )
                     _, per_obs_b = solver_divergence(fp_traj_b, q_traj_b, args.gamma)
                     all_per_obs.extend(per_obs_b)
-                    all_d_func.append(d_func(fp_traj_b, q_traj_b, args.gamma)["d_func"])
+                    ref_can_b = canonical_trajectory(fp_traj_b, model="gr00t")
+                    quant_can_b = canonical_trajectory(q_traj_b, model="gr00t")
+                    all_d_func.append(
+                        canonical_d_func(ref_can_b, quant_can_b, args.gamma)["d_func"]
+                    )
                     all_d_pac.extend(
-                        d_pac_sequence(
-                            fp_traj_b[:, index : index + 1],
-                            q_traj_b[:, index : index + 1],
+                        canonical_d_pac_sequence(
+                            ref_can_b[:, index : index + 1],
+                            quant_can_b[:, index : index + 1],
                             [0],
-                            executed_actions=min(16, horizon),
                         )["d_pac_sequence"]
                         for index in range(q_traj_b.shape[1])
                     )

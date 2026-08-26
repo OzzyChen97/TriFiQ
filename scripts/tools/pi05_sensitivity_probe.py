@@ -27,9 +27,15 @@ from openpi.models import model as model_api  # noqa: E402
 from openpi.policies import policy_config  # noqa: E402
 from openpi.quant import enable_duquant_if_configured, sha256_file  # noqa: E402
 from openpi.quant.duquant_layers import DuQuantLinear, iter_duquant_layers  # noqa: E402
-from openpi.quant.kernel_scores import LayerScoreBank, extract_tensor  # noqa: E402
 from openpi.training import config  # noqa: E402
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "tools"))
+sys.path.insert(0, str(REPO_ROOT / "code"))
+from quantvla_cross_model_protocol import (  # noqa: E402
+    protocol_artifact,
+    protocol_attestation,
+)
+from quantvla_kernel_scores import LayerScoreBank, extract_tensor  # noqa: E402
+from quantvla_model_adapters import load_model_records  # noqa: E402
 from pi05_func_metrics import (  # noqa: E402
     ACTION_HORIZON,
     EXECUTED_ACTIONS,
@@ -39,7 +45,9 @@ from pi05_func_metrics import (  # noqa: E402
     d_func as final_d_func,
     d_pac_sequence as final_d_pac_sequence,
 )
-from gr00t_func_metrics import aggregate_d_pac_sequences  # noqa: E402
+from quantvla_metric_protocol import (  # noqa: E402
+    aggregate_d_pac_sequences,
+)
 
 
 CHECKPOINT_SHA256 = "4174133479c6a51d79cac90d6a1739f32f928624eb529bf791cd5be942afdf1c"
@@ -48,10 +56,7 @@ DEFAULT_PLAN = (
     / "runs/pi05_gdsq_gr00t_aligned/plans/pi05_quantvla_uniform_w4a8_d4.plan.json"
 )
 DEFAULT_PACK = REPO_ROOT / "runs/pi05_gdsq_port/packs/pi05_robocasa_block64_w4a8_ls015"
-DEFAULT_BUFFER = (
-    REPO_ROOT
-    / "runs/pi05_gdsq_gr00t_aligned/calibration/pi05_robocasa365_seed0_n256.npz"
-)
+DEFAULT_BUFFER = protocol_artifact("selection_buffer", verify=False)
 DEFAULT_A8 = (
     REPO_ROOT
     / "runs/pi05_gdsq_gr00t_aligned/a8/pi05_probe_truefp16_d4_p999_b32x8.npz"
@@ -140,33 +145,9 @@ def configure_environment(args: argparse.Namespace, buffer_hash: str) -> None:
 
 
 def load_records(path: Path, n_obs: int) -> list[dict]:
-    with np.load(path, allow_pickle=False) as archive:
-        if "action_noises" not in archive.files:
-            raise ValueError("GR00T-aligned sensitivity requires canonical action_noises")
-        if 2 * n_obs > len(archive["states"]):
-            raise ValueError(f"n_obs={n_obs} exceeds buffer size {len(archive['states'])}")
-        records = []
-        for index in range(n_obs):
-            record = {
-                    "observation": {
-                        "observation/image": np.asarray(archive["images"][index]),
-                        "observation/wrist_image": np.asarray(archive["wrist_images"][index]),
-                        "observation/right_image": np.asarray(archive["right_images"][index]),
-                        "observation/state": np.asarray(archive["states"][index], dtype=np.float32),
-                        "prompt": str(archive["prompts"][index]),
-                    },
-                    "task": str(archive["task_ids"][index]),
-                    "seed": int(archive["env_seeds"][index]),
-                    "noises": [
-                        np.asarray(archive["action_noises"][index], dtype=np.float32),
-                        np.asarray(archive["action_noises"][n_obs + index], dtype=np.float32),
-                    ],
-                }
-            if "env_steps" in archive.files:
-                record["env_step"] = int(archive["env_steps"][index])
-            if "replan_indices" in archive.files:
-                record["replan"] = int(archive["replan_indices"][index])
-            records.append(record)
+    records, _ = load_model_records(path, n_obs, model="pi05")
+    if any(len(record["noises"]) < 2 for record in records):
+        raise ValueError("formal sensitivity requires two paired noises per observation")
     return records
 
 
@@ -529,6 +510,7 @@ def main() -> None:
     payload = {
         "schema_version": 1,
         "complete": False,
+        "cross_model_protocol": protocol_attestation(),
         "meta": {
             "checkpoint_sha256": CHECKPOINT_SHA256,
             "config_sha256": inventory["config_sha256"],
@@ -580,7 +562,8 @@ def main() -> None:
                 "teacher": "original_fp16",
                 "sequence_scope": "independent action-prefix (calibration rows are not asserted consecutive)",
                 "outer_cvar": 0.9,
-                "forecast_overlap_weight": 0.1,
+                "forecast_overlap_weight": 0.0,
+                "model_specific_auxiliary_terms": "forbidden",
             },
             "functional_metric_path": str(
                 (REPO_ROOT / "scripts/tools/pi05_func_metrics.py").resolve()

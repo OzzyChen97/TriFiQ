@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import random
+import sys
 import time
 
 import robocasa  # noqa: F401 -- must precede repository path additions
@@ -18,14 +19,21 @@ from robocasa.utils.dataset_registry_utils import get_task_horizon
 from robocasa.utils.env_utils import convert_action
 from robocasa.wrappers.gym_wrapper import RoboCasaGymEnv
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "tools"))
+
 import numpy as np
 from openpi_client import image_tools
 from openpi_client.paired_noise import PROTOCOL as ACTION_NOISE_PROTOCOL
 from openpi_client.paired_noise import paired_action_noise
+from quantvla_cross_model_protocol import (  # noqa: E402
+    closed_loop_row_protocol,
+    closed_loop_runtime_protocol,
+    require_protocol_attestation,
+)
 from openpi_client.websocket_client_policy import WebsocketClientPolicy
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 FORMAL_SPLIT = "target"
 FORMAL_N_ACTION_STEPS = 16
 FORMAL_FLOW_STEPS = 4
@@ -374,13 +382,14 @@ def run_trial(
             "replan_steps": replan_steps,
             "n_action_steps": replan_steps,
             "flow_steps": flow_steps,
-            "action_horizon": 50,
+            "native_action_horizon": 50,
             "paired_action_noise": action_noise_mode == "paired",
             "action_noise_protocol": (
                 ACTION_NOISE_PROTOCOL if action_noise_mode == "paired" else "policy-native-rng"
             ),
             "environment_seed_protocol": ENVIRONMENT_SEED_PROTOCOL,
             "fresh_environment": True,
+            **closed_loop_row_protocol(),
             "render_enabled": True,
             "termination": termination,
             "egl_device": egl_device,
@@ -414,6 +423,8 @@ def main() -> None:
             f"formal π0.5 evaluation requires --replan-steps {FORMAL_N_ACTION_STEPS}"
         )
     if args.action_noise_mode != "paired":
+        raise SystemExit("cross-model formal evaluation requires paired action noise")
+    if args.action_noise_mode != "paired":
         raise SystemExit("formal π0.5 evaluation requires GR00T-aligned paired action noise")
     seeds = parse_seed_spec(args.trial_seeds)
     registered = list(TASK_SET_REGISTRY[args.task_set])
@@ -436,25 +447,19 @@ def main() -> None:
     client = WebsocketClientPolicy(args.host, args.port)
     server_metadata = client.get_server_metadata()
     metadata_hash = canonical_hash(server_metadata)
-    server_protocol = ((server_metadata.get("openpi_runtime") or {}).get("protocol") or {})
-    expected_protocol = {
-        "action_horizon": 50,
-        "n_action_steps": FORMAL_N_ACTION_STEPS,
-        "replan_steps": FORMAL_N_ACTION_STEPS,
-        "flow_steps": FORMAL_FLOW_STEPS,
-        "split": FORMAL_SPLIT,
-        "fresh_environment_per_episode": True,
-        "official_task_horizon": True,
-        "render": True,
-        "paired_noise": ACTION_NOISE_PROTOCOL,
-    }
+    server_runtime = server_metadata.get("openpi_runtime") or {}
+    require_protocol_attestation(server_runtime, source="pi0.5 runtime")
+    if (server_runtime.get("model_adapter") or {}).get("model") != "pi05":
+        raise SystemExit("pi0.5 server adapter attestation is missing")
+    server_protocol = server_runtime.get("protocol") or {}
+    expected_protocol = closed_loop_runtime_protocol()
     protocol_mismatches = {
         key: (server_protocol.get(key), value)
         for key, value in expected_protocol.items()
         if server_protocol.get(key) != value
     }
     if protocol_mismatches:
-        raise SystemExit(f"server is not GR00T N1.5 aligned: {protocol_mismatches}")
+        raise SystemExit(f"server cross-model protocol mismatch: {protocol_mismatches}")
     runtime_selector_metadata = ((server_metadata.get("openpi_runtime") or {}).get("runtime_selector") or {})
     if args.expect_runtime_selector and not runtime_selector_metadata.get("enabled"):
         raise SystemExit(f"server runtime selector is not enabled: {runtime_selector_metadata}")

@@ -4,6 +4,7 @@ from .duquant_layers import (
     DuQuantConfig,
     DuQuantLinear,
     enable_duquant_if_configured,
+    finalize_real_quant,
     select_targets,
     wrap_duquant,
 )
@@ -13,6 +14,7 @@ __all__ = [
     "DuQuantConfig",
     "DuQuantLinear",
     "enable_duquant_if_configured",
+    "finalize_real_quant",
     "select_targets",
     "wrap_duquant",
     "LayerScoreBank",

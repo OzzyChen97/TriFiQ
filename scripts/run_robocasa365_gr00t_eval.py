@@ -44,6 +44,11 @@ sys.path.insert(0, str(REPO_ROOT / "code"))
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "tools"))
 
 import numpy as np  # noqa: E402
+from quantvla_cross_model_protocol import (  # noqa: E402
+    closed_loop_row_protocol,
+    closed_loop_runtime_protocol,
+    require_protocol_attestation,
+)
 
 # obs keys the RoboCasa365DataConfig consumes — filter the wrapper's obs
 # (which also emits legacy res256/res512 aliases and extra state keys) so the
@@ -235,6 +240,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.split != "target" or args.n_action_steps != 16:
+        raise SystemExit("cross-model formal evaluation requires target/execute-16")
+    if not args.paired_action_noise or not args.fresh_env_per_trial:
+        raise SystemExit("cross-model formal evaluation requires paired noise and a fresh env")
     if args.tasks:
         tasks = [t.strip() for t in args.tasks.split(",") if t.strip()]
     else:
@@ -259,6 +268,18 @@ def main() -> None:
         server_metadata = client.runtime_info()
     except Exception:
         server_metadata = {}
+    require_protocol_attestation(server_metadata, source="GR00T runtime")
+    expected_server_protocol = closed_loop_runtime_protocol()
+    actual_server_protocol = server_metadata.get("protocol") or {}
+    protocol_mismatches = {
+        key: (actual_server_protocol.get(key), value)
+        for key, value in expected_server_protocol.items()
+        if actual_server_protocol.get(key) != value
+    }
+    if protocol_mismatches:
+        raise SystemExit(f"GR00T server cross-model protocol mismatch: {protocol_mismatches}")
+    if (server_metadata.get("model_adapter") or {}).get("model") != "gr00t":
+        raise SystemExit("GR00T server adapter attestation is missing")
     server_metadata_sha256 = hashlib.sha256(
         json.dumps(server_metadata, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
@@ -452,6 +473,8 @@ def main() -> None:
                     ACTION_NOISE_SCHEME if args.paired_action_noise else None
                 ),
                 "environment_seed_protocol": ENVIRONMENT_SEED_PROTOCOL,
+                "native_action_horizon": 16,
+                **closed_loop_row_protocol(),
             })
             print(f"[robocasa365-eval] {task} trial {trial}: success={success} "
                   f"steps={steps} ({time.time() - t0:.0f}s)", flush=True)

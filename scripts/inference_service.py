@@ -48,13 +48,25 @@ import time
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from pathlib import Path
+
 import numpy as np
+import torch
 import tyro
 
 from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING
 from gr00t.eval.robot import RobotInferenceClient, RobotInferenceServer
 from gr00t.experiment.data_config import load_data_config
 from gr00t.model.policy import Gr00tPolicy
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "tools"))
+from quantvla_cross_model_protocol import (  # noqa: E402
+    adapter_attestation,
+    closed_loop_runtime_protocol,
+    protocol_attestation,
+    validate_quant_plan,
+)
 
 
 @dataclass
@@ -169,6 +181,8 @@ def _maybe_close_a8_calibration(
         ensure_a8_calibrated,
         fixed_calibration_buffer,
     )
+    from quantvla_cross_model_protocol import protocol_artifact
+    from quantvla_model_adapters import gr00t_rollout_inputs, load_model_records
 
     act_dynamic = os.environ.get("GR00T_DUQUANT_ACT_DYNAMIC", "0") not in ("0", "false", "False")
     if act_dynamic or not static_calibrators_required(policy.model):
@@ -182,9 +196,18 @@ def _maybe_close_a8_calibration(
     # start, so the sha256 + sidecar prove the scales match the experiment.
     # v1.4 Stage D: GR00T_OBS_FORMAT=robocasa365 for the RoboCasa365 checkpoints
     fmt = os.environ.get("GR00T_OBS_FORMAT", "libero")
-    warm_obs, warm_noises, sha = fixed_calibration_buffer(
-        0, calib_steps * batch_size, horizon, action_dim, fmt=fmt
-    )
+    source_buffer_path = None
+    if fmt == "robocasa365":
+        source_buffer_path = protocol_artifact("calibration_buffer")
+        records, provenance = load_model_records(
+            source_buffer_path, calib_steps * batch_size, model="gr00t"
+        )
+        warm_obs, warm_noises = gr00t_rollout_inputs(records)
+        sha = provenance["sha256"]
+    else:
+        warm_obs, warm_noises, sha = fixed_calibration_buffer(
+            0, calib_steps * batch_size, horizon, action_dim, fmt=fmt
+        )
     import hashlib as _hl
 
     plan_path = os.environ.get("GR00T_DUQUANT_PLAN")
@@ -207,8 +230,15 @@ def _maybe_close_a8_calibration(
         "checkpoint_path": checkpoint_path,
         "wrapped_layers": count_wrapped_layers(policy.model),
     }
+    if source_buffer_path is not None:
+        act_meta.update(
+            {
+                "source_buffer_sha256": sha,
+                "source_buffer_path": str(source_buffer_path),
+            }
+        )
     print(f"[inference] static A8 calibration warmup: {calib_steps * batch_size} "
-          f"synthetic obs (buffer sha256 {sha[:16]}...; plan {plan_sha})", flush=True)
+          f"shared obs (buffer sha256 {sha[:16]}...; plan {plan_sha})", flush=True)
     t0 = time.time()
     ensure_a8_calibrated(
         policy, warm_obs, warm_noises, batch_size,
@@ -416,17 +446,41 @@ def _runtime_info(policy) -> dict:
         if len(fused_values) != 1:
             raise RuntimeError("GR00T aligned quantization cannot mix eager and fused execution")
         fused = next(iter(fused_values))
+        residency = getattr(policy.model, "_quantvla_real_quant_residency", {})
+        packed_residency = bool(
+            fused
+            and residency.get("packed_low_bit_residency")
+            and all(layer._inference_only_ready for layer in quant_layers)
+        )
         quantization_contract = {
-            "logical_profile": "gdsq_vla",
-            "quantization_method": "duquant_fake_quant",
-            "layer_selection_policy": "architecture_specific_gdsq_sensitivity_plan",
+            "logical_profile": (
+                "quantvla_adapter_only_w4a8"
+                if os.environ.get("QUANTVLA_ADAPTER_ONLY", "0")
+                not in ("0", "false", "False", "")
+                else "gdsq_vla"
+            ),
+            "quantization_method": (
+                "real_quant_packed_w4_dequant_fp16_gemm"
+                if packed_residency else "duquant_fake_quant"
+            ),
+            "layer_selection_policy": (
+                "all_model_adapter_bound_target_linear_layers_uniform_w4"
+                if os.environ.get("QUANTVLA_ADAPTER_ONLY", "0")
+                not in ("0", "false", "False", "")
+                else "architecture_specific_gdsq_sensitivity_plan"
+            ),
             "weight_quantizer": "signed_symmetric_per_output_channel",
             "activation_quantizer": "signed_symmetric_per_input_channel",
             "execution_backend": (
-                "triton_w4_dequant_fp16_gemm" if fused else "fake_quant_fp16_gemm"
+                "triton_w4_nibble_dequant_fp16_gemm"
+                if fused else "fake_quant_fp16_gemm"
             ),
             "integer_gemm": False,
-            "packed_low_bit_residency": fused,
+            "packed_low_bit_residency": packed_residency,
+            "packed_weight_bytes": int(residency.get("packed_weight_bytes", 0)),
+            "fp_weight_sized_buffers": int(
+                residency.get("fp_weight_sized_buffers", len(quant_layers))
+            ),
             "weight_bits": next(iter(weight_bits)),
             "activation_bits": int(uniform_value(quant_layers, "act_bits")),
             "block_in": int(uniform_value(quant_layers, "block_size")),
@@ -490,7 +544,23 @@ def _runtime_info(policy) -> dict:
         "quantization_contract": quantization_contract,
         "quantization_contract_sha256": contract_sha256,
         "runtime_selector": selector_metadata,
+        "cross_model_protocol": protocol_attestation(),
+        "model_adapter": adapter_attestation(
+            "gr00t",
+            native_action_horizon=int(policy.model.action_head.config.action_horizon),
+        ),
+        "protocol": closed_loop_runtime_protocol(),
     }
+    if quant_layers and os.environ.get("QUANTVLA_ADAPTER_ONLY", "0") not in (
+        "0", "false", "False", ""
+    ):
+        if not plan_path:
+            raise RuntimeError("adapter-only quantized runtime requires a plan")
+        payload["quantization_selection"] = validate_quant_plan(
+            json.loads(Path(plan_path).read_text(encoding="utf-8")),
+            model="gr00t",
+            source=str(Path(plan_path).resolve()),
+        )
     encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     payload["metadata_sha256"] = hashlib.sha256(encoded).hexdigest()
     return payload
@@ -530,6 +600,16 @@ def main(args: ArgsConfig):
         _maybe_close_a8_calibration(
             policy, data_config=args.data_config, model_path=args.model_path
         )
+        if os.environ.get("QUANTVLA_ADAPTER_ONLY", "0") not in (
+            "0", "false", "False", ""
+        ) and os.environ.get("GR00T_DUQUANT_PLAN"):
+            from gr00t.quantization import finalize_real_quant
+
+            residency = finalize_real_quant(policy.model)
+            setattr(policy.model, "_quantvla_real_quant_residency", residency)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            print(f"[inference] real-quant finalized: {residency}", flush=True)
         _maybe_close_omega_qvla_calibration(policy)
 
         from gr00t.atm import configure_runtime_selector_from_env

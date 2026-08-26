@@ -103,6 +103,80 @@ def _output_restore_kernel(
         tl.store(out_ptr + rm[:, None] * O + rn[None, :], y, mask=rmask[:, None])
 
 
+@triton.jit
+def _w4_nibble_dequant_matmul_kernel(
+    A, WQ, WS, Y,
+    M, N, K,
+    stride_am, stride_ak, stride_wn, stride_wb, stride_ym, stride_yn,
+    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
+    GROUP_M: tl.constexpr,
+):
+    pid = tl.program_id(0)
+    num_pid_m = tl.cdiv(M, BLOCK_M)
+    num_pid_n = tl.cdiv(N, BLOCK_N)
+    num_pid_in_group = GROUP_M * num_pid_n
+    group_id = pid // num_pid_in_group
+    first_pid_m = group_id * GROUP_M
+    group_size_m = min(num_pid_m - first_pid_m, GROUP_M)
+    pid_m = first_pid_m + ((pid % num_pid_in_group) % group_size_m)
+    pid_n = (pid % num_pid_in_group) // group_size_m
+    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    offs_k = tl.arange(0, BLOCK_K)
+    a_ptrs = A + offs_m[:, None] * stride_am + offs_k[None, :] * stride_ak
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
+    for block_k in range(0, tl.cdiv(K, BLOCK_K)):
+        k = block_k * BLOCK_K + offs_k
+        a = tl.load(a_ptrs, mask=k[None, :] < K, other=0.0)
+        packed = tl.load(
+            WQ + offs_n[:, None] * stride_wn + (k[None, :] // 2) * stride_wb,
+            mask=(offs_n[:, None] < N) & (k[None, :] < K),
+            other=0,
+        )
+        shift = (k & 1) * 4
+        q_u4 = (packed >> shift[None, :]) & 0x0F
+        q = tl.where(q_u4 >= 8, q_u4.to(tl.int32) - 16, q_u4.to(tl.int32))
+        scale = tl.load(WS + offs_n, mask=offs_n < N, other=1.0)
+        weight = q.to(tl.float32) * scale[:, None]
+        acc += tl.dot(a, tl.trans(weight).to(a.dtype), out_dtype=tl.float32)
+        a_ptrs += BLOCK_K * stride_ak
+    tl.store(
+        Y + offs_m[:, None] * stride_ym + offs_n[None, :] * stride_yn,
+        acc.to(Y.dtype.element_ty),
+        mask=(offs_m[:, None] < M) & (offs_n[None, :] < N),
+    )
+
+
+def pack_w4_nibbles(weight: torch.Tensor, scales: torch.Tensor) -> torch.Tensor:
+    """Pack signed DuQuant W4 values two per uint8 byte."""
+    quant = torch.clamp(torch.round(weight / scales[:, None]), -8, 7).to(torch.int8)
+    if quant.shape[1] & 1:
+        quant = torch.nn.functional.pad(quant, (0, 1))
+    unsigned = torch.bitwise_and(quant, 0x0F).to(torch.uint8)
+    return torch.bitwise_or(unsigned[:, 0::2], unsigned[:, 1::2] << 4).contiguous()
+
+
+def _w4_linear(
+    x: torch.Tensor, packed_weight: torch.Tensor, scales: torch.Tensor
+) -> torch.Tensor:
+    m, k = x.shape
+    n = packed_weight.shape[0]
+    if packed_weight.shape[1] != (k + 1) // 2:
+        raise ValueError("packed W4 shape does not match the input dimension")
+    output = torch.empty((m, n), dtype=x.dtype, device=x.device)
+    block_m, block_n, block_k, group_m = 64, 64, 64, 4
+    grid = (triton.cdiv(m, block_m) * triton.cdiv(n, block_n),)
+    _w4_nibble_dequant_matmul_kernel[grid](
+        x, packed_weight, scales, output,
+        m, n, k,
+        x.stride(0), x.stride(1),
+        packed_weight.stride(0), packed_weight.stride(1),
+        output.stride(0), output.stride(1),
+        BLOCK_M=block_m, BLOCK_N=block_n, BLOCK_K=block_k, GROUP_M=group_m,
+    )
+    return output
+
+
 def duquant_linear_fused(
     x: torch.Tensor,
     W_tq: torch.Tensor,
@@ -151,6 +225,55 @@ def duquant_linear_fused(
         rout_stack if rout_stack is not None else y_lin,
         M, O=O, B=B, BM=BM, DTYPE="fp16" if x.dtype == torch.float16 else "bf16",
         BLOCKS_PER_PROG=BPG_OUT,
+        HAS_ROUT=rout_stack is not None,
+        HAS_BIAS=bias is not None,
+    )
+    return y
+
+
+def duquant_linear_fused_w4(
+    x: torch.Tensor,
+    packed_weight: torch.Tensor,
+    weight_scales: torch.Tensor,
+    bias: torch.Tensor,
+    perm32,
+    rin_stack,
+    sa,
+    rout_stack,
+    B: int = 16,
+    BM: int = 64,
+):
+    """DuQuant fused transforms with true nibble-packed W4 residency."""
+    M, I = x.shape
+    O = packed_weight.shape[0]
+    x = x.contiguous()
+    blocks_per_program = 16
+    x_tq = torch.empty_like(x)
+    _input_transform_quant_kernel[
+        (triton.cdiv(M, BM), I // (B * blocks_per_program))
+    ](
+        x, x_tq,
+        perm32 if perm32 is not None else x,
+        rin_stack if rin_stack is not None else x,
+        sa if sa is not None else x,
+        M, I=I, B=B, BM=BM,
+        DTYPE="fp16" if x.dtype == torch.float16 else "bf16",
+        BLOCKS_PER_PROG=blocks_per_program,
+        HAS_PERM=perm32 is not None,
+        HAS_RIN=rin_stack is not None,
+        HAS_SA=sa is not None,
+    )
+    y_lin = _w4_linear(x_tq, packed_weight, weight_scales)
+    y = torch.empty((M, O), dtype=x.dtype, device=x.device)
+    _output_restore_kernel[
+        (triton.cdiv(M, BM), O // (B * blocks_per_program))
+    ](
+        y_lin, y,
+        bias if bias is not None else y_lin,
+        rout_stack if rout_stack is not None else y_lin,
+        M, O=O, B=B, BM=BM,
+        DTYPE="fp16" if x.dtype == torch.float16 else "bf16",
+        BLOCKS_PER_PROG=blocks_per_program,
         HAS_ROUT=rout_stack is not None,
         HAS_BIAS=bias is not None,
     )

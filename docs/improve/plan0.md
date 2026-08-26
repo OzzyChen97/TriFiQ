@@ -16,6 +16,12 @@
 * `D_PAC`：Prefix-Accumulated Control Divergence；
 * `SoftFold`：selector-free folded compensation。
 
+## 跨模型硬约束
+
+GR00T N1.5 与 π0.5 的正式对比只允许模型适配器不同。适配器只负责 checkpoint/原生前向、观测预处理、架构模块名，以及将原生动作轨迹映射到统一的 `(16, 12)` 空间。教师定义、两个冻结缓冲区、配对噪声、`D_func`/`D_PAC` 公式、CKA/CS 公式、SoftFold 9×9 网格与 one-standard-error 规则、W4A8 real-quant 部署、15×20 闭环协议和 McNemar 统计全部来自同一份带哈希协议。
+
+量化目标层采用相同的确定性规则：适配器列出的全部 QuantVLA 目标 Linear 都使用 W4/group64，不保留模型专属 FP16 target layer。CKA/CS 只用于相对原始 FP16 的机制诊断和校正分析，不再产生两种模型不同的 16:1 mask。
+
 ---
 
 ## 一、当前实现真正缺的是什么
@@ -163,7 +169,7 @@ D_{\mathrm{stitch}}
 
 它不要求量化动作本身绝对平滑，只要求量化不要改变 FP16 原本的边界动态。
 
-π0.5 还可以增加一个低权重的 forecast-overlap 项。由于它预测 50 步、只执行 16 步，前一次预测的 `16:50` 与下一次预测的 `0:34` 在时间上近似重叠：
+早期草案曾考虑给 π0.5 增加低权重 forecast-overlap 项。该做法现已废弃：它会让 π0.5 和 GR00T 使用不同的指标公式，违反“只允许模型适配器不同”的约束。π0.5 的 `16:50` 后缀只能作为 adapter 侧诊断，不能进入正式搜索目标、选择规则或主表统计：
 
 [
 D_{\mathrm{overlap}}
@@ -177,7 +183,7 @@ D_{\mathrm{overlap}}
 \right|^2
 ]
 
-它不是环境真值，所以只能作为辅助项，权重应低于已执行 16 步的损失。
+它不是环境真值；正式协议固定其权重为 0。
 
 ---
 
@@ -242,7 +248,8 @@ D_{\mathrm{PAC}}
 其中：
 
 * GR00T：(\lambda_o=0)；
-* π0.5：`overlap` 只作低权重辅助；
+* π0.5：(\lambda_o=0)；
+* 任意模型专属辅助项均不得进入正式目标；
 * 各项先用 FP16 统计量归一化，初始全部设为 1；
 * sequence 模式下建议关闭当前 `D_func` 的 observation-CVaR，统一在 sequence 层计算 CVaR，避免 tail risk 重复计权；
 * 第一版不要调出十几个手工权重，否则它会变成另一种 selector。
@@ -586,8 +593,8 @@ d_pac_sequence(
 `pi05_func_metrics.py` 增加：
 
 * 前 16 步主损失；
-* `16:50` forecast 辅助；
-* optional overlap loss。
+* 与 GR00T 相同的 `(16,12)` canonical action 映射；
+* `16:50` forecast 只允许作为 adapter debug 信息，正式指标中的 overlap 权重固定为 0。
 
 ### P2：替换 selector 拟合
 
@@ -637,32 +644,21 @@ scripts/tools/fit_softfold_compensation.py
 修改 `gr00t_select_plan.py` 及 π0.5 对应搜索：
 
 * byte cap 固定为 QuantVLA；
-* CKA/CS 仅作 cheap prescreen；
-* 最终 mask 用完整配置 `D_PAC`；
-* 搜索从全 W4 开始，以“恢复精度/额外字节”为核心，而不是从大量 FP16 层开始逐步压缩。
+* 正式主方法固定为适配器 target inventory 的全 W4，不再用 CKA/CS 产生模型专属 mask；
+* CKA/CS 只报告 FP16-relative representation drift；
+* `D_PAC` 只选择 SoftFold 校正和后续可能的同预算增强，不能改变主表量化层预算。
 
 ---
 
 # 七、必须做的关键消融
 
-快速实验(15tasks * 20seeds)至少需要分成两组，避免 mask、loss、correction 和压缩率互相混淆。
-
-第一组固定当前 mask：
-
-| 配置                    | 目的                 |
-| --------------------- | ------------------ |
-| 当前 GDSQ，无校正           | 基线                 |
-| 当前硬 selector          | 复现                 |
-| SoftFold，仍用旧 `D_func` | 隔离 soft correction |
-| SoftFold + `D_PAC`    | 检查新长程目标            |
-
-第二组固定 QuantVLA exact bytes：
+严格的 15 tasks × 20 seeds 对比只使用 QuantVLA exact layout，避免 mask、loss、correction 和压缩率互相混淆。旧 mixed-mask/selector 结果只能作为历史诊断，不能与新主表合并：
 
 | 配置                       | 目的     |
 | ------------------------ | ------ |
 | QuantVLA W4A8            | 同预算基线  |
-| GDSQ score + exact bytes | 检查选层本身 |
-| `D_PAC` + exact bytes    | 检查累积指标 |
+| 全 W4 + `D_func` SoftFold | 隔离选择指标 |
+| 全 W4 + `D_PAC` SoftFold  | 检查累积指标 |
 | `D_PAC` + SoftFold       | 主方法    |
 | + per-step A8            | 工程增强   |
 
@@ -688,7 +684,7 @@ scripts/tools/fit_softfold_compensation.py
 2. **`D_PAC`：prefix pose drift + replan stitch + gripper timing + sequence CVaR**；
 3. **全局 `g_A,g_B` SoftFold，9×9 无梯度搜索并折叠权重**。
 
-暂时不加入 low-rank residual、动态 gate 或复杂 per-head gate。先验证这三项能否在当前 mask 上稳定降低长程 FP16 divergence；随后再把预算压到 QuantVLA。这个路径的科学问题最明确，代码改动也与现有实现高度对齐，不会再把架构堆成一座量化圣诞树。
+暂时不加入 low-rank residual、动态 gate 或复杂 per-head gate。第一版从一开始就锁定 QuantVLA 全 W4 layout，在相同字节预算下只比较 `D_func` 与 `D_PAC` 选出的静态 SoftFold。这个路径的科学问题最明确，也不会再把架构堆成一座量化圣诞树。
 
 [1]: https://arxiv.org/html/2602.20309v1 "QuantVLA: Scale-Calibrated Post-Training Quantization for Vision-Language-Action Models"
 [2]: https://arxiv.org/html/2605.28803v1 "https://arxiv.org/html/2605.28803v1"

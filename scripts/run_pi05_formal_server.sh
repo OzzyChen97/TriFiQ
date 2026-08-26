@@ -15,13 +15,14 @@ FULL_A8="${PI05_FULL_A8:-$ALIGNED_ROOT/a8/pi05_quantvla_uniform_w4a8_d4_p999_b32
 GDSQ_A8="${PI05_GDSQ_A8:-$ALIGNED_ROOT/a8/pi05_gdsq_cscka_16to1_d4_p999_b32x8.npz}"
 FULL_ATM="${PI05_FULL_ATM:-$ALIGNED_ROOT/atm_ohb/pi05_quantvla_uniform_w4a8_d4_static_perhead.json}"
 GDSQ_ATM="${PI05_GDSQ_ATM:-$ALIGNED_ROOT/atm_ohb/pi05_gdsq_cscka_16to1_d4_static_perhead.json}"
+SOFTFOLD_ATM="${PI05_SOFTFOLD_ATM:-$GDSQ_ATM}"
 RUNTIME_SELECTOR="${PI05_RUNTIME_SELECTOR:-$REPO_ROOT/runs/atmohb_dynamic_selector_v8/selector.json}"
 CONTROL_DIR="${PI05_CONTROL_DIR:-$ALIGNED_ROOT/official_target_paired50/control}"
 CONTROL_DIR="$(mkdir -p "$CONTROL_DIR" && cd "$CONTROL_DIR" && pwd)"
 
 usage() {
     echo "usage: $0 start CONFIG GPU PORT INSTANCE | stop INSTANCE | status" >&2
-    echo "CONFIG: fp16 | quantvla_w4a8_atmohb | gdsq_vla_atmohb | gdsq_vla_atm_only | gdsq_vla_ohb_only | gdsq_vla_runtime_selector | gdsq_vla_softfold_dfunc | gdsq_vla_softfold_dpac | gdsq_vla" >&2
+    echo "CONFIG: fp16 | quantvla_w4a8_atmohb | quantvla_w4a8_softfold_dfunc | quantvla_w4a8_softfold_dpac | gdsq_vla_atmohb | gdsq_vla_atm_only | gdsq_vla_ohb_only | gdsq_vla_runtime_selector | gdsq_vla_softfold_dfunc | gdsq_vla_softfold_dpac | gdsq_vla" >&2
 }
 
 sha256_file() {
@@ -57,7 +58,7 @@ clear_quant_environment() {
     local variable
     while IFS='=' read -r variable _; do
         case "$variable" in
-            OPENPI_DUQUANT_*|OPENPI_ATM_*|OPENPI_OHB_*|OPENPI_RUNTIME_SELECTOR_*) unset "$variable" ;;
+            OPENPI_DUQUANT_*|OPENPI_ATM_*|OPENPI_OHB_*|OPENPI_RUNTIME_SELECTOR_*|QUANTVLA_ADAPTER_ONLY) unset "$variable" ;;
         esac
     done < <(env)
 }
@@ -87,7 +88,7 @@ configure_quant() {
     OPENPI_DUQUANT_CALIB_BUFFER_SHA256="$(sha256_file "$BUFFER")"
     export OPENPI_DUQUANT_STRICT_ARTIFACTS=1
     export OPENPI_DUQUANT_PRECACHE_WEIGHTS=1
-    export OPENPI_DUQUANT_TRITON=0
+    export OPENPI_DUQUANT_TRITON=1
     export OPENPI_DUQUANT_QUIET=1
     export OPENPI_CHECKPOINT_SHA256="$CHECKPOINT_SHA256"
 }
@@ -158,6 +159,11 @@ start_server() {
                 require_file "$artifact"
             done
             ;;
+        quantvla_w4a8_softfold_dfunc|quantvla_w4a8_softfold_dpac)
+            for artifact in "$PACK_DIR/manifest.json" "$FULL_PLAN" "$FULL_A8" "$FULL_A8.json" "$SOFTFOLD_ATM"; do
+                require_file "$artifact"
+            done
+            ;;
         gdsq_vla_atmohb|gdsq_vla_atm_only|gdsq_vla_ohb_only|gdsq_vla_runtime_selector|gdsq_vla_softfold_dfunc|gdsq_vla_softfold_dpac)
             for artifact in "$PACK_DIR/manifest.json" "$GDSQ_PLAN" "$GDSQ_A8" "$GDSQ_A8.json" "$GDSQ_ATM"; do
                 require_file "$artifact"
@@ -189,8 +195,17 @@ start_server() {
         case "$config" in
             fp16) ;;
             quantvla_w4a8_atmohb)
+                export QUANTVLA_ADAPTER_ONLY=1
                 configure_quant "$FULL_PLAN" "$FULL_A8" 180
                 configure_atm "$FULL_ATM" "$FULL_PLAN"
+                ;;
+            quantvla_w4a8_softfold_dfunc|quantvla_w4a8_softfold_dpac)
+                export OPENPI_FORMAL_EXPECT_WRAPPED=180
+                export QUANTVLA_ADAPTER_ONLY=1
+                configure_quant "$FULL_PLAN" "$FULL_A8" 180
+                configure_atm "$SOFTFOLD_ATM" "$FULL_PLAN" 1 1
+                export OPENPI_ATM_APPLICATION=fold_q_weight
+                export OPENPI_OHB_APPLICATION=fold_o_weight_perhead
                 ;;
             gdsq_vla_atmohb)
                 export OPENPI_FORMAL_EXPECT_WRAPPED="$gdsq_wrapped"

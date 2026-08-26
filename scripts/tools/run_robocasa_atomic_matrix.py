@@ -37,6 +37,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from quantvla_cross_model_protocol import (
+    PROTOCOL,
+    closed_loop_runtime_protocol,
+    require_protocol_attestation,
+    validate_quant_plan,
+)
+
 import msgpack
 import zmq
 
@@ -589,6 +596,20 @@ def build_manifest(
         omega_pack_artifact = artifact(raw.get("omega_pack"))
         omega_attestation_artifact = None
         omega_calibration_artifact = artifact(raw.get("omega_calibration_manifest"))
+        quant_selection_attestation = None
+        if plan_artifact and formal_provenance_v2:
+            plan_document = json.loads(
+                Path(plan_artifact["path"]).read_text(encoding="utf-8")
+            )
+            quant_selection_attestation = validate_quant_plan(
+                plan_document, model="gr00t", source=plan_artifact["path"]
+            )
+            if quant_selection_attestation["target_layers"] != int(
+                raw.get("expected_wrapped", 0)
+            ):
+                raise SystemExit(
+                    f"{raw['id']}: adapter target count does not match expected_wrapped"
+                )
         if omega_pack_artifact:
             omega_path = Path(omega_pack_artifact["path"])
             if "libero" in str(omega_path).lower():
@@ -624,6 +645,8 @@ def build_manifest(
                 "obs_format": meta.get("obs_format") == "robocasa365",
                 "checkpoint": str(Path(meta.get("checkpoint_path", "")).resolve())
                 == str(checkpoint),
+                "shared_source_buffer": meta.get("source_buffer_sha256")
+                == PROTOCOL["data"]["calibration_buffer"]["sha256"],
             }
             failed = [name for name, valid in a8_checks.items() if not valid]
             if failed:
@@ -663,6 +686,8 @@ def build_manifest(
             config["ohb_application"] = str(raw["ohb_application"])
         if act_scale_meta is not None:
             config["act_scale_meta"] = act_scale_meta
+        if quant_selection_attestation is not None:
+            config["quantization_selection"] = quant_selection_attestation
         replicas = [
             {"gpu": int(replica["gpu"]), "port": int(replica["port"])}
             for replica in raw.get("replicas", [])
@@ -838,6 +863,8 @@ def start_server(
     env["GR00T_DENOISING_STEPS"] = "4"
     env["GR00T_MODEL_PATH"] = manifest["checkpoint_path"]
     env["GR00T_DATA_CONFIG"] = manifest["data_config"]
+    if int(manifest.get("schema_version", 1)) >= 2:
+        env["QUANTVLA_ADAPTER_ONLY"] = "1"
     if config["omega_pack"]:
         omega_calibration = json.loads(
             Path(config["omega_calibration_manifest"]["path"]).read_text()
@@ -927,6 +954,12 @@ def wait_and_verify(
             )
             if "error" in info:
                 raise RuntimeError(info["error"])
+            require_protocol_attestation(info, source=f"GR00T server {config['id']}")
+            expected_protocol = closed_loop_runtime_protocol()
+            if info.get("protocol") != expected_protocol:
+                raise RuntimeError(
+                    f"cross-model runtime protocol mismatch: {info.get('protocol')}"
+                )
             if int(info.get("wrapped_layers", -1)) != config["expected_wrapped"]:
                 raise RuntimeError(
                     f"wrapped mismatch {info.get('wrapped_layers')} != {config['expected_wrapped']}"
@@ -967,6 +1000,15 @@ def wait_and_verify(
             if expect_ohb and int(info.get("ohb_layers", 0)) == 0:
                 raise RuntimeError(f"OHB hooks absent: {info}")
             runtime_contract = info.get("quantization_contract") or {}
+            if config["expected_wrapped"] and not runtime_contract.get(
+                "packed_low_bit_residency", False
+            ):
+                raise RuntimeError(f"real-quant residency is required: {info}")
+            if config["expected_wrapped"] and (
+                int(runtime_contract.get("packed_weight_bytes", 0)) <= 0
+                or int(runtime_contract.get("fp_weight_sized_buffers", -1)) != 0
+            ):
+                raise RuntimeError(f"inference-only W4 residency is required: {info}")
             runtime_atm_application = info.get(
                 "atm_application", runtime_contract.get("atm_application")
             )
