@@ -119,6 +119,48 @@ def _release(value: Any) -> None:
         torch.cuda.empty_cache()
 
 
+def _validate_fp16_stage(
+    paths: dict[str, Path],
+    *,
+    model: str,
+    checkpoint_sha256: str,
+    plan_sha256: str,
+    buffer_sha256: str,
+) -> None:
+    """Validate the immutable FP16/A8/Hessian stage before crash-resume."""
+    with np.load(paths["fp16"], allow_pickle=False) as archive:
+        expected = {
+            "checkpoint_sha256": checkpoint_sha256,
+            "plan_sha256": plan_sha256,
+            "calibration_buffer_sha256": buffer_sha256,
+        }
+        for key, value in expected.items():
+            actual = str(np.asarray(archive[key]).item())
+            if actual != value:
+                raise ValueError(f"FP16 stage {key} drift: {actual} != {value}")
+    capture_sha256 = sha256_file(paths["fp16"])
+    a8_sidecar = Path(
+        str(paths["a8"]) + (".meta.json" if model == "gr00t" else ".json")
+    )
+    a8 = json.loads(a8_sidecar.read_text(encoding="utf-8"))
+    a8_meta = a8.get("metadata", a8)
+    for key, value in {
+        "checkpoint_sha256": checkpoint_sha256,
+        "plan_sha256": plan_sha256,
+        "calibration_buffer_sha256": buffer_sha256,
+        "capture_sha256": capture_sha256,
+    }.items():
+        if a8_meta.get(key) != value:
+            raise ValueError(f"A8 stage {key} drift")
+    hessian = json.loads(
+        Path(str(paths["hessian"]) + ".json").read_text(encoding="utf-8")
+    )
+    if hessian.get("calibration_buffer_sha256") != buffer_sha256:
+        raise ValueError("Hessian stage calibration buffer drift")
+    if hessian.get("capture_sha256") != capture_sha256:
+        raise ValueError("Hessian stage FP16 capture drift")
+
+
 def _capture_gr00t(
     *,
     checkpoint: Path,
@@ -472,46 +514,73 @@ def main() -> None:
             path.unlink(missing_ok=True)
             Path(str(path) + ".json").unlink(missing_ok=True)
             Path(str(path) + ".meta.json").unlink(missing_ok=True)
-    required = [
+        # A failed quantized capture can leave strict identity packs behind.
+        # They are derived cache entries and must be rebuilt with this run's
+        # full layer/checkpoint provenance instead of being silently reused.
+        for path in pack_dir.glob("*.npz"):
+            path.unlink()
+    fp16_stage = [
         paths["fp16"],
         paths["fp16_attention"],
         paths["a8"],
         Path(str(paths["a8"]) + (".meta.json" if model_name == "gr00t" else ".json")),
         paths["hessian"],
         Path(str(paths["hessian"]) + ".json"),
+    ]
+    quant_stage = [
         paths["quant"],
         paths["quant_attention"],
         paths["paired"],
         paths["raw"],
     ]
-    if any(path.exists() for path in required) and not all(path.exists() for path in required):
-        raise RuntimeError("partial calibration artifacts found; use --force to rebuild atomically")
+    required = fp16_stage + quant_stage
+    if any(path.exists() for path in fp16_stage) and not all(
+        path.exists() for path in fp16_stage
+    ):
+        raise RuntimeError("incomplete FP16 stage; use --force to rebuild atomically")
     runtimes: dict[str, Any] = {}
     if not all(path.exists() for path in required):
         capture = _capture_gr00t if model_name == "gr00t" else _capture_pi05
-        fp16_arrays, fp16_attention, runtimes["fp16"] = capture(
-            checkpoint=checkpoint,
-            plan=plan,
-            pack_dir=pack_dir,
-            a8=paths["a8"],
-            hessian=paths["hessian"],
-            records=records,
-            checkpoint_hash=checkpoint_hash,
-            buffer_hash=buffer_hash,
-            plan_hash=plan_hash,
-            device=args.device,
-            batch_size=args.batch_size,
-            quantized=False,
-        )
-        save_npz(paths["fp16"], fp16_arrays)
-        _save_attention(paths["fp16_attention"], fp16_attention)
-        build_a8(paths["fp16"], paths["a8"], model_name)
-        build_hessian(
-            paths["fp16"],
-            paths["hessian"],
-            model_name,
-            device=args.hessian_device or args.device,
-        )
+        if all(path.exists() for path in fp16_stage):
+            _validate_fp16_stage(
+                paths,
+                model=model_name,
+                checkpoint_sha256=checkpoint_hash,
+                plan_sha256=plan_hash,
+                buffer_sha256=buffer_hash,
+            )
+            runtimes["fp16"] = {"crash_resume_reused": True}
+        else:
+            fp16_arrays, fp16_attention, runtimes["fp16"] = capture(
+                checkpoint=checkpoint,
+                plan=plan,
+                pack_dir=pack_dir,
+                a8=paths["a8"],
+                hessian=paths["hessian"],
+                records=records,
+                checkpoint_hash=checkpoint_hash,
+                buffer_hash=buffer_hash,
+                plan_hash=plan_hash,
+                device=args.device,
+                batch_size=args.batch_size,
+                quantized=False,
+            )
+            save_npz(paths["fp16"], fp16_arrays)
+            _save_attention(paths["fp16_attention"], fp16_attention)
+            build_a8(paths["fp16"], paths["a8"], model_name)
+            build_hessian(
+                paths["fp16"],
+                paths["hessian"],
+                model_name,
+                device=args.hessian_device or args.device,
+            )
+        # The quantized stage is atomic as a group.  Preserve the expensive,
+        # validated FP16/Hessian stage, but rebuild any interrupted downstream
+        # outputs and all derived identity packs.
+        for path in quant_stage:
+            path.unlink(missing_ok=True)
+        for path in pack_dir.glob("*.npz"):
+            path.unlink()
         quant_arrays, quant_attention, runtimes["complete_quant"] = capture(
             checkpoint=checkpoint,
             plan=plan,

@@ -167,6 +167,10 @@ class DuQuantLinear(nn.Module):
                 enable_permute=cfg.enable_permute,
                 lambda_smooth=cfg.lambda_smooth,
             )
+            pack.meta["layer_name"] = self.name
+            checkpoint_sha256 = os.environ.get("OPENPI_CHECKPOINT_SHA256")
+            if checkpoint_sha256:
+                pack.meta["checkpoint_sha256"] = checkpoint_sha256
             save_pack(self.name, pack, cfg.pack_dir)
         _validate_pack_for_layer(
             pack,

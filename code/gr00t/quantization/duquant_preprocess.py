@@ -222,8 +222,12 @@ def pack_weight(
             R_out_blocks=None,
             weight_scale=scale,
             meta={
+                "in_features": int(in_features),
+                "out_features": int(out_features),
                 "block_size": int(block_size),
                 "block_out_size": int(block_out_size or block_size),
+                "enable_permute": False,
+                "lambda_smooth": float(lambda_smooth),
                 "identity_for_hessian_w4": True,
             },
         )

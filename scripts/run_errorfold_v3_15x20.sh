@@ -132,17 +132,13 @@ run_calibration_job() {
         return
     fi
     mkdir -p "$directory"
-    local force=()
-    if find "$directory" -maxdepth 1 -type f -print -quit | grep -q .; then
-        force=(--force)
-    fi
     wait_gpu_headroom "$gpu"
     CUDA_VISIBLE_DEVICES="$gpu" PYTHONUNBUFFERED=1 "$python" \
         "$REPO/scripts/tools/calibrate_errorfold_v3.py" \
         --model "$model" --checkpoint "$checkpoint" --plan "$plan" \
         --buffer "$CALIBRATION_BUFFER" --out-dir "$directory" \
         --pack-dir "$directory/identity_pack" --batch-size 8 \
-        --device cuda --hessian-device cuda "${force[@]}" \
+        --device cuda --hessian-device cuda \
         >"$directory/calibration.log" 2>&1
 }
 
