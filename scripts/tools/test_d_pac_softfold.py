@@ -4,9 +4,8 @@ import copy
 import math
 from pathlib import Path
 import sys
-from types import SimpleNamespace
-import json
 
+import pytest
 import torch
 
 
@@ -18,275 +17,326 @@ sys.path.insert(0, str(REPO_ROOT / "code/pi05/openpi/src"))
 
 from fit_softfold_compensation import (  # noqa: E402
     GRID,
-    fit,
-    fold_layers,
-    sample_split,
+    require_grid,
     select_one_standard_error,
-    softfold_value,
     summarize_candidates,
 )
-from pi05_func_metrics import d_pac_sequence as pi05_d_pac_sequence  # noqa: E402
-from quantvla_cross_model_protocol import (  # noqa: E402
-    PROTOCOL,
-    protocol_attestation,
-    validate_quant_plan,
+from quantvla_cross_model_protocol import PROTOCOL, validate_quant_plan  # noqa: E402
+from quantvla_errorfold import (  # noqa: E402
+    fit_errorfold,
+    fold_dequant_scales,
+    fold_linear_parameters,
+    gated_affine,
 )
-from quantvla_model_adapters import canonical_trajectory  # noqa: E402
-from gr00t_func_metrics import aggregate_d_pac_sequences, d_pac_sequence  # noqa: E402
-from gr00t_select_plan import (  # noqa: E402
-    layer_bytes_fp16,
-    plan_total_bytes,
-    quantvla_w4_budget,
-    quantvla_w4_plan,
+from quantvla_hessian_w4 import (  # noqa: E402
+    a8_scale_table,
+    hessian_aware_w4,
+    pack_signed_nibbles,
+    unpack_signed_nibbles,
 )
+from quantvla_metric_protocol import (  # noqa: E402
+    aggregate_d_pac_sequences,
+    d_pac_sequence,
+    physical_action_scale,
+    summarize_noise_a_b,
+    summarize_pair,
+)
+from quantvla_model_adapters import canonical_physical_chunk  # noqa: E402
+
+
+def _records(count: int = 8) -> list[dict]:
+    return [
+        {"task": "task", "seed": index // 4, "replan": index % 4}
+        for index in range(count)
+    ]
 
 
 def _teacher() -> torch.Tensor:
     generator = torch.Generator().manual_seed(7)
-    return torch.randn(4, 8, 7, generator=generator) * 0.1
+    return torch.randn(8, 16, 12, generator=generator) * 0.1
 
 
-def test_d_pac_fp16_identity_is_exact_zero() -> None:
+def test_v3_protocol_freezes_physical_action_and_shared_search() -> None:
+    assert PROTOCOL["protocol_id"] == "quantvla-gr00t-pi05-errorfold-v3"
+    assert PROTOCOL["metrics"]["canonical_action"]["space"].startswith("physical")
+    assert PROTOCOL["metrics"]["d_pac"]["formula_id"].startswith("d_pac_v2")
+    assert PROTOCOL["metrics"]["d_pac"]["pi05_forecast_overlap"] is False
+    assert len(PROTOCOL["softfold"]["grid"]["gate_atm"]) == 9
+    assert len(PROTOCOL["softfold"]["grid"]["gate_errorfold"]) == 9
+
+
+def test_d_pac_v2_fp16_identity_is_strict_zero() -> None:
     teacher = _teacher()
-    result = d_pac_sequence(teacher, teacher, [3, 1, 2, 0], executed_actions=8)
-    assert result["d_pac_sequence"] == 0.0
-    assert result["d_prefix"] == 0.0
-    assert result["d_stitch"] == 0.0
-    assert result["d_grip_time"] == 0.0
-    assert result["teacher"] == "original_fp16"
+    result = summarize_pair(teacher, teacher, _records())
+    assert result["d_func_summary"]["d_func"] == 0.0
+    assert result["d_pac_summary"]["d_pac"] == 0.0
+    for sequence in result["d_pac_summary"]["sequences"]:
+        assert sequence["d_pac_sequence"] == 0.0
+        assert all(value == 0.0 for value in sequence["components"].values())
+
+
+def test_dfunc_one_se_samples_are_task_seed_sequences_not_replans() -> None:
+    teacher = _teacher()
+    candidate = teacher.clone()
+    candidate[0:4, :, 0] += torch.tensor([0.01, 0.02, 0.03, 0.04])[:, None]
+    summary = summarize_pair(teacher, candidate, _records())["d_func_summary"]
+    assert len(summary["per_obs"]) == 8
+    assert len(summary["per_sequence"]) == 2
+    assert summary["selection_sample_unit"] == "paired_task_seed_sequence"
+    assert summary["per_sequence"][0] == pytest.approx(
+        sum(summary["per_obs"][:4]) / 4.0
+    )
+
+
+def test_global_scale_is_finite_for_static_and_tiny_mad_dimensions() -> None:
+    teacher = torch.zeros(8, 16, 12)
+    teacher[..., 1] = 1e-10
+    teacher[..., 2] = torch.linspace(-1e-8, 1e-8, teacher.shape[0] * 16).reshape(8, 16)
+    scale = physical_action_scale(teacher)
+    assert torch.isfinite(scale).all()
+    assert bool((scale >= 1e-4).all())
+    candidate = teacher.clone()
+    candidate[..., 0] = 2e-4
+    result = summarize_pair(teacher, candidate, _records())
+    assert math.isfinite(result["d_pac_summary"]["d_pac"])
+    assert result["d_pac_summary"]["d_pac"] < 100.0
 
 
 def test_constant_bias_accumulates_more_than_equal_mse_alternating_bias() -> None:
-    teacher = _teacher()
+    teacher = _teacher()[:4]
+    scale = physical_action_scale(_teacher())
     constant = teacher.clone()
     alternating = teacher.clone()
-    constant[..., 0] += 0.01
-    signs = torch.tensor([1.0, -1.0] * 16).reshape(4, 8)
-    alternating[..., 0] += 0.01 * signs
-    constant_result = d_pac_sequence(teacher, constant, range(4), executed_actions=8)
-    alternating_result = d_pac_sequence(teacher, alternating, range(4), executed_actions=8)
+    constant[..., 7] += 0.01
+    signs = torch.tensor([1.0, -1.0] * 32).reshape(4, 16)
+    alternating[..., 7] += 0.01 * signs
+    constant_result = d_pac_sequence(teacher, constant, range(4), scale=scale)
+    alternating_result = d_pac_sequence(teacher, alternating, range(4), scale=scale)
     torch.testing.assert_close(
         torch.mean((constant - teacher) ** 2),
         torch.mean((alternating - teacher) ** 2),
     )
-    assert constant_result["d_prefix"] > 10.0 * alternating_result["d_prefix"]
+    assert constant_result["d_prefix"] > 8.0 * alternating_result["d_prefix"]
 
 
-def test_stitch_and_gripper_timing_terms_fire() -> None:
-    teacher = torch.zeros(3, 6, 7)
-    teacher[..., :6] = torch.linspace(-0.2, 0.2, 18).reshape(3, 6, 1)
+def test_stitch_and_gripper_event_terms_are_finite_and_fire() -> None:
+    teacher = torch.zeros(3, 16, 12)
+    scale = torch.full((12,), 0.1)
     stitch_candidate = teacher.clone()
     stitch_candidate[1, 0, 0] += 0.2
-    stitch = d_pac_sequence(teacher, stitch_candidate, range(3), executed_actions=6)
+    stitch = d_pac_sequence(teacher, stitch_candidate, range(3), scale=scale)
     assert stitch["d_stitch"] > 0.0
 
-    teacher[..., 6] = -1.0
-    teacher.reshape(-1, 7)[7:, 6] = 1.0
-    delayed = teacher.clone()
-    delayed[..., 6] = -1.0
-    delayed.reshape(-1, 7)[9:, 6] = 1.0
-    grip = d_pac_sequence(teacher, delayed, range(3), executed_actions=6)
-    assert grip["d_grip_time"] > 0.0
+    teacher.reshape(-1, 12)[20:, 6] = 1.0
+    delayed = torch.zeros_like(teacher)
+    delayed.reshape(-1, 12)[23:, 6] = 1.0
+    grip = d_pac_sequence(teacher, delayed, range(3), scale=scale)
+    assert math.isfinite(grip["d_grip"]) and grip["d_grip"] > 0.0
 
 
-def test_sequence_cvar_is_applied_once_at_outer_level() -> None:
-    result = aggregate_d_pac_sequences([0.0, 1.0, 2.0, 10.0], tail_weight=2.0)
+def test_different_native_horizons_same_physical_trace_have_same_loss() -> None:
+    generator = torch.Generator().manual_seed(29)
+    physical = torch.randn(3, 16, 12, generator=generator)
+    gr00t = canonical_physical_chunk(physical, model="gr00t")
+    pi05_native = torch.zeros(3, 50, 12)
+    pi05_native[:, :16] = physical
+    pi05 = canonical_physical_chunk(pi05_native, model="pi05")
+    torch.testing.assert_close(gr00t, pi05)
+    changed = physical.clone()
+    changed[..., 0] += 0.01
+    scale = physical_action_scale(physical)
+    first = d_pac_sequence(gr00t, changed, range(3), scale=scale)
+    second = d_pac_sequence(pi05, changed, range(3), scale=scale)
+    assert first["d_pac_sequence"] == second["d_pac_sequence"]
+
+
+def test_sequence_mean_plus_cvar_is_only_outer_tail() -> None:
+    result = aggregate_d_pac_sequences([0.0, 1.0, 2.0, 10.0])
     assert result["mean"] == 3.25
     assert result["cvar"] == 10.0
-    assert result["d_pac"] == 23.25
+    assert result["d_pac"] == 13.25
+
+
+def test_noise_b_is_audit_only_and_uses_noise_a_teacher_scale() -> None:
+    teacher_a = _teacher()
+    teacher_b = teacher_a * 3.0
+    result = summarize_noise_a_b(
+        teacher_a,
+        teacher_a + 0.01,
+        teacher_b,
+        teacher_b + 0.01,
+        _records(),
+    )
+    assert result["selection_frozen_before_noise_B"] is True
+    assert result["dimension_scale_from"].startswith("FP16_noise_A")
+    assert result["heldout_noise_B"]["d_pac_summary"]["dimension_scale"] == result[
+        "selection_noise_A"
+    ]["d_pac_summary"]["dimension_scale"]
+
+
+def test_errorfold_closed_form_and_reliability_shrinkage() -> None:
+    generator = torch.Generator().manual_seed(31)
+    quant = torch.randn(128, 6, generator=generator)
+    teacher = quant * 1.2 - 0.15
+    fitted = fit_errorfold(teacher, quant)
+    gain, bias = gated_affine(fitted, 1.0)
+    torch.testing.assert_close(quant * gain + bias, teacher, atol=2e-5, rtol=2e-5)
+    assert min(fitted["gain_reliability"]) > 0.99
+
+    identity_fit = fit_errorfold(quant, quant)
+    assert max(identity_fit["gain_reliability"]) == 0.0
+    assert max(identity_fit["bias_reliability"]) == 0.0
+    identity_gain, identity_bias = gated_affine(identity_fit, 1.0)
+    torch.testing.assert_close(identity_gain, torch.ones_like(identity_gain))
+    torch.testing.assert_close(identity_bias, torch.zeros_like(identity_bias))
+
+
+def test_errorfold_runtime_affine_equals_folded_linear_and_scales() -> None:
+    generator = torch.Generator().manual_seed(41)
+    x = torch.randn(9, 64, generator=generator)
+    weight = torch.randn(7, 64, generator=generator)
+    bias = torch.randn(7, generator=generator)
+    gain = torch.linspace(0.8, 1.2, 7)
+    correction_bias = torch.linspace(-0.1, 0.1, 7)
+    runtime = torch.nn.functional.linear(x, weight, bias) * gain + correction_bias
+    folded_weight, folded_bias = fold_linear_parameters(
+        weight, bias, gain, correction_bias
+    )
+    folded = torch.nn.functional.linear(x, folded_weight, folded_bias)
+    torch.testing.assert_close(runtime, folded, atol=2e-5, rtol=2e-5)
+    scales = torch.rand(7, 1, generator=generator) + 0.1
+    torch.testing.assert_close(fold_dequant_scales(scales, gain), scales * gain[:, None])
+
+
+def test_hessian_w4_is_group64_packed_and_reconstructable() -> None:
+    generator = torch.Generator().manual_seed(53)
+    weight = torch.randn(10, 128, generator=generator) * 0.1
+    inputs = torch.randn(96, 128, generator=generator)
+    result = hessian_aware_w4(weight, inputs)
+    assert result.scales.shape == (10, 2)
+    assert {round(value, 3) for value in result.clipping.unique().tolist()}.issubset(
+        {round(value, 3) for value in PROTOCOL["hessian_w4a8"]["clipping_ratios"]}
+    )
+    packed = pack_signed_nibbles(result.codes)
+    assert packed.numel() == weight.numel() // 2
+    torch.testing.assert_close(unpack_signed_nibbles(packed, 128), result.codes)
+    assert torch.isfinite(result.dequantized).all()
+
+
+def test_a8_has_one_prefix_table_and_four_deterministic_flow_tables() -> None:
+    generator = torch.Generator().manual_seed(59)
+    prefix = a8_scale_table(torch.randn(8, 12, 64, generator=generator))
+    flow = a8_scale_table(
+        torch.randn(4, 8, 12, 64, generator=generator), flow_steps=4
+    )
+    assert prefix.shape == (64,)
+    assert flow.shape == (4, 64)
+    assert bool((prefix > 0).all()) and bool((flow > 0).all())
 
 
 def _grid_rows() -> list[dict]:
     rows = []
     for atm in GRID:
-        for ohb in GRID:
-            mean = (atm - 0.25) ** 2 + (ohb - 0.625) ** 2
+        for errorfold in GRID:
+            mean = (atm - 0.25) ** 2 + (errorfold - 0.625) ** 2
             rows.append(
                 {
-                    "gate": {"atm": atm, "ohb": ohb},
-                    "per_sequence": [mean, mean, mean, mean],
+                    "gate": {"atm": atm, "errorfold": errorfold},
+                    "per_sequence": [mean] * 8,
+                    "correction_norm": atm * atm + errorfold * errorfold,
                     "task_name": "must_not_be_used",
                 }
             )
     return rows
 
 
-def test_softfold_grid_and_one_standard_error_selection_ignore_task_metadata() -> None:
+def test_complete_grid_and_paired_one_se_ignore_task_and_success() -> None:
     rows = _grid_rows()
-    first = select_one_standard_error(summarize_candidates(rows))
+    summaries = summarize_candidates(rows)
+    require_grid(summaries)
+    first = select_one_standard_error(summaries)
     changed = copy.deepcopy(rows)
     for index, row in enumerate(changed):
-        row["task_name"] = f"different-{index}"
+        row["task_name"] = f"other-{index}"
         row["rollout_success"] = bool(index % 2)
     second = select_one_standard_error(summarize_candidates(changed))
-    assert first["selected"]["gate"] == {"atm": 0.25, "ohb": 0.625}
+    assert first["selected"]["gate"] == {"atm": 0.25, "errorfold": 0.625}
     assert second["selected"]["gate"] == first["selected"]["gate"]
 
 
-def test_softfold_log_interpolation_and_layer_artifact() -> None:
-    assert softfold_value(4.0, 0.0) == 1.0
-    assert softfold_value(4.0, 1.0) == 4.0
-    assert softfold_value(4.0, 0.5) == 2.0
-    layers, mode = fold_layers(
-        {"layer": {"all": [4.0, 0.25], "beta_perhead": [9.0, 1.0 / 9.0]}},
-        gate_atm=0.5,
-        gate_ohb=0.5,
-    )
-    assert mode == "per_head_pre_projection"
-    assert layers["layer"]["all"] == [2.0, 0.5]
-    assert math.isclose(layers["layer"]["beta_perhead"][0], 3.0)
-    assert math.isclose(layers["layer"]["beta_perhead"][1], 1.0 / 3.0)
-    assert sample_split("abc") == sample_split("abc")
+def test_paired_one_se_uses_differences_not_absolute_task_variance() -> None:
+    hard_tasks = [100.0, 0.0, 100.0, 0.0, 100.0, 0.0, 100.0, 0.0]
+    rows = [
+        {
+            "gate": {"atm": 1.0, "errorfold": 1.0},
+            "per_sequence": hard_tasks,
+            "correction_norm": 2.0,
+        },
+        {
+            "gate": {"atm": 0.0, "errorfold": 0.0},
+            "per_sequence": [value + 0.5 for value in hard_tasks],
+            "correction_norm": 0.0,
+        },
+    ]
+    selected = select_one_standard_error(summarize_candidates(rows))
+    assert selected["eligible_count"] == 1
+    assert selected["selected"]["gate"] == {"atm": 1.0, "errorfold": 1.0}
 
 
-def test_gr00t_perhead_ohb_fold_matches_runtime_scaling() -> None:
-    from gr00t.atm.dit_atm import _fold_ohb_perhead_into_o_projection
-
-    class FakeAttention(torch.nn.Module):
-        def __init__(self) -> None:
-            super().__init__()
-            self.heads = 2
-            self.to_out = torch.nn.ModuleList(
-                [torch.nn.Linear(6, 4, bias=True), torch.nn.Identity()]
-            )
-
-    generator = torch.Generator().manual_seed(11)
-    module = FakeAttention()
-    inputs = torch.randn(3, 5, 6, generator=generator)
-    beta = torch.tensor([0.75, 1.25])
-    runtime_scale = beta.repeat_interleave(3)
-    expected = module.to_out[0](inputs * runtime_scale)
-    _fold_ohb_perhead_into_o_projection(module, beta)
-    actual = module.to_out[0](inputs)
-    torch.testing.assert_close(actual, expected)
-
-
-def test_exact_quantvla_budget_forces_full_w4_in_binary_space() -> None:
-    shapes = {
-        "small": {"out": 512, "in": 512, "has_bias": False},
-        "large": {"out": 1024, "in": 512, "has_bias": True},
-    }
-    plan = quantvla_w4_plan(shapes, group=64, row_rot="restore")
-    budget = quantvla_w4_budget(shapes, group=64, row_rot="restore")
-    assert all(not row["skip"] and row["bits"] == 4 for row in plan.values())
-    assert plan_total_bytes(plan, shapes, "restore") == budget
-    retained = copy.deepcopy(plan)
-    retained["small"] = {"bits": None, "group": 64, "skip": True}
-    assert plan_total_bytes(retained, shapes, "restore") > budget
-    assert layer_bytes_fp16(512, 512, False) > 0.0
-
-
-def test_adapter_only_plan_rule_accepts_uniform_w4_and_rejects_retention() -> None:
+def test_adapter_only_quant_plan_remains_all_w4_group64() -> None:
     valid = {
         "layers": {
-            "adapter.layer.a": {"bits": 4, "group": 64, "skip": False},
-            "adapter.layer.b": {"bits": 4, "group": 64, "skip": False},
+            "adapter.a": {"bits": 4, "group": 64, "skip": False},
+            "adapter.b": {"bits": 4, "group": 64, "skip": False},
         }
     }
-    attestation = validate_quant_plan(valid, model="gr00t", source="test")
-    assert attestation["quantized_w4_layers"] == 2
+    assert validate_quant_plan(valid, model="gr00t", source="test")["quantized_w4_layers"] == 2
     invalid = copy.deepcopy(valid)
-    invalid["layers"]["adapter.layer.b"] = {"bits": None, "group": 64, "skip": True}
+    invalid["layers"]["adapter.b"]["skip"] = True
     try:
         validate_quant_plan(invalid, model="pi05", source="test")
     except ValueError as error:
         assert "every target W4/group64" in str(error)
     else:
-        raise AssertionError("adapter-only protocol must reject FP16 target retention")
+        raise AssertionError("FP target retention must be rejected")
 
 
-def test_model_adapters_map_to_identical_canonical_metric_space() -> None:
-    generator = torch.Generator().manual_seed(29)
-    shared = torch.randn(5, 3, 16, 12, generator=generator)
-    gr00t = torch.zeros(5, 3, 16, 32)
-    pi05 = torch.zeros(5, 3, 50, 32)
-    gr00t[..., :12] = shared
-    pi05[..., :16, :12] = shared
-    torch.testing.assert_close(
-        canonical_trajectory(gr00t, model="gr00t"),
-        canonical_trajectory(pi05, model="pi05"),
-    )
-    try:
-        pi05_d_pac_sequence(pi05, pi05, range(3), overlap_weight=0.1)
-    except ValueError as error:
-        assert "overlap is forbidden" in str(error)
-    else:
-        raise AssertionError("pi0.5-only overlap must be rejected")
-
-
-def test_both_real_quant_backends_use_identical_two_values_per_byte_w4() -> None:
+def test_both_real_quant_backends_pack_identical_grouped_nibbles() -> None:
     from gr00t.quantization.duquant_fused import pack_w4_nibbles as pack_gr00t
     from openpi.quant.duquant_triton import pack_w4_nibbles as pack_pi05
 
-    weight = torch.tensor([[-8.0, -7.0, -1.0, 0.0, 1.0, 7.0]])
-    scales = torch.ones(1)
+    weight = torch.linspace(-1.0, 1.0, 128).repeat(2, 1)
+    scales = torch.tensor([[0.1, 0.2], [0.08, 0.16]])
     gr00t = pack_gr00t(weight, scales)
     pi05 = pack_pi05(weight, scales)
     assert torch.equal(gr00t, pi05)
     assert gr00t.numel() == weight.numel() // 2
-    low = (gr00t & 0x0F).to(torch.int16)
-    high = ((gr00t >> 4) & 0x0F).to(torch.int16)
-    unpacked = torch.stack((low, high), dim=-1).reshape_as(weight)
-    unpacked = torch.where(unpacked >= 8, unpacked - 16, unpacked)
-    assert torch.equal(unpacked, weight.to(torch.int16))
 
 
-def test_softfold_fitter_emits_selector_free_fold_artifact(tmp_path: Path) -> None:
-    digest_a = "a" * 64
-    digest_b = "b" * 64
-    digest_c = PROTOCOL["data"]["calibration_buffer"]["sha256"]
-    raw_path = tmp_path / "raw.json"
-    scores_path = tmp_path / "scores.json"
-    raw_path.write_text(
-        json.dumps(
-            {
-                "meta": {
-                    "checkpoint_sha256": digest_a,
-                    "plan_sha256": digest_b,
-                    "calibration_buffer_sha256": digest_c,
-                    "flow_steps": 4,
-                    "frames": 16,
-                    "batch_size": 8,
-                    "ohb_mode": "per_head_pre_projection",
-                },
-                "layers": {"layer": {"all": [4.0], "beta_perhead": [9.0]}},
-            }
-        ),
-        encoding="utf-8",
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="Triton W4 kernel needs CUDA")
+def test_directional_head_fold_is_exact_static_dequant_not_requantized() -> None:
+    from gr00t.quantization.duquant_fused import (
+        fused_linear_w4_nibbles as gr00t_w4,
+        pack_w4_nibbles as pack_gr00t,
     )
-    raw_sha = __import__("hashlib").sha256(raw_path.read_bytes()).hexdigest()
-    scores_path.write_text(
-        json.dumps(
-            {
-                "cross_model_protocol": protocol_attestation(),
-                "checkpoint_sha256": digest_a,
-                "plan_sha256": digest_b,
-                "artifact_calibration_buffer_sha256": digest_c,
-                "raw_correction_sha256": raw_sha,
-                "scores": _grid_rows(),
-            }
-        ),
-        encoding="utf-8",
-    )
-    payload = fit(
-        SimpleNamespace(
-            raw_correction=str(raw_path),
-            validation_scores=str(scores_path),
-            allow_partial_grid=False,
-            lambda_identity=0.0,
-            lambda_interaction=0.0,
-            teacher_checkpoint_sha256=None,
-            teacher_checkpoint=None,
-            quant_plan_sha256=None,
-            quant_plan=None,
-            buffer_sha256=None,
-            buffer=None,
-            metric="d_pac_v1",
-        )
-    )
-    assert payload["gate"] == {"atm": 0.25, "ohb": 0.625}
-    assert payload["selection"]["uses_task_labels"] is False
-    assert payload["selection"]["uses_rollout_success"] is False
-    assert payload["meta"]["atm_application"] == "fold_q_weight"
-    assert payload["meta"]["ohb_application"] == "fold_o_weight_perhead"
-    assert payload["teacher_checkpoint_sha256"] == digest_a
+    from openpi.quant.duquant_triton import _w4_linear as pi05_w4
+
+    generator = torch.Generator().manual_seed(71)
+    weight = torch.randn(64, 128, generator=generator, dtype=torch.float32).cuda() * 0.05
+    scales = torch.stack(
+        [
+            weight[:, :64].abs().amax(dim=1) / 7.0,
+            weight[:, 64:].abs().amax(dim=1) / 7.0,
+        ],
+        dim=1,
+    ).clamp_min(1e-6)
+    packed = pack_gr00t(weight, scales)
+    codes = unpack_signed_nibbles(packed.cpu(), 128).cuda().to(torch.float32)
+    dequant = codes * scales.repeat_interleave(64, dim=1)
+    gain = torch.linspace(0.8, 1.2, 128, device="cuda")
+    x = torch.randn(9, 128, generator=generator, dtype=torch.float16).cuda()
+    reference = x.float() @ (dequant * gain[None, :]).T
+    gr00t = gr00t_w4(x, packed, scales, input_gain=gain).float()
+    pi05 = pi05_w4(x, packed, scales, input_gain=gain).float()
+    torch.testing.assert_close(gr00t, reference, atol=2e-2, rtol=2e-2)
+    torch.testing.assert_close(pi05, reference, atol=2e-2, rtol=2e-2)

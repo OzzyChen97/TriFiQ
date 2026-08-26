@@ -11,7 +11,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import numpy as np
 import torch
@@ -148,6 +148,10 @@ class DuQuantLinear(nn.Module):
         self.out_features = base.out_features
         self.bias = nn.Parameter(base.bias.detach().clone()) if base.bias is not None else None
         self.register_buffer("_weight", base.weight.detach().clone())
+        self.register_buffer(
+            "_errorfold_base_bias",
+            base.bias.detach().clone() if base.bias is not None else None,
+        )
 
         # Config
         self.cfg = cfg
@@ -271,8 +275,13 @@ class DuQuantLinear(nn.Module):
                 device=self._weight.device,
             ),
         )
+        self.register_buffer(
+            "_w_input_gain",
+            None,
+        )
         self._fused_ready = False
         self._inference_only_ready = False
+        self._hessian_w4_loaded = False
 
     def _get_R_in_cache(self) -> Dict[int, torch.Tensor]:
         """Get R_in rotation matrices on the correct device."""
@@ -310,9 +319,10 @@ class DuQuantLinear(nn.Module):
 
     def set_act_scale(self, scale: torch.Tensor) -> None:
         expected = self.in_features
-        if scale.ndim != 1 or scale.numel() != expected:
+        if tuple(scale.shape) not in ((expected,), (4, expected)):
             raise ValueError(
-                f"{self.name}: activation scale shape {tuple(scale.shape)} != ({expected},)"
+                f"{self.name}: activation scale shape {tuple(scale.shape)} "
+                f"must be ({expected},) or (4,{expected})"
             )
         value = scale.detach().to(device=self._weight.device, dtype=self._weight.dtype).clone()
         if not torch.isfinite(value).all() or torch.any(value <= 0):
@@ -327,6 +337,8 @@ class DuQuantLinear(nn.Module):
 
     def _maybe_update_weight_cache(self) -> None:
         if self._inference_only_ready:
+            return
+        if self._hessian_w4_loaded:
             return
         apply_row = (self.cfg.row_rot_mode != "0")
         key = (str(self._weight.device), self._weight.dtype, int(self.weight_bits), int(apply_row))
@@ -389,12 +401,119 @@ class DuQuantLinear(nn.Module):
             if self._weight_quantized_cached:
                 logging.info(f"[OPENPI-DUQUANT][CACHE] {self.name} pre-quantized weights cached")
 
+    def set_hessian_w4(self, packed_u4: torch.Tensor, scales: torch.Tensor) -> None:
+        """Install frozen GPTQ-feedback group-64 codes before finalization."""
+        if self._inference_only_ready:
+            raise RuntimeError(f"{self.name}: cannot replace finalized W4 codes")
+        if self.pack.perm is not None or self.pack.R_in_blocks or self.pack.R_out_blocks:
+            raise RuntimeError(
+                f"{self.name}: v3 Hessian W4 requires the identity transform pack"
+            )
+        expected_packed = (self.out_features, (self.in_features + 1) // 2)
+        expected_scales = (self.out_features, (self.in_features + 63) // 64)
+        if tuple(packed_u4.shape) != expected_packed or packed_u4.dtype != torch.uint8:
+            raise ValueError(f"{self.name}: packed W4 {packed_u4.shape} != {expected_packed}")
+        if tuple(scales.shape) != expected_scales:
+            raise ValueError(f"{self.name}: group scales {scales.shape} != {expected_scales}")
+        if not torch.isfinite(scales).all() or bool((scales <= 0).any()):
+            raise ValueError(f"{self.name}: group scales must be positive and finite")
+        self._W_packed_u4 = packed_u4.detach().to(self._weight.device).contiguous()
+        self._w_scales = scales.detach().to(
+            device=self._weight.device, dtype=self._weight.dtype
+        ).contiguous()
+        self._hessian_base_scales = self._w_scales.clone()
+        self._hessian_w4_loaded = True
+        self._fused_ready = True
+        self._cached_weight_key = ("hessian_w4_group64",)
+        self._w_input_gain = None
+        with torch.no_grad():
+            if self._errorfold_base_bias is None:
+                self.bias = None
+            elif self.bias is None:
+                self.bias = nn.Parameter(self._errorfold_base_bias.clone())
+            else:
+                self.bias.copy_(self._errorfold_base_bias)
+
+    def reset_errorfold(self) -> None:
+        if not self._hessian_w4_loaded or self._inference_only_ready:
+            raise RuntimeError(f"{self.name}: cannot reset ErrorFold in current state")
+        self._w_scales.copy_(self._hessian_base_scales)
+        self._w_input_gain = None
+        with torch.no_grad():
+            if self._errorfold_base_bias is None:
+                self.bias = None
+            elif self.bias is None:
+                self.bias = nn.Parameter(self._errorfold_base_bias.clone())
+            else:
+                self.bias.copy_(self._errorfold_base_bias)
+
+    def fold_errorfold(self, gain: torch.Tensor, correction_bias: torch.Tensor) -> None:
+        """Fold a positive output affine into group scales and the native bias."""
+        if not self._hessian_w4_loaded or self._inference_only_ready:
+            raise RuntimeError(f"{self.name}: ErrorFold requires loaded, unfinalized Hessian W4")
+        gain = gain.detach().to(device=self._w_scales.device, dtype=self._w_scales.dtype).reshape(-1)
+        correction_bias = correction_bias.detach().to(
+            device=self._w_scales.device, dtype=self._w_scales.dtype
+        ).reshape(-1)
+        if gain.numel() != self.out_features or correction_bias.numel() != self.out_features:
+            raise ValueError(f"{self.name}: ErrorFold channel mismatch")
+        if bool((gain <= 0).any()) or not torch.isfinite(gain).all():
+            raise ValueError(f"{self.name}: ErrorFold gain must be positive and finite")
+        self._w_scales.mul_(gain[:, None])
+        with torch.no_grad():
+            if self.bias is None:
+                self.bias = torch.nn.Parameter(correction_bias.clone())
+            else:
+                self.bias.mul_(gain).add_(correction_bias)
+
+    def fold_input_errorfold(
+        self, gain: torch.Tensor, correction_bias: torch.Tensor
+    ) -> None:
+        """Fold an input-channel affine into packed W4 codes and output bias."""
+        if not self._hessian_w4_loaded or self._inference_only_ready:
+            raise RuntimeError(f"{self.name}: input ErrorFold requires loaded Hessian W4")
+        gain = gain.detach().to(device=self._w_scales.device, dtype=torch.float32).reshape(-1)
+        correction_bias = correction_bias.detach().to(
+            device=self._w_scales.device, dtype=torch.float32
+        ).reshape(-1)
+        if gain.numel() != self.in_features or correction_bias.numel() != self.in_features:
+            raise ValueError(f"{self.name}: input ErrorFold channel mismatch")
+        packed = self._W_packed_u4
+        low = (packed & 0x0F).to(torch.int16)
+        high = ((packed >> 4) & 0x0F).to(torch.int16)
+        codes = torch.stack((low, high), dim=-1).reshape(self.out_features, -1)
+        codes = torch.where(codes >= 8, codes - 16, codes)[:, : self.in_features]
+        expanded = self._w_scales.to(torch.float32).repeat_interleave(64, dim=1)[
+            :, : self.in_features
+        ]
+        weight = codes.to(torch.float32) * expanded
+        additive = weight @ correction_bias
+        if self._w_input_gain is None:
+            self._w_input_gain = gain.to(self._w_scales.dtype).clone()
+        else:
+            self._w_input_gain.mul_(gain.to(self._w_input_gain.dtype))
+        with torch.no_grad():
+            if self.bias is None:
+                self.bias = torch.nn.Parameter(additive.to(self._w_scales.dtype))
+            else:
+                self.bias.add_(additive.to(self.bias.dtype))
+
     def _get_act_scale(self, x: torch.Tensor) -> torch.Tensor:
         if self.cfg.act_bits <= 0:
             return torch.ones(x.shape[-1], dtype=x.dtype, device=x.device)
 
         if self._act_scale_initialized:
-            return self._act_scale
+            if self._act_scale.ndim == 1:
+                return self._act_scale
+            from .dit_step_context import get_current_dit_step, get_total_dit_steps
+
+            step = get_current_dit_step()
+            total = get_total_dit_steps()
+            if step is None or total != 4 or not 0 <= int(step) < 4:
+                raise RuntimeError(
+                    f"{self.name}: four-row DiT A8 table requires deterministic step context"
+                )
+            return self._act_scale[int(step)]
 
         with torch.no_grad():
             if self.calibrator is not None and not self.calibrator.is_full():
@@ -483,7 +602,7 @@ class DuQuantLinear(nn.Module):
         from .duquant_triton import duquant_linear_fused_w4
 
         x2 = x.reshape(-1, self.in_features)
-        sa = self._act_scale if self.cfg.act_bits > 0 else None
+        sa = self._get_act_scale(x) if self.cfg.act_bits > 0 else None
         if self.cfg.row_rot_mode == "restore" and self.pack.R_out_blocks is not None:
             rout = self._triton_rout
             bias_arg = self.bias
@@ -503,6 +622,7 @@ class DuQuantLinear(nn.Module):
             self._triton_rin,
             sa,
             rout,
+            weight_input_gain=self._w_input_gain,
             B=self._block_size,
         )
         return y.reshape(*x.shape[:-1], self.out_features)
@@ -524,6 +644,10 @@ class DuQuantLinear(nn.Module):
         self._W_t = None
         self._W_t_quantized = None
         self._weight_quantized_cached = False
+        if hasattr(self, "_hessian_base_scales"):
+            self._hessian_base_scales = None
+        self._errorfold_base_bias = None
+        self.calibrator = None
         self._inference_only_ready = True
         return int(self._W_packed_u4.numel())
 
@@ -895,6 +1019,15 @@ def enable_duquant_if_configured(model: nn.Module) -> dict:
         )
         if require_scale:
             raise RuntimeError(f"required static A8 scale file is missing: {scale_path}")
+    hessian_path = env.get("OPENPI_DUQUANT_HESSIAN_W4_PATH")
+    if hessian_path:
+        runtime.update(
+            load_hessian_w4(
+                model,
+                hessian_path,
+                errorfold_path=env.get("OPENPI_ERRORFOLD_PATH"),
+            )
+        )
     return runtime
 
 
@@ -908,11 +1041,39 @@ def finalize_real_quant(model: nn.Module) -> Dict[str, int | bool]:
     if not layers:
         raise RuntimeError("real-quant finalization found no DuQuant layers")
     packed_bytes = sum(layer.finalize_real_quant() for layer in layers)
+    dequant_scale_bytes = sum(
+        layer._w_scales.numel() * layer._w_scales.element_size() for layer in layers
+    )
+    input_gain_bytes = sum(
+        layer._w_input_gain.numel() * layer._w_input_gain.element_size()
+        for layer in layers
+        if layer._w_input_gain is not None
+    )
+    activation_scale_bytes = sum(
+        layer._act_scale.numel() * layer._act_scale.element_size()
+        for layer in layers
+        if layer._act_scale is not None
+    )
+    bias_bytes = sum(
+        layer.bias.numel() * layer.bias.element_size()
+        for layer in layers
+        if layer.bias is not None
+    )
     runtime = getattr(model, "_openpi_duquant_runtime", {})
     runtime.update(
         {
             "packed_low_bit_residency": True,
             "packed_weight_bytes": int(packed_bytes),
+            "dequant_scale_bytes": int(dequant_scale_bytes),
+            "input_gain_bytes": int(input_gain_bytes),
+            "activation_scale_bytes": int(activation_scale_bytes),
+            "bias_bytes": int(bias_bytes),
+            "auxiliary_static_bytes": int(
+                dequant_scale_bytes
+                + input_gain_bytes
+                + activation_scale_bytes
+                + bias_bytes
+            ),
             "fp_weight_sized_buffers": 0,
             "execution_backend": "triton_w4_nibble_dequant_fp16_gemm",
         }
@@ -921,9 +1082,114 @@ def finalize_real_quant(model: nn.Module) -> Dict[str, int | bool]:
     return {
         "layers": len(layers),
         "packed_weight_bytes": int(packed_bytes),
+        "dequant_scale_bytes": int(dequant_scale_bytes),
+        "input_gain_bytes": int(input_gain_bytes),
+        "activation_scale_bytes": int(activation_scale_bytes),
+        "bias_bytes": int(bias_bytes),
+        "auxiliary_static_bytes": int(
+            dequant_scale_bytes
+            + input_gain_bytes
+            + activation_scale_bytes
+            + bias_bytes
+        ),
         "fp_weight_sized_buffers": 0,
         "packed_low_bit_residency": True,
     }
+
+
+def load_hessian_w4(
+    model: nn.Module,
+    path: str | Path,
+    *,
+    errorfold_path: str | Path | None = None,
+) -> Dict[str, Any]:
+    """Load one frozen, inventory-exact group-64 W4 artifact for pi0.5."""
+    artifact = Path(path).expanduser().resolve()
+    sidecar = Path(str(artifact) + ".json")
+    if not artifact.is_file() or not sidecar.is_file():
+        raise FileNotFoundError(f"Hessian W4 artifact is incomplete: {artifact}")
+    metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+    if metadata.get("schema_version") != 3 or metadata.get("group_size") != 64:
+        raise ValueError("unsupported Hessian W4 artifact schema/group")
+    if metadata.get("protocol_id") != "quantvla-gr00t-pi05-errorfold-v3":
+        raise ValueError("Hessian W4 artifact protocol drift")
+    actual_hash = sha256_file(artifact)
+    if metadata.get("npz_sha256") != actual_hash:
+        raise ValueError("Hessian W4 artifact hash mismatch")
+    layers = iter_duquant_layers(model)
+    names = [name for name, _ in layers]
+    if metadata.get("layer_names") != names:
+        raise ValueError("Hessian W4 layer inventory does not match wrapped pi0.5 model")
+    correction_layers: Mapping[str, Any] = {}
+    if errorfold_path is not None:
+        correction = json.loads(Path(errorfold_path).expanduser().resolve().read_text(encoding="utf-8"))
+        if correction.get("schema_version") != 3 or correction.get("kind") not in {
+            "errorfold_compensation", "errorfold_grid_candidate"
+        }:
+            raise ValueError("unsupported ErrorFold deployment artifact")
+        correction_layers = correction.get("layers") or {}
+    with np.load(artifact, allow_pickle=False) as archive:
+        stored_names = [str(value) for value in archive["layer_names"].tolist()]
+        if stored_names != names:
+            raise ValueError("Hessian W4 NPZ inventory mismatch")
+        for index, (name, module) in enumerate(layers):
+            module.set_hessian_w4(
+                torch.from_numpy(np.asarray(archive[f"packed_{index:04d}"])),
+                torch.from_numpy(np.asarray(archive[f"scales_{index:04d}"])),
+            )
+            if errorfold_path is not None:
+                entry = correction_layers.get(name)
+                if not entry or entry.get("kind") != "linear":
+                    raise ValueError(f"ErrorFold lacks Linear correction for {name}")
+                module.fold_errorfold(
+                    torch.as_tensor(entry["effective_gain"]),
+                    torch.as_tensor(entry["effective_bias"]),
+                )
+    runtime = getattr(model, "_openpi_duquant_runtime", {})
+    runtime.update(
+        {
+            "hessian_w4_path": str(artifact),
+            "hessian_w4_sha256": actual_hash,
+            "hessian_group_size": 64,
+            "hessian_w4_loaded": len(layers),
+            "errorfold_path": str(Path(errorfold_path).resolve()) if errorfold_path else None,
+            "selector_free": True,
+        }
+    )
+    setattr(model, "_openpi_duquant_runtime", runtime)
+    return runtime
+
+
+def apply_errorfold(model: nn.Module, path: str | Path) -> Dict[str, Any]:
+    """Apply one materialized gate without reloading model or packed codes."""
+    correction_path = Path(path).expanduser().resolve()
+    correction = json.loads(correction_path.read_text(encoding="utf-8"))
+    if correction.get("schema_version") != 3 or correction.get("kind") not in {
+        "errorfold_compensation",
+        "errorfold_grid_candidate",
+    }:
+        raise ValueError("unsupported ErrorFold artifact")
+    correction_layers = correction.get("layers") or {}
+    layers = iter_duquant_layers(model)
+    for name, module in layers:
+        entry = correction_layers.get(name)
+        if not entry or entry.get("kind") != "linear":
+            raise ValueError(f"ErrorFold lacks Linear correction for {name}")
+        module.reset_errorfold()
+        module.fold_errorfold(
+            torch.as_tensor(entry["effective_gain"]),
+            torch.as_tensor(entry["effective_bias"]),
+        )
+    runtime = getattr(model, "_openpi_duquant_runtime", {})
+    runtime.update(
+        {
+            "errorfold_path": str(correction_path),
+            "selector_free": True,
+            "offline_candidate_reuse": True,
+        }
+    )
+    setattr(model, "_openpi_duquant_runtime", runtime)
+    return runtime
 
 
 def static_scales_ready(model: nn.Module) -> bool:

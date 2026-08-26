@@ -5,6 +5,8 @@ from .duquant_layers import (
     DuQuantLinear,
     enable_duquant_if_configured,
     finalize_real_quant,
+    load_hessian_w4,
+    apply_errorfold,
     select_targets,
     wrap_duquant,
 )
@@ -15,6 +17,8 @@ __all__ = [
     "DuQuantLinear",
     "enable_duquant_if_configured",
     "finalize_real_quant",
+    "load_hessian_w4",
+    "apply_errorfold",
     "select_targets",
     "wrap_duquant",
     "LayerScoreBank",

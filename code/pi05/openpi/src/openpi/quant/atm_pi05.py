@@ -111,9 +111,15 @@ def _patched_eager_attention_forward(
 
     # ---- ATM: capture per-head logits std before scaling ----
     capture_cb = getattr(module, "_atm_capture_callback", None)
-    if capture_cb is not None:
-        std = _compute_logits_std(query, key_states, attention_mask, module.head_dim)
-        capture_cb(module, std)
+    logits_capture_cb = getattr(module, "_atm_logits_capture_callback", None)
+    if capture_cb is not None or logits_capture_cb is not None:
+        std, logits = _compute_logits_std(
+            query, key_states, attention_mask, module.head_dim, return_logits=True
+        )
+        if capture_cb is not None:
+            capture_cb(module, std)
+        if logits_capture_cb is not None:
+            logits_capture_cb(module, logits)
 
     # ---- ATM: per-head alpha scaling ----
     alpha = getattr(module, "_atm_alpha_all", None)
@@ -129,6 +135,12 @@ def _patched_eager_attention_forward(
     attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
     attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
     attn_output = torch.matmul(attn_weights, value_states)
+
+    errorfold_head_capture_cb = getattr(
+        module, "_errorfold_head_capture_callback", None
+    )
+    if errorfold_head_capture_cb is not None:
+        errorfold_head_capture_cb(module, attn_output.detach())
 
     # ---- OHB: capture per-head output RMS + per-head beta (before reshape) ----
     ohb_perhead_capture_cb = getattr(module, "_atm_ohb_perhead_capture_callback", None)
@@ -173,6 +185,20 @@ def register_atm_capture(
             setattr(module, "_atm_capture_name", name)
 
 
+def register_atm_logits_capture(
+    model: nn.Module,
+    callback: Callable[[str, torch.Tensor], None],
+    scope: str = "expert",
+) -> None:
+    for name, module in model.named_modules():
+        if _is_dit_attention(name, module, scope=scope):
+            setattr(
+                module,
+                "_atm_logits_capture_callback",
+                lambda attn, logits, layer=name: callback(layer, logits),
+            )
+
+
 def register_ohb_capture(
     model: nn.Module,
     callback: Callable[[str, torch.Tensor], None],
@@ -197,6 +223,20 @@ def register_ohb_perhead_capture(
                 lambda attn, rms, layer=name: callback(layer, rms),
             )
             setattr(module, "_atm_ohb_perhead_capture_name", name)
+
+
+def register_errorfold_head_capture(
+    model: nn.Module,
+    callback: Callable[[str, torch.Tensor], None],
+    scope: str = "expert",
+) -> None:
+    for name, module in model.named_modules():
+        if _is_dit_attention(name, module, scope=scope):
+            setattr(
+                module,
+                "_errorfold_head_capture_callback",
+                lambda attn, output, layer=name: callback(layer, output),
+            )
 
 
 def _ensure_ohb_output_hook(module: nn.Module, name: str) -> None:
@@ -244,6 +284,8 @@ def clear_atm_capture(model: nn.Module) -> None:
             "_atm_ohb_perhead_capture_callback",
             "_atm_ohb_perhead_capture_name",
             "_atm_ohb_output_capture_callback",
+            "_atm_logits_capture_callback",
+            "_errorfold_head_capture_callback",
         ):
             if hasattr(module, attr):
                 delattr(module, attr)
@@ -265,6 +307,21 @@ def _fold_atm_into_q_projection(module: nn.Module, alpha: torch.Tensor) -> None:
         )
     with torch.no_grad():
         scale = alpha.to(device=weight.device, dtype=weight.dtype).repeat_interleave(head_dim)
+        if getattr(projection, "_hessian_w4_loaded", False):
+            projection.fold_errorfold(scale, torch.zeros_like(scale))
+            setattr(module, "_openpi_atm_q_weight_folded", True)
+            return
+        offline_reuse = os.environ.get(
+            "OPENPI_ERRORFOLD_OFFLINE_REUSE", "0"
+        ) not in {"0", "false", "False", ""}
+        if offline_reuse and not hasattr(module, "_openpi_errorfold_base_q_weight"):
+            setattr(module, "_openpi_errorfold_base_q_weight", weight.detach().clone())
+            native_bias = getattr(projection, "bias", None)
+            setattr(
+                module,
+                "_openpi_errorfold_base_q_bias",
+                native_bias.detach().clone() if native_bias is not None else None,
+            )
         weight.mul_(scale[:, None])
         bias = getattr(projection, "bias", None)
         if bias is not None:
@@ -306,6 +363,79 @@ def _fold_ohb_perhead_into_o_projection(module: nn.Module, beta: torch.Tensor) -
     with torch.no_grad():
         weight.mul_(scale[None, :])
     setattr(module, "_openpi_ohb_o_perhead_weight_folded", True)
+
+
+def _fold_head_affine_into_o_projection(
+    module: nn.Module, gain: torch.Tensor, correction_bias: torch.Tensor
+) -> None:
+    """Fold direction-aware head-channel ErrorFold through o_proj exactly."""
+    projection = module.o_proj
+    weight = getattr(projection, "weight", None)
+    if weight is None:
+        raise TypeError("head ErrorFold requires an unfinalized o_proj weight")
+    gain = gain.to(device=weight.device, dtype=weight.dtype).reshape(-1)
+    correction_bias = correction_bias.to(
+        device=weight.device, dtype=weight.dtype
+    ).reshape(-1)
+    if weight.shape[1] != gain.numel() or correction_bias.numel() != gain.numel():
+        raise ValueError("head ErrorFold channel count does not match o_proj input")
+    if getattr(projection, "_hessian_w4_loaded", False):
+        projection.fold_input_errorfold(gain, correction_bias)
+        setattr(module, "_openpi_errorfold_head_affine_folded", True)
+        return
+    offline_reuse = os.environ.get(
+        "OPENPI_ERRORFOLD_OFFLINE_REUSE", "0"
+    ) not in {"0", "false", "False", ""}
+    if offline_reuse and not hasattr(module, "_openpi_errorfold_base_o_weight"):
+        setattr(module, "_openpi_errorfold_base_o_weight", weight.detach().clone())
+        native_bias = getattr(projection, "bias", None)
+        setattr(
+            module,
+            "_openpi_errorfold_base_o_bias",
+            native_bias.detach().clone() if native_bias is not None else None,
+        )
+    with torch.no_grad():
+        additive = weight @ correction_bias
+        weight.mul_(gain[None, :])
+        if projection.bias is None:
+            projection.bias = nn.Parameter(additive)
+        else:
+            projection.bias.add_(additive)
+    setattr(module, "_openpi_errorfold_head_affine_folded", True)
+
+
+def reset_errorfold_attention_folds(model: nn.Module) -> None:
+    """Restore native expert-attention projections between grid candidates."""
+    for _, module in model.named_modules():
+        if not isinstance(module, modeling_gemma.GemmaAttention):
+            continue
+        for projection_name, prefix in (("q_proj", "q"), ("o_proj", "o")):
+            projection = getattr(module, projection_name)
+            base_weight_name = f"_openpi_errorfold_base_{prefix}_weight"
+            base_bias_name = f"_openpi_errorfold_base_{prefix}_bias"
+            if hasattr(module, base_weight_name) and not getattr(
+                projection, "_hessian_w4_loaded", False
+            ):
+                with torch.no_grad():
+                    projection.weight.copy_(getattr(module, base_weight_name))
+                    base_bias = getattr(module, base_bias_name)
+                    if base_bias is None:
+                        projection.bias = None
+                    elif projection.bias is None:
+                        projection.bias = nn.Parameter(base_bias.clone())
+                    else:
+                        projection.bias.copy_(base_bias)
+        for attribute in (
+            "_openpi_atm_q_weight_folded",
+            "_openpi_ohb_o_weight_folded",
+            "_openpi_ohb_o_perhead_weight_folded",
+            "_openpi_errorfold_head_affine_folded",
+            "_atm_alpha_all",
+            "_ohb_beta_perhead",
+            "_ohb_beta_scalar",
+        ):
+            if hasattr(module, attribute):
+                delattr(module, attribute)
 
 
 def _require_uniform_selector_variant(expected_variant: str) -> None:
@@ -420,12 +550,22 @@ def enable_pi05_atm_if_configured(model: nn.Module) -> None:
     for name, module in model.named_modules():
         if not _is_dit_attention(name, module, scope=scope):
             continue
-        alpha_entry = alpha_data.get(name)
+        alpha_entry = alpha_data.get(name) or alpha_data.get(
+            f"{name}::attention_logits"
+        )
         if not alpha_entry:
             beta_value = None
             alpha_values = None
         else:
-            alpha_values = alpha_entry.get("all") or alpha_entry.get("alpha")
+            alpha_values = (
+                alpha_entry.get("all")
+                or alpha_entry.get("alpha")
+                or (
+                    alpha_entry.get("effective_gain")
+                    if alpha_entry.get("kind") == "attention_logits"
+                    else None
+                )
+            )
             beta_value = alpha_entry.get("beta")
 
         if atm_enabled and alpha_values:
@@ -443,6 +583,17 @@ def enable_pi05_atm_if_configured(model: nn.Module) -> None:
             summary.total_heads += len(alpha_values)
 
         if ohb_enabled and _is_dit_attention(name, module, scope=ohb_scope):
+            head_entry = alpha_data.get(f"{name}::attention_head_output")
+            if head_entry is not None:
+                if ohb_application != "fold_o_weight_perhead":
+                    raise ValueError("head ErrorFold must be statically folded into o_proj")
+                _fold_head_affine_into_o_projection(
+                    module,
+                    torch.tensor(head_entry["effective_gain"], dtype=torch.float32),
+                    torch.tensor(head_entry["effective_bias"], dtype=torch.float32),
+                )
+                ohb_layers += 1
+                continue
             beta_perhead_values = alpha_entry.get("beta_perhead") if alpha_entry else None
             if beta_perhead_values is not None:
                 beta_tensor = torch.tensor(beta_perhead_values, dtype=torch.float32)

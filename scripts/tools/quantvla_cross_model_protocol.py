@@ -28,7 +28,7 @@ def sha256_file(path: str | Path) -> str:
 
 def load_protocol() -> dict[str, Any]:
     value = json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
-    if value.get("protocol_id") != "quantvla-gr00t-pi05-adapter-only-v1":
+    if value.get("protocol_id") != "quantvla-gr00t-pi05-errorfold-v3":
         raise ValueError(f"unexpected cross-model protocol: {value.get('protocol_id')!r}")
     return value
 
@@ -142,11 +142,13 @@ def validate_closed_loop_row(row: Mapping[str, Any], *, source: str) -> None:
 def validate_softfold_runtime(runtime: Mapping[str, Any], *, source: str) -> None:
     expected = PROTOCOL["deployment"]
     selector = runtime.get("runtime_selector") or {}
-    atm = runtime.get("atm_ohb") or runtime
+    correction = runtime.get("errorfold") or runtime.get("atm_ohb") or runtime
     checks = {
         "selector_free": not bool(selector.get("enabled", False)),
-        "atm_application": atm.get("atm_application") == expected["atm_application"],
-        "ohb_application": atm.get("ohb_application") == expected["ohb_application"],
+        "atm_application": correction.get("atm_application")
+        == expected["atm_application"],
+        "errorfold_application": correction.get("errorfold_application")
+        == expected["errorfold_application"],
     }
     failed = [key for key, passed in checks.items() if not passed]
     if failed:
@@ -193,9 +195,11 @@ def validate_quant_plan(
 
 def selftest() -> None:
     assert set(MODELS) == {"gr00t", "pi05"}
-    assert PROTOCOL["metrics"]["d_pac"]["weights"]["overlap"] == 0.0
+    assert PROTOCOL["metrics"]["canonical_action"]["space"].startswith("physical")
+    assert PROTOCOL["metrics"]["d_pac"]["pi05_forecast_overlap"] is False
     assert PROTOCOL["quantization_selection"]["retained_fp16_target_layers"] == 0
     assert len(PROTOCOL["softfold"]["grid"]["gate_atm"]) == 9
+    assert len(PROTOCOL["softfold"]["grid"]["gate_errorfold"]) == 9
     assert len(PROTOCOL["closed_loop"]["seeds"]) == 20
     assert sum(len(value) for value in PROTOCOL["closed_loop"]["tasks"].values()) == 15
     protocol_artifact("selection_buffer")

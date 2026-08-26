@@ -237,6 +237,33 @@ def _maybe_close_a8_calibration(
                 "source_buffer_path": str(source_buffer_path),
             }
         )
+    if os.environ.get("GR00T_DUQUANT_HESSIAN_W4_PATH"):
+        # The v3 A8 artifact has one prefix table and four deterministic DiT
+        # tables and therefore uses the shared schema, not the legacy
+        # seed/path sidecar.  Requiring legacy-only fields here would reject a
+        # valid v3 artifact after the expensive server model load.
+        from quantvla_cross_model_protocol import PROTOCOL_SHA256
+
+        act_meta = {
+            "schema_version": 3,
+            "kind": "v3_per_flow_step_a8",
+            "protocol_sha256": PROTOCOL_SHA256,
+            "plan_sha256": plan_sha,
+            "calibration_buffer_sha256": sha,
+            "source_buffer_sha256": sha,
+            "wrapped_layers": count_wrapped_layers(policy.model),
+            "act_percentile": float(
+                os.environ.get("GR00T_DUQUANT_ACT_PCT", "99.9")
+            ),
+            "calib_batches": calib_steps,
+            "denoising_steps": int(
+                os.environ.get(
+                    "GR00T_DENOISING_STEPS", str(policy.denoising_steps)
+                )
+            ),
+            "prefix_llm_tables": 1,
+            "dit_flow_step_tables": 4,
+        }
     print(f"[inference] static A8 calibration warmup: {calib_steps * batch_size} "
           f"shared obs (buffer sha256 {sha[:16]}...; plan {plan_sha})", flush=True)
     t0 = time.time()
@@ -402,6 +429,7 @@ def _runtime_info(policy) -> dict:
     atm_runtime = getattr(policy.model, "_gr00t_atm_runtime", {"enabled": False})
     plan_path = os.environ.get("GR00T_DUQUANT_PLAN")
     act_scale_path = os.environ.get("GR00T_DUQUANT_ACT_SCALE_PATH")
+    hessian_runtime = getattr(policy.model, "_gr00t_duquant_runtime", {})
     if gptq_layers:
         weight_bits = {int(layer.weight_bits) for layer in gptq_layers}
         activation_bits = {
@@ -469,7 +497,11 @@ def _runtime_info(policy) -> dict:
                 not in ("0", "false", "False", "")
                 else "architecture_specific_gdsq_sensitivity_plan"
             ),
-            "weight_quantizer": "signed_symmetric_per_output_channel",
+            "weight_quantizer": (
+                "hessian_aware_gptq_feedback_signed_group64"
+                if hessian_runtime.get("hessian_w4_loaded")
+                else "signed_symmetric_per_output_channel"
+            ),
             "activation_quantizer": "signed_symmetric_per_input_channel",
             "execution_backend": (
                 "triton_w4_nibble_dequant_fp16_gemm"
@@ -478,6 +510,15 @@ def _runtime_info(policy) -> dict:
             "integer_gemm": False,
             "packed_low_bit_residency": packed_residency,
             "packed_weight_bytes": int(residency.get("packed_weight_bytes", 0)),
+            "dequant_scale_bytes": int(residency.get("dequant_scale_bytes", 0)),
+            "input_gain_bytes": int(residency.get("input_gain_bytes", 0)),
+            "activation_scale_bytes": int(
+                residency.get("activation_scale_bytes", 0)
+            ),
+            "bias_bytes": int(residency.get("bias_bytes", 0)),
+            "auxiliary_static_bytes": int(
+                residency.get("auxiliary_static_bytes", 0)
+            ),
             "fp_weight_sized_buffers": int(
                 residency.get("fp_weight_sized_buffers", len(quant_layers))
             ),
@@ -487,7 +528,11 @@ def _runtime_info(policy) -> dict:
             "block_out": int(uniform_value(quant_layers, "block_out_size")),
             "lambda_smooth": float(uniform_value(quant_layers, "lambda_smooth")),
             "activation_percentile": float(uniform_value(quant_layers, "act_percentile")),
-            "calibration_policy": "offline_static_per_channel_percentile",
+            "calibration_policy": (
+                "offline_static_prefix_single_dit_per_flow_step"
+                if hessian_runtime.get("hessian_w4_loaded")
+                else "offline_static_per_channel_percentile"
+            ),
             "calibration_batches": int(uniform_value(quant_layers, "calib_batches")),
             "calibration_batch_size": 8,
             "calibration_samples": int(uniform_value(quant_layers, "calib_batches")) * 8,
@@ -507,7 +552,11 @@ def _runtime_info(policy) -> dict:
             "correction_application": (
                 "request_context_runtime"
                 if selector_metadata.get("enabled") is True
-                else "static_configuration"
+                else (
+                    "fold_affine_into_dequant_scale_and_bias"
+                    if hessian_runtime.get("errorfold_path")
+                    else "static_configuration"
+                )
             ),
             "atm_application": atm_runtime.get("atm_application", "runtime_query"),
             "ohb_application": atm_runtime.get("ohb_application", "runtime_output"),
@@ -532,6 +581,11 @@ def _runtime_info(policy) -> dict:
         "omega_calibration": getattr(policy.model, "_omega_qvla_calibration", None),
         "act_scale_path": act_scale_path,
         "act_scale_sha256": sha256_path(act_scale_path),
+        "hessian_w4_path": hessian_runtime.get("hessian_w4_path"),
+        "hessian_w4_sha256": hessian_runtime.get("hessian_w4_sha256"),
+        "hessian_group_size": hessian_runtime.get("hessian_group_size"),
+        "errorfold_path": hessian_runtime.get("errorfold_path"),
+        "errorfold_sha256": sha256_path(hessian_runtime.get("errorfold_path")),
         "atm_enabled": atm_runtime.get("atm_enabled", False),
         "ohb_enabled": atm_runtime.get("ohb_enabled", False),
         "atm_path": atm_runtime.get("artifact_path") or os.environ.get("GR00T_ATM_ALPHA_PATH"),
@@ -551,6 +605,14 @@ def _runtime_info(policy) -> dict:
         ),
         "protocol": closed_loop_runtime_protocol(),
     }
+    if torch.cuda.is_available():
+        device = next(policy.model.parameters()).device
+        payload["gpu_memory_bytes"] = {
+            "allocated": int(torch.cuda.memory_allocated(device)),
+            "reserved": int(torch.cuda.memory_reserved(device)),
+            "peak_allocated": int(torch.cuda.max_memory_allocated(device)),
+            "peak_reserved": int(torch.cuda.max_memory_reserved(device)),
+        }
     if quant_layers and os.environ.get("QUANTVLA_ADAPTER_ONLY", "0") not in (
         "0", "false", "False", ""
     ):

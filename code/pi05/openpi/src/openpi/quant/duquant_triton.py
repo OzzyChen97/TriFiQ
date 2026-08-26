@@ -19,6 +19,8 @@ The kernels are only used AFTER activation-scale calibration has frozen
 on the eager path). Enable with OPENPI_DUQUANT_TRITON=1 on the quant server.
 """
 
+import math
+
 import torch
 import triton
 import triton.language as tl
@@ -105,11 +107,13 @@ def _output_restore_kernel(
 
 @triton.jit
 def _w4_nibble_dequant_matmul_kernel(
-    A, WQ, WS, Y,
+    A, WQ, WS, W_INPUT_GAIN, Y,
     M, N, K,
-    stride_am, stride_ak, stride_wn, stride_wb, stride_ym, stride_yn,
+    stride_am, stride_ak, stride_wn, stride_wb,
+    stride_wsn, stride_wsg, stride_ym, stride_yn,
     BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
-    GROUP_M: tl.constexpr,
+    GROUP_M: tl.constexpr, SCALE_GROUP_SIZE: tl.constexpr,
+    HAS_INPUT_GAIN: tl.constexpr,
 ):
     pid = tl.program_id(0)
     num_pid_m = tl.cdiv(M, BLOCK_M)
@@ -136,8 +140,22 @@ def _w4_nibble_dequant_matmul_kernel(
         shift = (k & 1) * 4
         q_u4 = (packed >> shift[None, :]) & 0x0F
         q = tl.where(q_u4 >= 8, q_u4.to(tl.int32) - 16, q_u4.to(tl.int32))
-        scale = tl.load(WS + offs_n, mask=offs_n < N, other=1.0)
-        weight = q.to(tl.float32) * scale[:, None]
+        scale = tl.load(
+            WS
+            + offs_n[:, None] * stride_wsn
+            + (k[None, :] // SCALE_GROUP_SIZE) * stride_wsg,
+            mask=(offs_n[:, None] < N) & (k[None, :] < K),
+            other=1.0,
+        )
+        if HAS_INPUT_GAIN:
+            input_gain = tl.load(
+                W_INPUT_GAIN + k,
+                mask=k < K,
+                other=1.0,
+            )
+            weight = q.to(tl.float32) * scale * input_gain[None, :]
+        else:
+            weight = q.to(tl.float32) * scale
         acc += tl.dot(a, tl.trans(weight).to(a.dtype), out_dtype=tl.float32)
         a_ptrs += BLOCK_K * stride_ak
     tl.store(
@@ -149,7 +167,15 @@ def _w4_nibble_dequant_matmul_kernel(
 
 def pack_w4_nibbles(weight: torch.Tensor, scales: torch.Tensor) -> torch.Tensor:
     """Pack signed DuQuant W4 values two per uint8 byte."""
-    quant = torch.clamp(torch.round(weight / scales[:, None]), -8, 7).to(torch.int8)
+    if scales.ndim == 1:
+        scale_table = scales[:, None]
+    elif scales.ndim == 2 and scales.shape == (
+        weight.shape[0], math.ceil(weight.shape[1] / 64)
+    ):
+        scale_table = scales.repeat_interleave(64, dim=1)[:, : weight.shape[1]]
+    else:
+        raise ValueError(f"invalid W4 scale table {tuple(scales.shape)}")
+    quant = torch.clamp(torch.round(weight / scale_table), -8, 7).to(torch.int8)
     if quant.shape[1] & 1:
         quant = torch.nn.functional.pad(quant, (0, 1))
     unsigned = torch.bitwise_and(quant, 0x0F).to(torch.uint8)
@@ -157,22 +183,42 @@ def pack_w4_nibbles(weight: torch.Tensor, scales: torch.Tensor) -> torch.Tensor:
 
 
 def _w4_linear(
-    x: torch.Tensor, packed_weight: torch.Tensor, scales: torch.Tensor
+    x: torch.Tensor,
+    packed_weight: torch.Tensor,
+    scales: torch.Tensor,
+    input_gain: torch.Tensor | None = None,
 ) -> torch.Tensor:
     m, k = x.shape
     n = packed_weight.shape[0]
     if packed_weight.shape[1] != (k + 1) // 2:
         raise ValueError("packed W4 shape does not match the input dimension")
+    if scales.ndim == 1:
+        scale_table = scales.reshape(n, 1).contiguous()
+        scale_group_size = k
+    elif scales.ndim == 2 and scales.shape == (n, math.ceil(k / 64)):
+        scale_table = scales.contiguous()
+        scale_group_size = 64
+    else:
+        raise ValueError(f"invalid W4 scale table {tuple(scales.shape)} for N={n}, K={k}")
+    if input_gain is not None:
+        if input_gain.ndim != 1 or input_gain.numel() != k:
+            raise ValueError(f"invalid W4 input gain {tuple(input_gain.shape)} for K={k}")
+        input_gain = input_gain.to(device=x.device, dtype=scales.dtype).contiguous()
     output = torch.empty((m, n), dtype=x.dtype, device=x.device)
     block_m, block_n, block_k, group_m = 64, 64, 64, 4
     grid = (triton.cdiv(m, block_m) * triton.cdiv(n, block_n),)
     _w4_nibble_dequant_matmul_kernel[grid](
-        x, packed_weight, scales, output,
+        x, packed_weight, scale_table,
+        input_gain if input_gain is not None else x,
+        output,
         m, n, k,
         x.stride(0), x.stride(1),
         packed_weight.stride(0), packed_weight.stride(1),
+        scale_table.stride(0), scale_table.stride(1),
         output.stride(0), output.stride(1),
         BLOCK_M=block_m, BLOCK_N=block_n, BLOCK_K=block_k, GROUP_M=group_m,
+        SCALE_GROUP_SIZE=scale_group_size,
+        HAS_INPUT_GAIN=input_gain is not None,
     )
     return output
 
@@ -240,6 +286,7 @@ def duquant_linear_fused_w4(
     rin_stack,
     sa,
     rout_stack,
+    weight_input_gain=None,
     B: int = 16,
     BM: int = 64,
 ):
@@ -263,7 +310,12 @@ def duquant_linear_fused_w4(
         HAS_RIN=rin_stack is not None,
         HAS_SA=sa is not None,
     )
-    y_lin = _w4_linear(x_tq, packed_weight, weight_scales)
+    y_lin = _w4_linear(
+        x_tq,
+        packed_weight,
+        weight_scales,
+        input_gain=weight_input_gain,
+    )
     y = torch.empty((M, O), dtype=x.dtype, device=x.device)
     _output_restore_kernel[
         (triton.cdiv(M, BM), O // (B * blocks_per_program))

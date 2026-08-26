@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "protocol_id": "quantvla-gr00t-pi05-adapter-only-v1",
+  "schema_version": 3,
+  "protocol_id": "quantvla-gr00t-pi05-errorfold-v3",
   "models": [
     "gr00t",
     "pi05"
@@ -11,7 +11,8 @@
       "checkpoint_and_native_model_loader",
       "observation_preprocessing",
       "native_action_horizon",
-      "native_trajectory_to_canonical_action",
+      "native_final_chunk_inverse_normalization",
+      "native_physical_action_to_canonical_action",
       "module_name_and_hook_location",
       "quantized_module_binding",
       "native_real_quant_kernel_binding"
@@ -33,8 +34,11 @@
       "sha256": "c221532ef7d79ef29ba2724f33f695ea1f946b7b963255b0dd760cef8a6e3be7",
       "observations": 32,
       "index_rule": "first_32",
+      "selection_noise": "A",
       "primary_noise_index_rule": "same_row",
-      "secondary_noise_index_rule": "row_plus_32"
+      "heldout_audit_noise": "B",
+      "secondary_noise_index_rule": "row_plus_32",
+      "secondary_noise_usage": "frozen_candidate_offline_generalization_audit_only"
     },
     "calibration_buffer": {
       "path": "runs/pi05_gdsq_gr00t_aligned/calibration/pi05_robocasa365_seed0_n256.npz",
@@ -65,6 +69,9 @@
   },
   "metrics": {
     "canonical_action": {
+      "space": "physical_post_native_inverse_normalization",
+      "source": "final_action_chunk_only",
+      "solver_trajectory_role": "model_internal_diagnostic_only",
       "horizon": 16,
       "dimension": 12,
       "layout": {
@@ -87,7 +94,7 @@
       }
     },
     "d_func": {
-      "formula_id": "d_func_v1_4_canonical_execute16_deployed12",
+      "formula_id": "d_func_v1_physical_execute16_deployed12",
       "gamma": 1.2,
       "weights": {
         "final": 1.0,
@@ -98,23 +105,30 @@
       "tail_quantile": 0.9
     },
     "d_pac": {
-      "formula_id": "d_pac_v1_canonical_execute16_deployed12",
+      "formula_id": "d_pac_v2_physical_execute16_deployed12",
       "weights": {
-        "func": 1.0,
-        "prefix_pose": 1.0,
+        "local": 1.0,
+        "prefix": 1.0,
+        "pose": 1.0,
         "stitch": 1.0,
-        "grip_time": 1.0,
-        "overlap": 0.0
+        "grip": 1.0
       },
-      "prefix_exponent": 2.0,
-      "scale": "fp16_median_absolute_deviation_per_action_dimension",
-      "scale_epsilon": 1e-06,
-      "gripper_kappa": 8.0,
-      "gripper_delta_weight": 1.0,
+      "robust_penalty": "2*(sqrt(1+z^2)-1)",
+      "scale": {
+        "scope": "entire_fp16_selection_buffer_once",
+        "r": "max(1.4826*MAD,0.1*RMS)",
+        "s": "max(r,0.05*median(r),1e-4)",
+        "per_sequence_reestimation": false
+      },
+      "prefix_normalization": "cumulative_error_div_sqrt_n",
+      "pose": "SE3_composed_relative_pose_drift",
+      "gripper": "soft_state_and_event_timing",
       "sequence_grouping": "task_seed_ordered_unique_replan",
       "outer_cvar_alpha": 0.9,
       "outer_cvar_weight": 1.0,
-      "model_specific_auxiliary_terms": false
+      "component_weighting": "five_equal_normalized_components",
+      "model_specific_auxiliary_terms": false,
+      "pi05_forecast_overlap": false
     },
     "representation": {
       "cka": "centered_biased_linear_cka",
@@ -136,6 +150,49 @@
     "architecture_specific_layer_names_and_counts": "model_adapter",
     "complete_plan_required": true
   },
+  "hessian_w4a8": {
+    "weight_format": "signed_nibble_group64",
+    "target_layers": "all_model_adapter_bound_linear_layers",
+    "calibration_observations": 256,
+    "input_second_order_statistics": "fp16_XtX",
+    "clipping_ratios": [
+      0.85,
+      0.9,
+      0.95,
+      0.975,
+      1.0
+    ],
+    "weight_quantizer": "GPTQ_style_sequential_error_feedback_per_group",
+    "selection_metric": "fp16_layer_output_reconstruction",
+    "tie_break": "less_clipping_then_closer_to_identity",
+    "gradient_updates": false,
+    "fp16_weight_updates": false,
+    "activation": {
+      "bits": 8,
+      "prefix_llm_tables": 1,
+      "dit_flow_step_tables": 4,
+      "step_schedule": "deterministic_fixed_flow_step_index"
+    }
+  },
+  "errorfold": {
+    "fit_buffer": "shared_calibration_buffer",
+    "fit_pair": "original_fp16_vs_complete_quantized_network",
+    "linear_affine": "per_output_channel_ridge_yF_approximately_a_times_yQ_plus_b",
+    "attention_logits": "same_ridge_affine_ATM",
+    "attention_head_output": "direction_aware_per_output_affine",
+    "folds": 8,
+    "reliability": "theta^2/(theta^2+SE(theta)^2+epsilon)",
+    "ridge": 1e-6,
+    "epsilon": 1e-12,
+    "runtime_selector": false,
+    "task_mapping": false,
+    "runtime_candidate_branch": false,
+    "fold_targets": [
+      "weight",
+      "dequant_scale",
+      "bias"
+    ]
+  },
   "softfold": {
     "grid": {
       "gate_atm": [
@@ -149,7 +206,7 @@
         0.875,
         1.0
       ],
-      "gate_ohb": [
+      "gate_errorfold": [
         0.0,
         0.125,
         0.25,
@@ -161,9 +218,9 @@
         1.0
       ]
     },
-    "interpolation": "exp(gate_times_log_raw_correction)",
-    "selection_rule": "one_standard_error_then_minimum_gate_amplitude",
-    "standard_error": "sample_standard_deviation_div_sqrt_n",
+    "interpolation": "identity_plus_global_gate_times_reliability_times_raw_delta",
+    "selection_rule": "paired_one_standard_error_then_minimum_correction_norm_gate_sum_interaction",
+    "standard_error": "sample_standard_error_of_per_sequence_candidate_minus_best_candidate",
     "lambda_identity": 0.0,
     "lambda_interaction": 0.0,
     "uses_task_labels": false,
@@ -180,13 +237,15 @@
     "calibration_batches": 32,
     "calibration_batch_size": 8,
     "permutation": false,
-    "row_rotation": "restore",
+    "row_rotation": "identity_for_hessian_w4",
     "static_activation_scales": true,
+    "prefix_llm_activation_scale_tables": 1,
+    "dit_activation_scale_tables": 4,
     "selector_free": true,
     "runtime_branch": false,
     "atm_application": "fold_q_weight",
-    "ohb_application": "fold_o_weight_perhead",
-    "correction_application": "static_configuration",
+    "errorfold_application": "fold_affine_into_weight_dequant_scale_and_bias",
+    "correction_application": "static_reliability_shrunk_configuration",
     "quantized_module_residency": "real_quant_inference_only",
     "quantized_wrappers_retain_fp_weight": false,
     "unselected_fp16_modules": "only_modules_outside_the_model_adapter_quantization_target_set"
@@ -250,11 +309,38 @@
     "render": true,
     "termination": "success_or_terminated_or_truncated_or_official_horizon"
   },
+  "evaluation_matrix": {
+    "configs": [
+      {
+        "id": "fp16",
+        "method": "original_native_fp16"
+      },
+      {
+        "id": "quantvla_w4a8_paper",
+        "method": "paper_faithful_quantvla_w4a8"
+      },
+      {
+        "id": "errorfold_dfunc",
+        "method": "hessian_w4a8_errorfold",
+        "selection_metric": "d_func_v1_physical_execute16_deployed12"
+      },
+      {
+        "id": "errorfold_dpac_v2",
+        "method": "hessian_w4a8_errorfold",
+        "selection_metric": "d_pac_v2_physical_execute16_deployed12"
+      }
+    ],
+    "episodes_per_model_per_config": 300,
+    "closed_loop_success_used_for_selection": false,
+    "old_v1_results": "noncompliant_historical_diagnostic_only"
+  },
   "statistics": {
     "unit": "paired_task_seed_episode",
     "primary_rate": "micro_success_rate_over_300_episodes",
     "task_summary": "per_task_success_rate_and_unweighted_task_macro_mean",
     "paired_test": "exact_two_sided_mcnemar",
+    "preregistered_multiple_comparisons": "Holm",
+    "offline_selection_generalization": "noise_B_reported_after_noise_A_selection_is_frozen",
     "missing_episode_policy": "hard_error",
     "duplicate_episode_policy": "hard_error"
   }

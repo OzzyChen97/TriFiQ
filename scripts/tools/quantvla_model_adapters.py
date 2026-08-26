@@ -17,6 +17,13 @@ NATIVE_HORIZONS = {"gr00t": 16, "pi05": 50}
 CANONICAL_HORIZON = int(PROTOCOL["metrics"]["canonical_action"]["horizon"])
 CANONICAL_ACTION_DIM = int(PROTOCOL["metrics"]["canonical_action"]["dimension"])
 FLOW_STEPS = int(PROTOCOL["closed_loop"]["flow_steps"])
+GR00T_PHYSICAL_ACTION_KEYS = (
+    ("action.end_effector_position", 3),
+    ("action.end_effector_rotation", 3),
+    ("action.gripper_close", 1),
+    ("action.base_motion", 4),
+    ("action.control_mode", 1),
+)
 
 
 def _load_archive_rows(path: str | Path, n_obs: int) -> list[dict[str, Any]]:
@@ -141,7 +148,12 @@ def load_model_records(
 
 
 def canonical_trajectory(trajectory: Any, *, model: str) -> torch.Tensor:
-    """Convert native solver output to the one shared (T+1,B,16,12) space."""
+    """Canonicalize a *diagnostic-only* native normalized solver trajectory.
+
+    This API is intentionally not consumed by ``quantvla_metric_protocol``.
+    It remains for CKA/CS and solver diagnostics so existing diagnostic tools
+    can be compared without giving normalized coordinates selection authority.
+    """
     if model not in NATIVE_HORIZONS:
         raise ValueError(f"unknown model adapter: {model!r}")
     value = torch.as_tensor(trajectory).detach().to(dtype=torch.float32, device="cpu")
@@ -164,9 +176,71 @@ def canonical_trajectory(trajectory: Any, *, model: str) -> torch.Tensor:
     return value
 
 
-def gr00t_rollout_inputs(records: list[dict[str, Any]]) -> tuple[list[dict], list[torch.Tensor]]:
+def canonical_physical_chunk(actions: Any, *, model: str) -> torch.Tensor:
+    """Map a model-native physical final action chunk to shared ``(...,16,12)``."""
+    if model not in NATIVE_HORIZONS:
+        raise ValueError(f"unknown model adapter: {model!r}")
+    value = torch.as_tensor(actions).detach().to(dtype=torch.float32, device="cpu")
+    if value.ndim not in (2, 3):
+        raise ValueError(f"physical actions must be (H,12) or (B,H,12), got {value.shape}")
+    if value.shape[-2] != NATIVE_HORIZONS[model] or value.shape[-1] != CANONICAL_ACTION_DIM:
+        raise ValueError(
+            f"{model} physical action shape must end in "
+            f"({NATIVE_HORIZONS[model]},{CANONICAL_ACTION_DIM}), got {value.shape}"
+        )
+    result = value[..., :CANONICAL_HORIZON, :].contiguous()
+    if not torch.isfinite(result).all():
+        raise ValueError(f"{model} physical action chunk contains non-finite values")
+    return result
+
+
+def gr00t_inverse_normalize_final(policy: Any, normalized_final: Any) -> torch.Tensor:
+    """Apply GR00T's native inverse transform and concatenate deployed semantics."""
+    value = torch.as_tensor(normalized_final).detach().to(dtype=torch.float32, device="cpu")
+    if value.ndim not in (2, 3) or value.shape[-2] != NATIVE_HORIZONS["gr00t"]:
+        raise ValueError(f"invalid GR00T normalized final chunk: {value.shape}")
+    unnormalized = policy._get_unnormalized_action(value)
+    components = []
+    for key, width in GR00T_PHYSICAL_ACTION_KEYS:
+        if key not in unnormalized:
+            raise KeyError(f"GR00T inverse transform omitted {key}; got {sorted(unnormalized)}")
+        component = torch.as_tensor(unnormalized[key]).detach().to(torch.float32)
+        if component.ndim == value.ndim - 1 and width == 1:
+            component = component.unsqueeze(-1)
+        if component.shape[:-1] != value.shape[:-1] or component.shape[-1] != width:
+            raise ValueError(
+                f"GR00T physical {key} shape {component.shape}, expected "
+                f"{tuple(value.shape[:-1]) + (width,)}"
+            )
+        components.append(component)
+    return canonical_physical_chunk(torch.cat(components, dim=-1), model="gr00t")
+
+
+def pi05_inverse_normalize_final(
+    policy: Any,
+    transformed_observation: dict[str, Any],
+    normalized_final: Any,
+) -> torch.Tensor:
+    """Apply pi0.5's native output transform to one final 50-step chunk."""
+    value = torch.as_tensor(normalized_final).detach().to(torch.float32).cpu().numpy()
+    if value.shape != (NATIVE_HORIZONS["pi05"], CANONICAL_ACTION_DIM):
+        raise ValueError(f"invalid pi0.5 normalized final chunk: {value.shape}")
+    output = policy._output_transform(
+        {"state": np.asarray(transformed_observation["state"]), "actions": value}
+    )
+    return canonical_physical_chunk(np.asarray(output["actions"], dtype=np.float32), model="pi05")
+
+
+def gr00t_rollout_inputs(
+    records: list[dict[str, Any]], *, noise_index: int = 0
+) -> tuple[list[dict], list[torch.Tensor]]:
     observations = [record["observation"] for record in records]
-    noises = [torch.from_numpy(record["noises"][0]).float() for record in records]
+    if any(len(record["noises"]) <= noise_index for record in records):
+        raise ValueError(f"GR00T records do not contain noise index {noise_index}")
+    noises = [
+        torch.from_numpy(record["noises"][noise_index]).float()
+        for record in records
+    ]
     return observations, noises
 
 

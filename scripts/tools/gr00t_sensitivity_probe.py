@@ -355,12 +355,14 @@ def run_rollouts(
     noises: List[torch.Tensor],
     batch_size: int,
     return_trajectory: bool = True,
-) -> Optional[torch.Tensor]:
+    return_physical: bool = False,
+) -> Optional[torch.Tensor] | tuple[Optional[torch.Tensor], torch.Tensor]:
     """Paired-noise rollouts over batched chunks; returns (T+1, B_total, H, D).
 
     Index 0 = initial noise, index T = final action (see module docstring).
     """
     trajs: List[torch.Tensor] = []
+    physical_chunks: List[torch.Tensor] = []
     use_autocast = str(policy.device).startswith("cuda")
     for batched_obs, batched_noise in chunked(obs_list, noises, batch_size):
         norm = policy.apply_transforms(batched_obs)
@@ -372,9 +374,17 @@ def run_rollouts(
                 out = model.get_action(norm, action_noise=batched_noise, return_trajectory=return_trajectory)
         if return_trajectory:
             trajs.append(out["_trajectory"])  # (T+1, B, H, D) cpu
-    if not return_trajectory:
-        return None
-    return torch.cat(trajs, dim=1)  # (T+1, B_total, H, D)
+        if return_physical:
+            from quantvla_model_adapters import gr00t_inverse_normalize_final
+
+            normalized_final = (
+                out["_trajectory"][-1] if return_trajectory else out["action_pred"]
+            )
+            physical_chunks.append(gr00t_inverse_normalize_final(policy, normalized_final))
+    trajectory = torch.cat(trajs, dim=1) if return_trajectory else None
+    if return_physical:
+        return trajectory, torch.cat(physical_chunks, dim=0)
+    return trajectory
 
 
 def run_activations(

@@ -16,7 +16,7 @@ from quantvla_cross_model_protocol import require_protocol_attestation
 
 def canonical_gate(row: dict[str, Any]) -> tuple[float, float]:
     gate = row.get("gate") or {}
-    return round(float(gate["atm"]), 6), round(float(gate["ohb"]), 6)
+    return round(float(gate["atm"]), 6), round(float(gate["errorfold"]), 6)
 
 
 def main() -> None:
@@ -35,6 +35,7 @@ def main() -> None:
         "plan_sha256",
         "quant_plan_sha256",
         "a8_sha256",
+        "hessian_w4_sha256",
         "raw_correction_sha256",
         "pack_dir_sha256",
         "source_sha256",
@@ -91,7 +92,7 @@ def main() -> None:
                 "d_func": float(scores[best_id]["d_func"]),
                 "d_pac": float(scores[best_id]["d_pac"]),
                 "selection_rule": "diagnostic_argmin_only",
-                "final_selection_rule": "one_standard_error_then_minimum_gate_amplitude",
+                "final_selection_rule": "paired_one_standard_error_then_minimum_correction_norm_gate_sum_interaction",
             },
         }
     )

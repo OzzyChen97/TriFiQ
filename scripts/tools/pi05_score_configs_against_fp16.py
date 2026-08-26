@@ -30,9 +30,12 @@ sys.path.insert(0, str(REPO_ROOT / "scripts" / "tools"))
 
 from openpi.policies import policy_config  # noqa: E402
 from openpi.quant import (  # noqa: E402
+    apply_errorfold,
     enable_duquant_if_configured,
     enable_pi05_atm_if_configured,
     finalize_real_quant,
+    iter_duquant_layers,
+    reset_errorfold_attention_folds,
 )
 from openpi.quant import sha256_file  # noqa: E402
 from openpi.training import config  # noqa: E402
@@ -47,7 +50,7 @@ from quantvla_cross_model_protocol import (  # noqa: E402
 )
 from quantvla_metric_protocol import summarize_pair  # noqa: E402
 from quantvla_model_adapters import (  # noqa: E402
-    canonical_trajectory,
+    canonical_physical_chunk,
     load_model_records,
     record_metadata,
     validate_calibration_artifact,
@@ -175,6 +178,21 @@ def parse_args() -> argparse.Namespace:
         help="Raw ATM/OHB artifact used to materialize --softfold-grid coefficients.",
     )
     parser.add_argument(
+        "--hessian-w4",
+        default=None,
+        help="Frozen v3 group-64 Hessian W4 artifact used by every grid candidate.",
+    )
+    parser.add_argument(
+        "--v3-plan",
+        default=None,
+        help="Complete adapter-bound W4/group64 plan held fixed by the v3 grid.",
+    )
+    parser.add_argument(
+        "--v3-a8",
+        default=None,
+        help="One-prefix/four-flow-step A8 artifact held fixed by the v3 grid.",
+    )
+    parser.add_argument(
         "--softfold-base",
         choices=tuple(DEFAULT_CONFIGS),
         default="quantvla_w4a8_atmohb",
@@ -215,7 +233,7 @@ def materialize_softfold_grid(
 
 def clear_quant_environment() -> None:
     for key in list(os.environ):
-        if key.startswith(("OPENPI_DUQUANT_", "OPENPI_ATM_", "OPENPI_OHB_")):
+        if key.startswith(("OPENPI_DUQUANT_", "OPENPI_ATM_", "OPENPI_OHB_")) or key == "OPENPI_ERRORFOLD_PATH":
             os.environ.pop(key, None)
     os.environ.pop("QUANTVLA_ADAPTER_ONLY", None)
 
@@ -253,7 +271,7 @@ def configure_quant(
             "OPENPI_DUQUANT_EXPECT_WRAPPED": str(int(spec["wrapped"])),
             "OPENPI_DUQUANT_LS": "0.15",
             "OPENPI_DUQUANT_PERMUTE": "0",
-            "OPENPI_DUQUANT_ROW_ROT": "restore",
+            "OPENPI_DUQUANT_ROW_ROT": "0" if spec.get("hessian_w4") else "restore",
             "OPENPI_DUQUANT_ACT_PCT": "99.9",
             "OPENPI_DUQUANT_CALIB_STEPS": "32",
             "OPENPI_DUQUANT_DENOISING_STEPS": "4",
@@ -267,7 +285,15 @@ def configure_quant(
             "OPENPI_DUQUANT_QUIET": "1",
         }
     )
-    atm = spec.get("atm")
+    if spec.get("hessian_w4"):
+        os.environ["OPENPI_DUQUANT_HESSIAN_W4_PATH"] = str(
+            Path(spec["hessian_w4"]).expanduser().resolve()
+        )
+    if spec.get("errorfold"):
+        os.environ["OPENPI_ERRORFOLD_PATH"] = str(
+            Path(spec["errorfold"]).expanduser().resolve()
+        )
+    atm = spec.get("errorfold") or spec.get("atm")
     if atm:
         atm_enable = bool(spec.get("atm_enable", True))
         ohb_enable = bool(spec.get("ohb_enable", True))
@@ -281,16 +307,25 @@ def configure_quant(
                 "OPENPI_ATM_STRICT": "1" if strict_artifacts else "0",
                 "OPENPI_ATM_EXPECT_LAYERS": "18" if atm_enable or ohb_enable else "0",
                 "OPENPI_ATM_APPLICATION": str(
-                    spec.get("atm_application", "runtime_query")
+                    spec.get(
+                        "atm_application",
+                        "fold_q_weight" if spec.get("errorfold") else "runtime_query",
+                    )
                 ),
-                "OPENPI_OHB_EXPECT_MODE": "per_head_pre_projection",
                 "OPENPI_OHB_APPLICATION": str(
-                    spec.get("ohb_application", "runtime_output")
+                    spec.get(
+                        "ohb_application",
+                        "fold_o_weight_perhead"
+                        if spec.get("errorfold")
+                        else "runtime_output",
+                    )
                 ),
                 "OPENPI_ATM_EXPECT_PLAN_SHA256": sha256_file(plan),
                 "OPENPI_ATM_EXPECT_BUFFER_SHA256": artifact_buffer_hash,
             }
         )
+        if not spec.get("errorfold"):
+            os.environ["OPENPI_OHB_EXPECT_MODE"] = "per_head_pre_projection"
 
 
 def load_policy(checkpoint_dir: Path, device: str):
@@ -317,15 +352,29 @@ def main() -> None:
     if args.softfold_grid:
         if not args.softfold_raw:
             raise ValueError("--softfold-grid requires --softfold-raw")
+        if not args.hessian_w4:
+            raise ValueError("v3 --softfold-grid requires --hessian-w4")
+        if not args.v3_plan or not args.v3_a8:
+            raise ValueError("v3 --softfold-grid requires --v3-plan and --v3-a8")
         grid_dir = (
             Path(args.softfold_grid_dir).expanduser().resolve()
             if args.softfold_grid_dir
             else Path(str(Path(args.out).expanduser().resolve()) + ".softfold_grid")
         )
+        v3_plan = Path(args.v3_plan).expanduser().resolve()
+        v3_a8 = Path(args.v3_a8).expanduser().resolve()
+        v3_plan_payload = json.loads(v3_plan.read_text(encoding="utf-8"))
+        base_spec = {
+            **DEFAULT_CONFIGS[args.softfold_base],
+            "plan": v3_plan,
+            "a8": v3_a8,
+            "wrapped": len(v3_plan_payload.get("layers") or {}),
+            "hessian_w4": str(Path(args.hessian_w4).expanduser().resolve()),
+        }
         registry.update(
             materialize_softfold_grid(
                 raw_path=Path(args.softfold_raw).expanduser().resolve(),
-                base_spec=DEFAULT_CONFIGS[args.softfold_base],
+                base_spec=base_spec,
                 output_dir=grid_dir,
             )
         )
@@ -353,11 +402,13 @@ def main() -> None:
     pack_dir = Path(args.pack_dir).expanduser().resolve()
     artifact_buffer_hash = sha256_file(Path(args.artifact_calibration_buffer).expanduser().resolve())
     calibration_attestation = validate_calibration_artifact(
-        DEFAULT_CONFIGS[args.softfold_base]["a8"] if args.softfold_grid else registry[config_ids[0]]["a8"],
+        base_spec["a8"] if args.softfold_grid else registry[config_ids[0]]["a8"],
         model="pi05",
         expected_buffer_sha256=artifact_buffer_hash,
     )
-    base_plan_path = Path(DEFAULT_CONFIGS[args.softfold_base]["plan"]).resolve()
+    base_plan_path = Path(
+        base_spec["plan"] if args.softfold_grid else registry[config_ids[0]]["plan"]
+    ).resolve()
     quant_selection_attestation = validate_quant_plan(
         json.loads(base_plan_path.read_text(encoding="utf-8")),
         model="pi05",
@@ -369,8 +420,12 @@ def main() -> None:
     record_details = record_metadata(records)
 
     payload: dict[str, Any] = {
-        "schema_version": 1,
-        "kind": "fp16_guided_quant_config_score",
+        "schema_version": 3 if args.softfold_grid else 1,
+        "kind": (
+            "errorfold_v3_pi05_softfold_grid_score"
+            if args.softfold_grid
+            else "fp16_guided_quant_config_score"
+        ),
         "cross_model_protocol": protocol_attestation(),
         "model_adapter": buffer_provenance["adapter"],
         "checkpoint_dir": str(checkpoint_dir),
@@ -402,14 +457,27 @@ def main() -> None:
             if args.softfold_grid
             else None
         ),
+        # Keep the shared provenance field identical to the GR00T scorer.
+        # ``quant_plan_sha256`` remains as a compatibility alias for old
+        # diagnostic readers.
+        "plan_sha256": (
+            sha256_file(base_plan_path)
+            if args.softfold_grid
+            else None
+        ),
         "a8_sha256": (
-            sha256_file(Path(DEFAULT_CONFIGS[args.softfold_base]["a8"]).resolve())
+            sha256_file(Path(base_spec["a8"]).resolve())
             if args.softfold_grid
             else None
         ),
         "raw_correction_sha256": (
             sha256_file(Path(args.softfold_raw).expanduser().resolve())
             if args.softfold_grid and args.softfold_raw
+            else None
+        ),
+        "hessian_w4_sha256": (
+            sha256_file(Path(args.hessian_w4).expanduser().resolve())
+            if args.softfold_grid and args.hessian_w4
             else None
         ),
         "source_sha256": {
@@ -445,8 +513,10 @@ def main() -> None:
             "pac_overlap_weight",
             "softfold_grid_shard",
             "quant_plan_sha256",
+            "plan_sha256",
             "a8_sha256",
             "raw_correction_sha256",
+            "hessian_w4_sha256",
             "source_sha256",
             "cross_model_protocol",
         )
@@ -457,7 +527,9 @@ def main() -> None:
     configure_base()
     started = time.time()
     fp16 = load_policy(checkpoint_dir, args.device)
-    reference, _actions, timings = run_records(fp16, records, args.device, noise_index=0)
+    reference, reference_actions, timings = run_records(
+        fp16, records, args.device, noise_index=0
+    )
     payload["fp16"] = {
         "latency_mean_s": float(np.mean(timings)),
         "elapsed_s": time.time() - started,
@@ -467,17 +539,16 @@ def main() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    for config_id in config_ids:
-        if config_id in payload["scores"]:
-            print(f"[fp16-guided] reuse {config_id}", flush=True)
-            continue
-        spec = registry[config_id]
-        plan = Path(spec["plan"]).expanduser().resolve()
-        a8 = Path(spec["a8"]).expanduser().resolve()
-        atm = Path(spec["atm"]).expanduser().resolve() if spec.get("atm") else None
-        started = time.time()
+    if args.softfold_grid:
+        shared_spec = {
+            **base_spec,
+            "atm": None,
+            "errorfold": None,
+            "atm_enable": False,
+            "ohb_enable": False,
+        }
         configure_quant(
-            spec={**spec, "plan": plan, "a8": a8, "atm": atm},
+            spec=shared_spec,
             pack_dir=pack_dir,
             artifact_buffer_hash=artifact_buffer_hash,
             strict_artifacts=args.strict_artifacts,
@@ -485,18 +556,91 @@ def main() -> None:
         policy = load_policy(checkpoint_dir, args.device)
         runtime = enable_duquant_if_configured(policy._model)
         policy._model.to(args.device)
-        atm_runtime = {"enabled": False}
-        if atm is not None:
+        quant_layers = iter_duquant_layers(policy._model)
+        if (
+            len(quant_layers) != int(shared_spec["wrapped"])
+            or not all(
+                module._hessian_w4_loaded and module._fused_ready
+                for _, module in quant_layers
+            )
+        ):
+            raise RuntimeError("shared pi0.5 grid model lacks complete packed Hessian W4")
+    else:
+        policy = None
+        quant_layers = []
+
+    for config_id in config_ids:
+        if config_id in payload["scores"]:
+            print(f"[fp16-guided] reuse {config_id}", flush=True)
+            continue
+        spec = registry[config_id]
+        plan = Path(spec["plan"]).expanduser().resolve()
+        a8 = Path(spec["a8"]).expanduser().resolve()
+        correction = spec.get("errorfold") or spec.get("atm")
+        atm = Path(correction).expanduser().resolve() if correction else None
+        started = time.time()
+        if args.softfold_grid:
+            assert policy is not None
+            reset_errorfold_attention_folds(policy._model)
+            runtime = apply_errorfold(policy._model, Path(spec["errorfold"]))
+            os.environ.update(
+                {
+                    "OPENPI_ERRORFOLD_PATH": str(Path(spec["errorfold"]).resolve()),
+                    "OPENPI_ATM_ENABLE": "1",
+                    "OPENPI_OHB_ENABLE": "1",
+                    "OPENPI_ATM_ALPHA_PATH": str(Path(spec["errorfold"]).resolve()),
+                    "OPENPI_ATM_SCOPE": "expert",
+                    "OPENPI_OHB_SCOPE": "expert",
+                    "OPENPI_ATM_STRICT": "1",
+                    "OPENPI_ATM_EXPECT_LAYERS": "18",
+                    "OPENPI_ATM_APPLICATION": "fold_q_weight",
+                    "OPENPI_OHB_APPLICATION": "fold_o_weight_perhead",
+                    "OPENPI_ERRORFOLD_OFFLINE_REUSE": "1",
+                    "OPENPI_ATM_EXPECT_PLAN_SHA256": sha256_file(plan),
+                    "OPENPI_ATM_EXPECT_BUFFER_SHA256": artifact_buffer_hash,
+                }
+            )
+            os.environ.pop("OPENPI_OHB_EXPECT_MODE", None)
             enable_pi05_atm_if_configured(policy._model)
-            atm_runtime = getattr(policy._model, "_openpi_atm_runtime", {"enabled": False})
-        real_quant = finalize_real_quant(policy._model)
-        runtime = getattr(policy._model, "_openpi_duquant_runtime", runtime)
-        if not real_quant["packed_low_bit_residency"]:
-            raise RuntimeError(f"{config_id}: packed W4 residency was not finalized")
-        trajectory, _actions, timings = run_records(policy, records, args.device, noise_index=0)
+            atm_runtime = getattr(
+                policy._model, "_openpi_atm_runtime", {"enabled": False}
+            )
+            real_quant = {
+                "layers": len(quant_layers),
+                "packed_weight_bytes": int(
+                    sum(module._W_packed_u4.numel() for _, module in quant_layers)
+                ),
+                "fp_weight_sized_buffers": len(quant_layers),
+                "packed_low_bit_residency": False,
+                "true_nibble_kernel_active": True,
+                "offline_model_reuse": True,
+            }
+        else:
+            configure_quant(
+                spec={**spec, "plan": plan, "a8": a8, "atm": atm},
+                pack_dir=pack_dir,
+                artifact_buffer_hash=artifact_buffer_hash,
+                strict_artifacts=args.strict_artifacts,
+            )
+            policy = load_policy(checkpoint_dir, args.device)
+            runtime = enable_duquant_if_configured(policy._model)
+            policy._model.to(args.device)
+            atm_runtime = {"enabled": False}
+            if atm is not None:
+                enable_pi05_atm_if_configured(policy._model)
+                atm_runtime = getattr(
+                    policy._model, "_openpi_atm_runtime", {"enabled": False}
+                )
+            real_quant = finalize_real_quant(policy._model)
+            runtime = getattr(policy._model, "_openpi_duquant_runtime", runtime)
+            if not real_quant["packed_low_bit_residency"]:
+                raise RuntimeError(f"{config_id}: packed W4 residency was not finalized")
+        trajectory, physical_actions, timings = run_records(
+            policy, records, args.device, noise_index=0
+        )
         pair = summarize_pair(
-            canonical_trajectory(reference, model="pi05"),
-            canonical_trajectory(trajectory, model="pi05"),
+            canonical_physical_chunk(reference_actions, model="pi05"),
+            canonical_physical_chunk(physical_actions, model="pi05"),
             record_details,
         )
         metrics = pair["d_func_summary"]
@@ -512,6 +656,7 @@ def main() -> None:
             "atm_enabled": bool(atm_runtime.get("enabled")),
             "real_quant_residency": real_quant,
             "gate": spec.get("gate"),
+            "correction_norm": spec.get("correction_norm"),
             "d_func": float(metrics["d_func"]),
             "d_solver": float(metrics["d_solver"]),
             "d_final": float(metrics["d_final"]),
@@ -534,6 +679,16 @@ def main() -> None:
             f"D_PAC={payload['scores'][config_id]['d_pac']:.6g}",
             flush=True,
         )
+        if not args.softfold_grid:
+            del policy
+            policy = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    if args.softfold_grid:
+        assert policy is not None
+        payload["deployment_residency_preflight"] = finalize_real_quant(policy._model)
         del policy
         gc.collect()
         if torch.cuda.is_available():
@@ -548,7 +703,7 @@ def main() -> None:
         "d_func": payload["scores"][best]["d_func"],
         "d_pac": payload["scores"][best]["d_pac"],
         "selection_rule": "diagnostic_argmin_only",
-        "final_selection_rule": "one_standard_error_then_minimum_gate_amplitude",
+        "final_selection_rule": "paired_one_standard_error_then_minimum_correction_norm_gate_sum_interaction",
         "status": "diagnostic_argmin_only_final_selection_uses_shared_one_standard_error_rule",
     }
     atomic_json(output, payload)

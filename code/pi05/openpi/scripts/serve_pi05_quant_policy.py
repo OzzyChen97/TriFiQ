@@ -140,6 +140,12 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
         key: value for key, value in duquant_runtime.items() if key != "wrapped_layer_names"
     }
     runtime["atm_ohb"] = atm_runtime
+    runtime["errorfold"] = {
+        "enabled": bool(duquant_runtime.get("errorfold_path")),
+        "artifact_path": duquant_runtime.get("errorfold_path"),
+        "errorfold_application": "fold_affine_into_weight_dequant_scale_and_bias",
+        "selector_free": True,
+    }
     runtime["runtime_selector"] = (
         runtime_selector.metadata()
         if runtime_selector is not None
@@ -160,7 +166,11 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             "all_model_adapter_bound_target_linear_layers_uniform_w4"
             if adapter_only else "architecture_specific_gdsq_sensitivity_plan"
         ),
-        "weight_quantizer": "signed_symmetric_per_output_channel",
+        "weight_quantizer": (
+            "hessian_aware_gptq_feedback_signed_group64"
+            if duquant_runtime.get("hessian_w4_loaded")
+            else "signed_symmetric_per_output_channel"
+        ),
         "activation_quantizer": "signed_symmetric_per_input_channel",
         "execution_backend": duquant_runtime.get("execution_backend"),
         "integer_gemm": bool(duquant_runtime.get("integer_gemm", False)),
@@ -168,6 +178,15 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             duquant_runtime.get("packed_low_bit_residency", False)
         ),
         "packed_weight_bytes": int(duquant_runtime.get("packed_weight_bytes", 0)),
+        "dequant_scale_bytes": int(duquant_runtime.get("dequant_scale_bytes", 0)),
+        "input_gain_bytes": int(duquant_runtime.get("input_gain_bytes", 0)),
+        "activation_scale_bytes": int(
+            duquant_runtime.get("activation_scale_bytes", 0)
+        ),
+        "bias_bytes": int(duquant_runtime.get("bias_bytes", 0)),
+        "auxiliary_static_bytes": int(
+            duquant_runtime.get("auxiliary_static_bytes", 0)
+        ),
         "fp_weight_sized_buffers": int(
             duquant_runtime.get("fp_weight_sized_buffers", 0)
         ),
@@ -177,7 +196,11 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
         "block_out": int(duquant_runtime.get("block_out", 64)),
         "lambda_smooth": float(os.environ.get("OPENPI_DUQUANT_LS", "0.15")),
         "activation_percentile": float(duquant_runtime.get("act_percentile", 99.9)),
-        "calibration_policy": "offline_static_per_channel_percentile",
+        "calibration_policy": (
+            "offline_static_prefix_single_dit_per_flow_step"
+            if duquant_runtime.get("hessian_w4_loaded")
+            else "offline_static_per_channel_percentile"
+        ),
         "calibration_batches": int(duquant_runtime.get("calib_batches", 32)),
         "calibration_batch_size": 8,
         "calibration_samples": int(duquant_runtime.get("calib_batches", 32)) * 8,
@@ -197,7 +220,11 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
         "correction_application": (
             "request_context_runtime"
             if runtime["runtime_selector"].get("enabled") is True
-            else "static_configuration"
+            else (
+                "fold_affine_into_dequant_scale_and_bias"
+                if duquant_runtime.get("errorfold_path")
+                else "static_configuration"
+            )
         ),
         "atm_application": atm_runtime.get("atm_application", "runtime_query"),
         "ohb_application": atm_runtime.get("ohb_application", "runtime_output"),
@@ -213,6 +240,14 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
         "pi05", native_action_horizon=int(model.config.action_horizon)
     )
     runtime["protocol"] = closed_loop_runtime_protocol()
+    if torch.cuda.is_available():
+        device = next(model.parameters()).device
+        runtime["gpu_memory_bytes"] = {
+            "allocated": int(torch.cuda.memory_allocated(device)),
+            "reserved": int(torch.cuda.memory_reserved(device)),
+            "peak_allocated": int(torch.cuda.max_memory_allocated(device)),
+            "peak_reserved": int(torch.cuda.max_memory_reserved(device)),
+        }
     plan_path = Path(os.environ.get("OPENPI_DUQUANT_PLAN", "")).expanduser()
     if duquant_runtime.get("enabled") and adapter_only and plan_path.is_file():
         runtime["quantization_selection"] = validate_quant_plan(
@@ -332,6 +367,15 @@ def _validate_formal_runtime(runtime: dict) -> None:
     expected = {
         "fp16": {"wrapped": 0, "enabled": False, "atm": False, "ohb": False},
         "quantvla_w4a8_atmohb": {"wrapped": 180, "enabled": True, "atm": True, "ohb": True},
+        "quantvla_w4a8_paper": {"wrapped": 180, "enabled": True, "atm": True, "ohb": True},
+        "errorfold_dfunc": {
+            "wrapped": 180, "enabled": True, "atm": True, "ohb": True,
+            "errorfold": True,
+        },
+        "errorfold_dpac_v2": {
+            "wrapped": 180, "enabled": True, "atm": True, "ohb": True,
+            "errorfold": True,
+        },
         "quantvla_w4a8_softfold_dfunc": {"wrapped": 180, "enabled": True, "atm": True, "ohb": True},
         "quantvla_w4a8_softfold_dpac": {"wrapped": 180, "enabled": True, "atm": True, "ohb": True},
         "gdsq_vla_atmohb": {"wrapped": gdsq_wrapped, "enabled": True, "atm": True, "ohb": True},
@@ -387,7 +431,7 @@ def _validate_formal_runtime(runtime: dict) -> None:
             raise RuntimeError(f"{config_id}: missing plan/A8 runtime hashes")
         if int(duquant.get("packed_weight_bytes", 0)) <= 0:
             raise RuntimeError(f"{config_id}: packed W4 bytes were not materialized")
-        if config_id.startswith("quantvla_"):
+        if config_id.startswith("quantvla_") or config_id.startswith("errorfold_"):
             selection = runtime.get("quantization_selection") or {}
             if (
                 selection.get("rule")
@@ -416,12 +460,31 @@ def _validate_formal_runtime(runtime: dict) -> None:
                     f"{config_id}: ATM/OHB runtime {key}={atm.get(key)!r} != {value!r}"
                 )
         metadata = atm.get("metadata") or {}
-        atm_required = {
-            "flow_steps": 4,
-            "frames": 16,
-            "batch_size": 8,
-            "ohb_mode": "per_head_pre_projection",
-        }
+        if wanted.get("errorfold"):
+            atm_required = {
+                "flow_steps": 4,
+                "folds": 8,
+                "fit_pair": "original_fp16_vs_complete_quantized_network",
+                "selector_free": True,
+                "runtime_branch": False,
+            }
+            errorfold = runtime.get("errorfold") or {}
+            if not errorfold.get("enabled") or not errorfold.get("selector_free"):
+                raise RuntimeError(f"{config_id}: ErrorFold runtime is not frozen: {errorfold}")
+            if int(duquant.get("hessian_w4_loaded", 0)) != wanted["wrapped"]:
+                raise RuntimeError(f"{config_id}: Hessian W4 inventory is incomplete")
+            contract = runtime.get("cross_model_quantization_contract") or {}
+            if contract.get("row_rotation") != "0":
+                raise RuntimeError(f"{config_id}: Hessian W4 requires identity row rotation")
+            if selector_runtime.get("enabled") is True:
+                raise RuntimeError(f"{config_id}: runtime selector is forbidden")
+        else:
+            atm_required = {
+                "flow_steps": 4,
+                "frames": 16,
+                "batch_size": 8,
+                "ohb_mode": "per_head_pre_projection",
+            }
         atm_mismatches = {
             key: (metadata.get(key), value)
             for key, value in atm_required.items()

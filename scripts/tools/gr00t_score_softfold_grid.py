@@ -31,7 +31,6 @@ from quantvla_cross_model_protocol import (  # noqa: E402
 )
 from quantvla_metric_protocol import summarize_pair  # noqa: E402
 from quantvla_model_adapters import (  # noqa: E402
-    canonical_trajectory,
     gr00t_rollout_inputs,
     load_model_records,
     record_metadata,
@@ -46,7 +45,12 @@ from gr00t_v2_common import (  # noqa: E402
     set_quant_env,
     strip_quant_env,
 )
-from gr00t.quantization import finalize_real_quant  # noqa: E402
+from gr00t.atm import (  # noqa: E402
+    enable_dit_atm_if_configured,
+    reset_errorfold_attention_folds,
+)
+from gr00t.quantization import apply_errorfold, finalize_real_quant  # noqa: E402
+from gr00t.quantization.duquant_layers import DuQuantLinear  # noqa: E402
 
 
 DEFAULT_CHECKPOINT = REPO_ROOT / (
@@ -121,6 +125,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--plan", default=str(DEFAULT_PLAN))
     parser.add_argument("--pack-dir", default=str(DEFAULT_PACK))
     parser.add_argument("--a8", default=str(DEFAULT_A8))
+    parser.add_argument("--hessian-w4", required=True)
     parser.add_argument("--raw-correction", default=str(DEFAULT_RAW))
     parser.add_argument("--data-config", default=DEFAULT_DATA_CONFIG)
     parser.add_argument("--buffer", default=str(DEFAULT_BUFFER))
@@ -156,12 +161,22 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
     plan = Path(args.plan).expanduser().resolve()
     pack_dir = Path(args.pack_dir).expanduser().resolve()
     a8 = Path(args.a8).expanduser().resolve()
+    hessian_w4 = Path(args.hessian_w4).expanduser().resolve()
     raw = Path(args.raw_correction).expanduser().resolve()
     buffer_path = Path(args.buffer).expanduser().resolve()
     artifact_buffer_path = Path(args.artifact_calibration_buffer).expanduser().resolve()
     grid_dir = Path(args.grid_dir).expanduser().resolve()
     output = Path(args.out).expanduser().resolve()
-    for path in (checkpoint / "config.json", plan, a8, raw, buffer_path, artifact_buffer_path):
+    for path in (
+        checkpoint / "config.json",
+        plan,
+        a8,
+        hessian_w4,
+        Path(str(hessian_w4) + ".json"),
+        raw,
+        buffer_path,
+        artifact_buffer_path,
+    ):
         if not path.is_file():
             raise FileNotFoundError(path)
     if not pack_dir.is_dir():
@@ -190,8 +205,8 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
         source=str(plan),
     )
     payload: dict[str, Any] = {
-        "schema_version": 1,
-        "kind": "gr00t_softfold_grid_score",
+        "schema_version": 3,
+        "kind": "errorfold_v3_gr00t_softfold_grid_score",
         "cross_model_protocol": protocol_attestation(),
         "checkpoint": str(checkpoint),
         "checkpoint_sha256": sha256_checkpoint(checkpoint),
@@ -201,6 +216,8 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
         "pack_dir_sha256": sha256_tree(pack_dir),
         "a8": str(a8),
         "a8_sha256": sha256_file(a8),
+        "hessian_w4": str(hessian_w4),
+        "hessian_w4_sha256": sha256_file(hessian_w4),
         "artifact_calibration_buffer_sha256": sha256_file(artifact_buffer_path),
         "artifact_declared_buffer_sha256": a8_meta.get("buffer_sha256"),
         "calibration_attestation": calibration_attestation,
@@ -242,6 +259,7 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
             "checkpoint_sha256",
             "plan_sha256",
             "a8_sha256",
+            "hessian_w4_sha256",
             "raw_correction_sha256",
             "pack_dir_sha256",
             "cross_model_protocol",
@@ -276,7 +294,14 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
     payload["buffer_sha256"] = buffer_provenance["sha256"]
     payload["records"] = details
     payload["model_adapter"] = buffer_provenance["adapter"]
-    reference = run_rollouts(fp16.model, fp16, observations, noises, args.batch_size)
+    reference_trajectory, reference_actions = run_rollouts(
+        fp16.model,
+        fp16,
+        observations,
+        noises,
+        args.batch_size,
+        return_physical=True,
+    )
     del fp16
     gc.collect()
     if torch.cuda.is_available():
@@ -293,17 +318,58 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
         for row in (json.loads(plan.read_text(encoding="utf-8")).get("layers") or {}).values()
     )
 
+    # Load the complete quantized network once.  Every offline candidate
+    # restores the same Hessian scales/biases and native attention projections
+    # before applying its static coefficients.  This preserves exact candidate
+    # semantics while avoiding 81 checkpoint reloads.
+    strip_quant_env()
+    set_quant_env(DEFAULT_INCLUDE, DEFAULT_EXCLUDE, str(pack_dir), row_rot="0")
+    os.environ.update(
+        {
+            "GR00T_DUQUANT_FUSED": "1",
+            "GR00T_DUQUANT_PLAN": str(plan),
+            "GR00T_DUQUANT_ACT_SCALE_PATH": str(a8),
+            "GR00T_DUQUANT_HESSIAN_W4_PATH": str(hessian_w4),
+            "GR00T_ATM_ENABLE": "0",
+            "GR00T_OHB_ENABLE": "0",
+        }
+    )
+    policy = load_policy(
+        str(checkpoint),
+        data_config=args.data_config,
+        denoising_steps=args.denoising_steps,
+        device=args.device,
+    )
+    ensure_a8_calibrated(
+        policy,
+        warm_obs,
+        warm_noises,
+        args.batch_size,
+        expected_wrapped=expected_wrapped,
+        act_scale_path=str(a8),
+    )
+    quant_layers = [
+        module for module in policy.model.modules() if isinstance(module, DuQuantLinear)
+    ]
+    if (
+        len(quant_layers) != expected_wrapped
+        or not all(module._hessian_w4_loaded and module._fused_ready for module in quant_layers)
+    ):
+        raise RuntimeError("shared GR00T grid model lacks complete packed Hessian W4")
+
     for identifier in selected_ids:
         if identifier in payload["scores"]:
             print(f"[gr00t-softfold] reuse {identifier}", flush=True)
             continue
-        strip_quant_env()
-        set_quant_env(DEFAULT_INCLUDE, DEFAULT_EXCLUDE, str(pack_dir))
+        reset_errorfold_attention_folds(policy.model)
+        apply_errorfold(policy.model, registry[identifier]["path"])
         os.environ.update(
             {
                 "GR00T_DUQUANT_FUSED": "1",
                 "GR00T_DUQUANT_PLAN": str(plan),
                 "GR00T_DUQUANT_ACT_SCALE_PATH": str(a8),
+                "GR00T_DUQUANT_HESSIAN_W4_PATH": str(hessian_w4),
+                "GR00T_ERRORFOLD_PATH": str(registry[identifier]["path"]),
                 "GR00T_ATM_ENABLE": "1",
                 "GR00T_OHB_ENABLE": "1",
                 "GR00T_ATM_ALPHA_PATH": str(registry[identifier]["path"]),
@@ -312,39 +378,42 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
                 "GR00T_ATM_PER_STEP": "0",
                 "GR00T_ATM_APPLICATION": "fold_q_weight",
                 "GR00T_OHB_APPLICATION": "fold_o_weight_perhead",
+                "GR00T_ERRORFOLD_OFFLINE_REUSE": "1",
             }
         )
         started = time.time()
-        policy = load_policy(
-            str(checkpoint),
-            data_config=args.data_config,
-            denoising_steps=args.denoising_steps,
-            device=args.device,
-        )
-        ensure_a8_calibrated(
-            policy,
-            warm_obs,
-            warm_noises,
-            args.batch_size,
-            expected_wrapped=expected_wrapped,
-            act_scale_path=str(a8),
-        )
-        real_quant = finalize_real_quant(policy.model)
-        if not real_quant["packed_low_bit_residency"]:
-            raise RuntimeError(f"{identifier}: packed W4 residency was not finalized")
+        enable_dit_atm_if_configured(policy.model)
+        real_quant = {
+            "layers": len(quant_layers),
+            "packed_weight_bytes": int(
+                sum(module._W_packed_u4.numel() for module in quant_layers)
+            ),
+            "fp_weight_sized_buffers": len(quant_layers),
+            "packed_low_bit_residency": False,
+            "true_nibble_kernel_active": True,
+            "offline_model_reuse": True,
+        }
         runtime = getattr(policy.model, "_gr00t_atm_runtime", {})
         if not runtime.get("enabled") or not runtime.get("selector_free"):
             raise RuntimeError(f"{identifier}: selector-free SoftFold was not loaded: {runtime}")
-        trajectory = run_rollouts(policy.model, policy, observations, noises, args.batch_size)
+        trajectory, physical_actions = run_rollouts(
+            policy.model,
+            policy,
+            observations,
+            noises,
+            args.batch_size,
+            return_physical=True,
+        )
         pair = summarize_pair(
-            canonical_trajectory(reference, model="gr00t"),
-            canonical_trajectory(trajectory, model="gr00t"),
+            reference_actions,
+            physical_actions,
             details,
         )
         func = pair["d_func_summary"]
         pac = pair["d_pac_summary"]
         payload["scores"][identifier] = {
             "gate": registry[identifier]["gate"],
+            "correction_norm": float(registry[identifier]["correction_norm"]),
             "artifact": str(registry[identifier]["path"]),
             "artifact_sha256": sha256_file(registry[identifier]["path"]),
             "wrapped_layers": expected_wrapped,
@@ -364,11 +433,16 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
             f"D_PAC={pac['d_pac']:.6g}",
             flush=True,
         )
-        del policy, trajectory
+        del trajectory, physical_actions
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+    payload["deployment_residency_preflight"] = finalize_real_quant(policy.model)
+    del policy
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     best = min(payload["scores"], key=lambda key: payload["scores"][key]["d_pac"])
     payload["best"] = {
         "config_id": best,
@@ -377,7 +451,7 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
         "d_func": payload["scores"][best]["d_func"],
         "d_pac": payload["scores"][best]["d_pac"],
         "selection_rule": "diagnostic_argmin_only",
-        "final_selection_rule": "one_standard_error_then_minimum_gate_amplitude",
+        "final_selection_rule": "paired_one_standard_error_then_minimum_correction_norm_gate_sum_interaction",
         "status": "diagnostic_argmin_only_final_selection_uses_shared_one_standard_error_rule",
     }
     atomic_json(output, payload)

@@ -107,11 +107,17 @@ def pack_w4_nibbles(w_t: torch.Tensor, scales: torch.Tensor) -> torch.Tensor:
     """
     if w_t.ndim != 2:
         raise ValueError(f"expected a 2-D weight, got {tuple(w_t.shape)}")
-    if scales.ndim != 1 or scales.numel() != w_t.shape[0]:
+    if scales.ndim not in (1, 2) or scales.shape[0] != w_t.shape[0]:
         raise ValueError(
             f"scale shape {tuple(scales.shape)} does not match {w_t.shape[0]} rows"
         )
-    q = torch.clamp(torch.round(w_t / scales[:, None]), -8, 7).to(torch.int8)
+    if scales.ndim == 1:
+        expanded_scales = scales[:, None]
+    else:
+        if scales.shape[1] != math.ceil(w_t.shape[1] / 64):
+            raise ValueError("grouped W4 scales must be one value per group-64")
+        expanded_scales = scales.repeat_interleave(64, dim=1)[:, : w_t.shape[1]]
+    q = torch.clamp(torch.round(w_t / expanded_scales), -8, 7).to(torch.int8)
     if q.shape[1] & 1:
         q = torch.nn.functional.pad(q, (0, 1))
     q_u4 = torch.bitwise_and(q, 0x0F).to(torch.uint8)
@@ -123,6 +129,7 @@ def _w4_nibble_dequant_matmul_kernel(
     A,
     WQ,  # (N, ceil(K / 2)) uint8, two signed W4 values per byte
     WS,
+    W_INPUT_GAIN,
     Y,
     M,
     N,
@@ -131,12 +138,16 @@ def _w4_nibble_dequant_matmul_kernel(
     stride_ak,
     stride_wn,
     stride_wb,
+    stride_wsn,
+    stride_wsg,
     stride_ym,
     stride_yn,
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,
     GROUP_M: tl.constexpr,
+    SCALE_GROUP_SIZE: tl.constexpr,
+    HAS_INPUT_GAIN: tl.constexpr,
 ):
     pid = tl.program_id(0)
     num_pid_m = tl.cdiv(M, BLOCK_M)
@@ -165,8 +176,22 @@ def _w4_nibble_dequant_matmul_kernel(
         shift = (k & 1) * 4
         q_u4 = (packed >> shift[None, :]) & 0x0F
         q = tl.where(q_u4 >= 8, q_u4.to(tl.int32) - 16, q_u4.to(tl.int32))
-        ws = tl.load(WS + offs_n, mask=offs_n < N, other=1.0)
-        w = q.to(tl.float32) * ws[:, None]
+        ws = tl.load(
+            WS
+            + offs_n[:, None] * stride_wsn
+            + (k[None, :] // SCALE_GROUP_SIZE) * stride_wsg,
+            mask=(offs_n[:, None] < N) & (k[None, :] < K),
+            other=1.0,
+        )
+        if HAS_INPUT_GAIN:
+            input_gain = tl.load(
+                W_INPUT_GAIN + k,
+                mask=k < K,
+                other=1.0,
+            )
+            w = q.to(tl.float32) * ws * input_gain[None, :]
+        else:
+            w = q.to(tl.float32) * ws
         acc += tl.dot(a, tl.trans(w).to(a.dtype), out_dtype=tl.float32)
         a_ptrs += BLOCK_K * stride_ak
 
@@ -182,6 +207,7 @@ def fused_linear_w4_nibbles(
     x: torch.Tensor,
     w_q: torch.Tensor,
     scales: torch.Tensor,
+    input_gain: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Run ``x @ dequant(W4)^T`` from a true two-values-per-byte W4 tensor."""
     if w_q.dtype != torch.uint8 or w_q.ndim != 2:
@@ -194,13 +220,26 @@ def fused_linear_w4_nibbles(
         raise ValueError(
             f"packed W4 shape {tuple(wq2.shape)} is incompatible with K={k}"
         )
+    if scales.ndim == 1:
+        scale_table = scales.reshape(n, 1).contiguous()
+        scale_group_size = k
+    elif scales.ndim == 2 and scales.shape == (n, math.ceil(k / 64)):
+        scale_table = scales.contiguous()
+        scale_group_size = 64
+    else:
+        raise ValueError(f"invalid W4 scale table {tuple(scales.shape)} for N={n}, K={k}")
+    if input_gain is not None:
+        if input_gain.ndim != 1 or input_gain.numel() != k:
+            raise ValueError(f"invalid W4 input gain {tuple(input_gain.shape)} for K={k}")
+        input_gain = input_gain.to(device=x.device, dtype=scales.dtype).contiguous()
     y = torch.empty((m, n), dtype=x.dtype, device=x.device)
     block_m, block_n, block_k, group_m = 64, 64, 64, 4
     grid = (triton.cdiv(m, block_m) * triton.cdiv(n, block_n),)
     _w4_nibble_dequant_matmul_kernel[grid](
         x2,
         wq2,
-        scales,
+        scale_table,
+        input_gain if input_gain is not None else x2,
         y,
         m,
         n,
@@ -209,12 +248,16 @@ def fused_linear_w4_nibbles(
         x2.stride(1),
         wq2.stride(0),
         wq2.stride(1),
+        scale_table.stride(0),
+        scale_table.stride(1),
         y.stride(0),
         y.stride(1),
         BLOCK_M=block_m,
         BLOCK_N=block_n,
         BLOCK_K=block_k,
         GROUP_M=group_m,
+        SCALE_GROUP_SIZE=scale_group_size,
+        HAS_INPUT_GAIN=input_gain is not None,
     )
     return y.reshape(*x.shape[:-1], n)
 
@@ -248,8 +291,13 @@ def fused_linear_w4(
 def eager_linear_w4(x: torch.Tensor, w_t: torch.Tensor, scales: torch.Tensor) -> torch.Tensor:
     """Reference eager path (same math as DuQuantLinear's weight_bits>0 branch)."""
     max_q = 7
-    w_scaled = w_t / scales[:, None]
-    w_deq = torch.clamp(torch.round(w_scaled), -max_q - 1, max_q) * scales[:, None]
+    scale_table = (
+        scales[:, None]
+        if scales.ndim == 1
+        else scales.repeat_interleave(64, dim=1)[:, : w_t.shape[1]]
+    )
+    w_scaled = w_t / scale_table
+    w_deq = torch.clamp(torch.round(w_scaled), -max_q - 1, max_q) * scale_table
     return torch.nn.functional.linear(x, w_deq.to(x.dtype), None)
 
 
