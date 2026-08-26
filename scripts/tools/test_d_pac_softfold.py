@@ -372,3 +372,41 @@ def test_directional_head_fold_is_exact_static_dequant_not_requantized() -> None
     pi05 = pi05_w4(x, packed, scales, input_gain=gain).float()
     torch.testing.assert_close(gr00t, reference, atol=2e-2, rtol=2e-2)
     torch.testing.assert_close(pi05, reference, atol=2e-2, rtol=2e-2)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="Triton W4 kernel needs CUDA")
+def test_pi05_fused_w4_covers_small_output_projection() -> None:
+    from openpi.quant.duquant_triton import (
+        duquant_linear_fused_w4,
+        pack_w4_nibbles,
+    )
+
+    generator = torch.Generator().manual_seed(73)
+    weight = torch.randn(256, 128, generator=generator, dtype=torch.float32).cuda() * 0.03
+    scales = torch.stack(
+        [
+            weight[:, :64].abs().amax(dim=1) / 7.0,
+            weight[:, 64:].abs().amax(dim=1) / 7.0,
+        ],
+        dim=1,
+    ).clamp_min(1e-6)
+    packed = pack_w4_nibbles(weight, scales)
+    codes = unpack_signed_nibbles(packed.cpu(), 128).cuda().to(torch.float32)
+    dequant = codes * scales.repeat_interleave(64, dim=1)
+    x = torch.randn(9, 128, generator=generator, dtype=torch.float16).cuda()
+    act_scale = torch.full((128,), 1e-6, dtype=torch.float16, device="cuda")
+    x_quant = torch.clamp(torch.round(x / act_scale), -128, 127) * act_scale
+    expected = (x_quant.float() @ dequant.T).to(torch.float16)
+    actual = duquant_linear_fused_w4(
+        x,
+        packed,
+        scales,
+        None,
+        None,
+        None,
+        act_scale,
+        None,
+        B=64,
+    )
+    assert torch.isfinite(actual).all()
+    torch.testing.assert_close(actual, expected, atol=2e-2, rtol=2e-2)

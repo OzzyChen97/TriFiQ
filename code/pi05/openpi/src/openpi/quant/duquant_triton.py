@@ -53,14 +53,24 @@ def _input_transform_quant_kernel(
     rmask = rm < M
     for bb in tl.static_range(BLOCKS_PER_PROG):
         pid_b = pid_g * BLOCKS_PER_PROG + bb
+        cols = pid_b * B + tl.arange(0, B)
+        cmask = cols < I
         if HAS_PERM:
-            src = tl.load(perm_ptr + pid_b * B + tl.arange(0, B))
+            src = tl.load(perm_ptr + cols, mask=cmask, other=0)
         else:
-            src = pid_b * B + tl.arange(0, B)
-        x = tl.load(x_ptr + rm[:, None] * I + src[None, :], mask=rmask[:, None], other=0.0)
+            src = cols
+        x = tl.load(
+            x_ptr + rm[:, None] * I + src[None, :],
+            mask=rmask[:, None] & cmask[None, :],
+            other=0.0,
+        )
         if HAS_RIN:
             roff = tl.arange(0, B)[:, None] * B + tl.arange(0, B)[None, :]
-            rin = tl.load(rin_ptr + pid_b * B * B + roff)
+            rin = tl.load(
+                rin_ptr + pid_b * B * B + roff,
+                mask=cmask[:, None] & cmask[None, :],
+                other=0.0,
+            )
             xr = tl.dot(x.to(tl.float32), rin.to(tl.float32))  # [BM,16] @ [16,16]
         else:
             xr = x.to(tl.float32)
@@ -68,15 +78,18 @@ def _input_transform_quant_kernel(
         # division, then quantization).
         xr = _cast(xr, DTYPE)
         if HAS_SA:
-            s = tl.load(sa_ptr + pid_b * B + tl.arange(0, B))
+            s = tl.load(sa_ptr + cols, mask=cmask, other=1.0)
             s = tl.maximum(s, 1e-8)
             q = _rint(_cast(xr / s[None, :], DTYPE).to(tl.float32))
             q = tl.minimum(tl.maximum(q, -128.0), 127.0)
             xq = _cast(q * s[None, :], DTYPE)
         else:
             xq = xr
-        tl.store(y_ptr + rm[:, None] * I + (pid_b * B + tl.arange(0, B))[None, :],
-                 xq, mask=rmask[:, None])
+        tl.store(
+            y_ptr + rm[:, None] * I + cols[None, :],
+            xq,
+            mask=rmask[:, None] & cmask[None, :],
+        )
 
 
 @triton.jit
@@ -93,16 +106,29 @@ def _output_restore_kernel(
     for bb in tl.static_range(BLOCKS_PER_PROG):
         pid_b = pid_g * BLOCKS_PER_PROG + bb
         rn = pid_b * B + tl.arange(0, B)
-        y = tl.load(y_ptr + rm[:, None] * O + rn[None, :], mask=rmask[:, None], other=0.0)
+        nmask = rn < O
+        y = tl.load(
+            y_ptr + rm[:, None] * O + rn[None, :],
+            mask=rmask[:, None] & nmask[None, :],
+            other=0.0,
+        )
         if HAS_ROUT:
             roff = tl.arange(0, B)[:, None] * B + tl.arange(0, B)[None, :]
-            rout = tl.load(rout_ptr + pid_b * B * B + roff)
+            rout = tl.load(
+                rout_ptr + pid_b * B * B + roff,
+                mask=nmask[:, None] & nmask[None, :],
+                other=0.0,
+            )
             y = tl.dot(y.to(tl.float32), rout.to(tl.float32))
             y = _cast(y, DTYPE)
         if HAS_BIAS:
-            b = tl.load(bias_ptr + rn)
+            b = tl.load(bias_ptr + rn, mask=nmask, other=0.0)
             y = _cast(y + b[None, :].to(tl.float32), DTYPE)
-        tl.store(out_ptr + rm[:, None] * O + rn[None, :], y, mask=rmask[:, None])
+        tl.store(
+            out_ptr + rm[:, None] * O + rn[None, :],
+            y,
+            mask=rmask[:, None] & nmask[None, :],
+        )
 
 
 @triton.jit
@@ -297,7 +323,7 @@ def duquant_linear_fused_w4(
     blocks_per_program = 16
     x_tq = torch.empty_like(x)
     _input_transform_quant_kernel[
-        (triton.cdiv(M, BM), I // (B * blocks_per_program))
+        (triton.cdiv(M, BM), triton.cdiv(I, B * blocks_per_program))
     ](
         x, x_tq,
         perm32 if perm32 is not None else x,
@@ -318,7 +344,7 @@ def duquant_linear_fused_w4(
     )
     y = torch.empty((M, O), dtype=x.dtype, device=x.device)
     _output_restore_kernel[
-        (triton.cdiv(M, BM), O // (B * blocks_per_program))
+        (triton.cdiv(M, BM), triton.cdiv(O, B * blocks_per_program))
     ](
         y_lin, y,
         bias if bias is not None else y_lin,
