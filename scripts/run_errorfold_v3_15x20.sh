@@ -147,6 +147,8 @@ grid_score_complete() {
         runtime_source="$REPO/code/pi05/openpi/src/openpi/quant/atm_pi05.py"
         runtime_key="pi05_atm_runtime"
         kind="errorfold_v3_pi05_softfold_grid_score"
+        [[ "$(jq -r '.source_sha256.pi05_w4_runtime // empty' "$output")" == \
+            "$(sha256sum "$REPO/code/pi05/openpi/src/openpi/quant/duquant_triton.py" | cut -d' ' -f1)" ]] || return 1
     fi
     jq -e \
         --arg kind "$kind" \

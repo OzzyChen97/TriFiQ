@@ -425,3 +425,36 @@ def test_pi05_fused_w4_covers_small_output_projection() -> None:
     )
     assert torch.isfinite(actual).all()
     torch.testing.assert_close(actual, expected, atol=2e-2, rtol=2e-2)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="Triton W4 kernel needs CUDA")
+def test_pi05_w4_masks_ragged_batch_rows() -> None:
+    from openpi.quant.duquant_triton import (
+        duquant_linear_fused_w4,
+        pack_w4_nibbles,
+    )
+
+    generator = torch.Generator().manual_seed(79)
+    weight = torch.randn(64, 64, generator=generator, dtype=torch.float32).cuda() * 0.03
+    scales = (weight.abs().amax(dim=1, keepdim=True) / 7.0).clamp_min(1e-6)
+    packed = pack_w4_nibbles(weight, scales)
+    codes = unpack_signed_nibbles(packed.cpu(), 64).cuda().to(torch.float32)
+    dequant = codes * scales
+    act_scale = torch.full((64,), 0.01, dtype=torch.float16, device="cuda")
+    for rows in (1, 63, 65, 129):
+        x = torch.randn(rows, 64, generator=generator, dtype=torch.float16).cuda()
+        x_quant = torch.clamp(torch.round(x / act_scale), -128, 127) * act_scale
+        expected = (x_quant.float() @ dequant.T).to(torch.float16)
+        actual = duquant_linear_fused_w4(
+            x,
+            packed,
+            scales,
+            None,
+            None,
+            None,
+            act_scale,
+            None,
+            B=64,
+        )
+        torch.cuda.synchronize()
+        torch.testing.assert_close(actual, expected, atol=2e-2, rtol=2e-2)

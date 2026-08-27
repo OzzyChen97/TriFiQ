@@ -496,6 +496,9 @@ def main() -> None:
             "pi05_atm_runtime": sha256_file(
                 REPO_ROOT / "code/pi05/openpi/src/openpi/quant/atm_pi05.py"
             ),
+            "pi05_w4_runtime": sha256_file(
+                REPO_ROOT / "code/pi05/openpi/src/openpi/quant/duquant_triton.py"
+            ),
         },
         "uses_task_labels_for_selection": False,
         "uses_rollout_success_for_selection": False,
