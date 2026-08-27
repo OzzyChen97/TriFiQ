@@ -50,13 +50,29 @@ PI_PLAN="$REPO/runs/pi05_gdsq_gr00t_aligned/plans/pi05_quantvla_uniform_w4a8_d4.
 # Shared GPUs are allowed.  The only launch gate is enough currently-free
 # memory for one model process; no exclusive-idle or predecessor gate exists.
 GR_MIN_FREE_MIB="${ERRORFOLD_V3_GR_MIN_FREE_MIB:-9000}"
-PI_MIN_FREE_MIB="${ERRORFOLD_V3_PI_MIN_FREE_MIB:-24000}"
+# The deployed pi0.5 processes peak at 8.5 GiB for FP16 and about 9.1 GiB for
+# inference-only W4 in the checked-in residency measurements.  Twelve GiB
+# leaves roughly 3 GiB of launch/activation headroom without retaining the old
+# fake-quant-era 24 GiB gate.
+PI_MIN_FREE_MIB="${ERRORFOLD_V3_PI_MIN_FREE_MIB:-12000}"
 GPU_POLL_SECONDS="${ERRORFOLD_V3_GPU_POLL_SECONDS:-20}"
 SEED_SHARDS_PER_TASK="${ERRORFOLD_V3_SEED_SHARDS_PER_TASK:-2}"
 PI_SEED_SHARDS_PER_TASK="${ERRORFOLD_V3_PI_SEED_SHARDS_PER_TASK:-2}"
 CALIBRATION_GPUS_TEXT="${ERRORFOLD_V3_CALIBRATION_GPUS:-1,4,6,7}"
 IFS=',' read -r -a CALIBRATION_GPUS <<<"$CALIBRATION_GPUS_TEXT"
 ALL_GPUS=(0 1 2 3 4 5 6 7)
+PI_MODEL_GPUS_TEXT="${ERRORFOLD_V3_PI_MODEL_GPUS:-1,2,3,4,5,6,7,3}"
+IFS=',' read -r -a PI_MODEL_GPUS <<<"$PI_MODEL_GPUS_TEXT"
+if (( ${#PI_MODEL_GPUS[@]} != 8 )); then
+    echo "ERRORFOLD_V3_PI_MODEL_GPUS must contain exactly 8 GPU assignments" >&2
+    exit 2
+fi
+for gpu in "${PI_MODEL_GPUS[@]}"; do
+    if [[ ! "$gpu" =~ ^[0-7]$ ]]; then
+        echo "ERRORFOLD_V3_PI_MODEL_GPUS entries must be in [0,7]" >&2
+        exit 2
+    fi
+done
 SOFTFOLD_SHARDS="${ERRORFOLD_V3_SOFTFOLD_SHARDS:-4}"
 GRID_GPUS_TEXT="${ERRORFOLD_V3_GRID_GPUS:-0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7}"
 IFS=',' read -r -a GRID_GPUS <<<"$GRID_GPUS_TEXT"
@@ -572,8 +588,8 @@ pi05_closed_loop() {
         for replica in 0 1; do
             instance="${config}_r${replica}"
             PI_INSTANCES+=("$instance")
-            wait_gpu_headroom "${ALL_GPUS[$index]}" "$PI_MIN_FREE_MIB"
-            start_pi_server "$config" "${ALL_GPUS[$index]}" "${ports[$index]}" "$instance" &
+            wait_gpu_headroom "${PI_MODEL_GPUS[$index]}" "$PI_MIN_FREE_MIB"
+            start_pi_server "$config" "${PI_MODEL_GPUS[$index]}" "${ports[$index]}" "$instance" &
             pids+=("$!")
             index=$((index + 1))
         done
