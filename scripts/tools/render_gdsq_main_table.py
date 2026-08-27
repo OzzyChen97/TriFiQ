@@ -120,37 +120,72 @@ def gated_summary(
     return experiment, path, summary
 
 
-def omega_gr00t_partial_row(
+def omega_gr00t_row(
     experiments: dict[str, Any], fp16_reference_bytes: int
 ) -> tuple[dict[str, Any], dict[str, str]]:
-    """Enable only independently complete Omega-QVLA task-set/storage cells."""
+    """Enable the GR00T Omega-QVLA row only after every evidence gate passes."""
     experiment = experiments["omega_qvla_robocasa365"]
     progress = experiment["model_progress"]["gr00t"]
-    atomic = progress["task_sets"]["atomic_seen"]
-    coverage = atomic["coverage"]
-    require(atomic.get("status") == "complete", "Omega-QVLA Atomic status drift")
-    require(atomic.get("main_claim_enabled") is True, "Omega-QVLA Atomic claim disabled")
-    require(coverage.get("expected_episodes") == 900, "Omega-QVLA Atomic expected coverage drift")
-    require(coverage.get("observed_episodes") == 900, "Omega-QVLA Atomic observed coverage drift")
-    require(coverage.get("missing_episodes") == 0, "Omega-QVLA Atomic has missing episodes")
-    require(coverage.get("duplicate_episodes") == 0, "Omega-QVLA Atomic has duplicates")
-    require(coverage.get("tasks") == 18, "Omega-QVLA Atomic task-count drift")
-    require(coverage.get("seeds_per_task") == 50, "Omega-QVLA Atomic seed-count drift")
+    require(progress.get("status") == "complete", "Omega-QVLA GR00T status drift")
+    require(progress.get("main_claim_enabled") is True, "Omega-QVLA GR00T claim disabled")
+    overall_coverage = progress["coverage"]
+    require(overall_coverage.get("expected_episodes") == 2500, "Omega-QVLA expected coverage drift")
+    require(overall_coverage.get("observed_episodes") == 2500, "Omega-QVLA observed coverage drift")
+    require(overall_coverage.get("missing_episodes") == 0, "Omega-QVLA has missing episodes")
+    require(overall_coverage.get("duplicate_episodes") == 0, "Omega-QVLA has duplicates")
 
-    manifest_path, manifest = verified_json(atomic["manifest"], "Omega-QVLA Atomic manifest")
-    summary_path, summary = verified_json(atomic["summary"], "Omega-QVLA Atomic summary")
+    task_set_specs = {
+        "atomic_seen": (18, 900),
+        "composite_seen": (16, 800),
+        "composite_unseen": (16, 800),
+    }
+    task_set_results: dict[str, dict[str, Any]] = {}
+    sources: dict[str, str] = {}
+    for task_set, (expected_tasks, expected_episodes) in task_set_specs.items():
+        record = progress["task_sets"][task_set]
+        label = f"Omega-QVLA {task_set}"
+        coverage = record["coverage"]
+        require(record.get("status") == "complete", f"{label} status drift")
+        require(record.get("main_claim_enabled") is True, f"{label} claim disabled")
+        require(coverage.get("expected_episodes") == expected_episodes, f"{label} expected coverage drift")
+        require(coverage.get("observed_episodes") == expected_episodes, f"{label} observed coverage drift")
+        require(coverage.get("missing_episodes") == 0, f"{label} has missing episodes")
+        require(coverage.get("duplicate_episodes") == 0, f"{label} has duplicates")
+        require(coverage.get("tasks") == expected_tasks, f"{label} task-count drift")
+        require(coverage.get("seeds_per_task") == 50, f"{label} seed-count drift")
+        manifest_path, manifest = verified_json(record["manifest"], f"{label} manifest")
+        summary_path, summary = verified_json(record["summary"], f"{label} summary")
+        require(summary.get("validation_errors") == [], f"{label} validation errors")
+        require(summary.get("task_set") == task_set, f"{label} task-set drift")
+        require(summary.get("manifest_sha256") == sha256_file(manifest_path), f"{label} manifest link drift")
+        result = summary.get("configs", {}).get("omega_qvla_w4a4", {})
+        require(result.get("episodes") == expected_episodes, f"{label} result coverage drift")
+        require(result.get("formal_failures") == 0, f"{label} has formal failures")
+        details = result.get("per_task_details") or {}
+        require(len(details) == expected_tasks, f"{label} per-task coverage drift")
+        require(all(row.get("episodes") == 50 for row in details.values()), f"{label} task seed drift")
+        require(len(manifest.get("configs") or []) == 1, f"{label} manifest config drift")
+        task_set_results[task_set] = result
+        sources[f"{task_set}_manifest"] = str(manifest_path.relative_to(REPO_ROOT))
+        sources[f"{task_set}_summary"] = str(summary_path.relative_to(REPO_ROOT))
+
+    aggregate_path, aggregate = verified_json(progress["aggregate"], "Omega-QVLA aggregate")
+    aggregate_result = aggregate.get("configs", {}).get("omega_qvla_w4a4", {})
+    require(aggregate.get("n_tasks") == 50, "Omega-QVLA aggregate task-count drift")
+    require(aggregate.get("episodes_per_config") == 2500, "Omega-QVLA aggregate coverage drift")
+    require(aggregate.get("bootstrap_draws") == 10000, "Omega-QVLA aggregate bootstrap drift")
+    require(aggregate_result.get("episodes") == 2500, "Omega-QVLA aggregate result coverage drift")
+    require(aggregate_result.get("successes") == 968, "Omega-QVLA aggregate success-count drift")
+    require(len(aggregate_result.get("per_task_details") or {}) == 50, "Omega-QVLA aggregate per-task drift")
+    aggregate_groups = aggregate_result.get("per_task_set_macro_sr") or {}
+    for task_set in task_set_specs:
+        require(
+            aggregate_groups.get(task_set) == task_set_results[task_set].get("task_macro_sr"),
+            f"Omega-QVLA aggregate {task_set} metric drift",
+        )
+
+    atomic_summary_path = resolve(progress["task_sets"]["atomic_seen"]["summary"]["path"])
     memory_path, memory = verified_json(progress["memory"], "Omega-QVLA memory audit")
-    require(summary.get("validation_errors") == [], "Omega-QVLA Atomic validation errors")
-    require(summary.get("task_set") == "atomic_seen", "Omega-QVLA Atomic task-set drift")
-    require(summary.get("manifest_sha256") == sha256_file(manifest_path), "Omega manifest link drift")
-    result = summary.get("configs", {}).get("omega_qvla_w4a4", {})
-    require(result.get("episodes") == 900, "Omega-QVLA Atomic result coverage drift")
-    require(result.get("formal_failures") == 0, "Omega-QVLA Atomic has formal failures")
-    details = result.get("per_task_details") or {}
-    require(len(details) == 18, "Omega-QVLA Atomic per-task coverage drift")
-    require(all(row.get("episodes") == 50 for row in details.values()), "Omega task seed drift")
-    require(len(manifest.get("configs") or []) == 1, "Omega-QVLA manifest config drift")
-
     require(memory.get("kind") == "omega_qvla_theoretical_packed_storage_audit", "Omega memory kind drift")
     require(memory.get("scope_linear_layers") == 180, "Omega memory layer-count drift")
     require(memory.get("quantized_layers") == 180, "Omega quantized-layer count drift")
@@ -161,33 +196,42 @@ def omega_gr00t_partial_row(
         "Omega FP16 reference differs from the main-table scope",
     )
     require(
-        memory.get("evidence", {}).get("summary", {}).get("sha256") == sha256_file(summary_path),
+        memory.get("evidence", {}).get("summary", {}).get("sha256") == sha256_file(atomic_summary_path),
         "Omega memory-to-summary link drift",
     )
+    repair_path, repair = verified_json(progress["repair_audit"], "Omega-QVLA repair audit")
+    require(repair.get("status") == "complete", "Omega-QVLA repair is incomplete")
+    require(repair.get("immutable_parent_manifest") is True, "Omega-QVLA repair mutated manifest")
+    require(repair.get("repair_scope", {}).get("missing_after") == [], "Omega-QVLA repair has missing rows")
+    require(repair.get("repair_scope", {}).get("valid_rows_after") == 50, "Omega-QVLA repair shard is incomplete")
+    require(repair.get("parent_manifest", {}).get("sha256") == sha256_file(resolve(progress["task_sets"]["composite_unseen"]["manifest"]["path"])), "Omega-QVLA repair manifest link drift")
     packed_bytes = int(memory["packed"]["component_bytes"])
     row = {
         "label": r"$\Omega$-QVLA W4A4$^{\ddagger}$",
         "low_bit_plan": "180 W4",
-        "metrics": {"atomic": 100.0 * float(result["task_macro_sr"])},
+        "metrics": {
+            "atomic": 100.0 * float(task_set_results["atomic_seen"]["task_macro_sr"]),
+            "composite_seen": 100.0 * float(task_set_results["composite_seen"]["task_macro_sr"]),
+            "composite_unseen": 100.0 * float(task_set_results["composite_unseen"]["task_macro_sr"]),
+            "mean": 100.0 * float(aggregate_result["task_macro_sr"]),
+        },
         "storage": f"{packed_bytes / 2**30:.3f}",
         "compression": f"{fp16_reference_bytes / packed_bytes:.2f}$\\times$",
         "status": progress["status"],
         "evidence": "omega_qvla_robocasa365",
-        "paper_claim_enabled": False,
+        "paper_claim_enabled": True,
         "claim_enabled_cells": {
             "atomic": True,
-            "composite_seen": False,
-            "composite_unseen": False,
-            "mean": False,
+            "composite_seen": True,
+            "composite_unseen": True,
+            "mean": True,
             "storage": True,
             "compression": True,
         },
     }
-    sources = {
-        "manifest": str(manifest_path.relative_to(REPO_ROOT)),
-        "summary": str(summary_path.relative_to(REPO_ROOT)),
-        "memory": str(memory_path.relative_to(REPO_ROOT)),
-    }
+    sources["aggregate"] = str(aggregate_path.relative_to(REPO_ROOT))
+    sources["memory"] = str(memory_path.relative_to(REPO_ROOT))
+    sources["repair_audit"] = str(repair_path.relative_to(REPO_ROOT))
     return row, sources
 
 
@@ -240,7 +284,7 @@ def build(registry_path: Path) -> tuple[str, dict[str, Any]]:
     gr_w6_storage, gr_w6_compression = memory_cells(gr_w6_bytes, gr_fp16_bytes)
     pi_w6_storage, pi_w6_compression = memory_cells(pi_w6_bytes, pi_fp16_bytes)
 
-    omega_gr00t_row, omega_gr00t_sources = omega_gr00t_partial_row(
+    omega_gr00t_row_data, omega_gr00t_sources = omega_gr00t_row(
         experiments, gr_fp16_bytes
     )
 
@@ -307,7 +351,7 @@ def build(registry_path: Path) -> tuple[str, dict[str, Any]]:
             "evidence": "gr00t_uniform_w6_official50",
             "paper_claim_enabled": gr_w6_metrics is not None,
         },
-        omega_gr00t_row,
+        omega_gr00t_row_data,
         {
             "label": r"\textbf{\textsc{GDSQ-VLA}(Ours)}",
             "low_bit_plan": "100 W4",
@@ -416,7 +460,7 @@ def build(registry_path: Path) -> tuple[str, dict[str, Any]]:
         r"\bottomrule",
         r"\end{tabular}",
         r"\vspace{2pt}",
-        r"\parbox{0.99\textwidth}{\footnotesize C-Seen/C-Unseen denote Composite-Seen/Composite-Unseen. Ours uses the frozen v8 selector. Uniform W6 is the direct byte-budget baseline; QuantVLA is a different-rate comparison. Size is theoretical tightly packed candidate-Linear storage, with FP16 shown as the reference. Pending cells are claim-disabled. $^{\ddagger}\Omega$-QVLA uses RoboCasa365-specific calibration; its GR00T Atomic cell is complete, while the remaining cells await exact coverage. Its displayed size includes packed W4 weights and required scales/rotation metadata, not the dequantized evaluation pack.}",
+        r"\parbox{0.99\textwidth}{\footnotesize C-Seen/C-Unseen denote Composite-Seen/Composite-Unseen. Ours uses the frozen v8 selector. Uniform W6 is the direct byte-budget baseline; QuantVLA is a different-rate comparison. Size is theoretical tightly packed candidate-Linear storage, with FP16 shown as the reference. Pending cells are claim-disabled. $^{\ddagger}\Omega$-QVLA uses RoboCasa365-specific calibration; its GR00T row has exact 50-task$\times$50-scenario coverage, while its $\pi_{0.5}$ row remains pending. Its displayed size includes packed W4 weights and required scales/rotation metadata, not the dequantized evaluation pack.}",
         r"\end{table*}",
         "",
     ]

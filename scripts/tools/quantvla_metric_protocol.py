@@ -260,20 +260,30 @@ def summarize_pair(
         groups[(str(record.get("task")), int(record.get("seed", -1)), singleton)].append(index)
 
     # D_func remains the old local formula, but the paired one-SE procedure is
-    # frozen at the same sequence unit as D_PAC-v2.  Aggregate its per-chunk
-    # losses over each ordered task/seed sequence instead of pretending the
-    # four replans are independent samples.
-    local_per_observation = [float(value) for value in functional["per_obs"]]
+    # frozen at the same sequence unit as D_PAC-v2.  Re-evaluate the complete
+    # frozen D_func formula inside every task/seed group; averaging only its
+    # per-observation relative-MSE inputs would silently discard d_final,
+    # d_kin, d_grip and the local CVaR term while still calling the selector
+    # ``d_func_v1``.
     functional_sequences = []
     for (task, seed, _singleton), positions in sorted(groups.items()):
+        selected = torch.tensor(positions, dtype=torch.long)
+        sequence_summary = d_func(
+            ref.index_select(0, selected),
+            quant.index_select(0, selected),
+        )
         functional_sequences.append(
             {
                 "task": task,
                 "seed": seed,
                 "record_indices": positions,
-                "d_func_sequence": float(
-                    np.mean([local_per_observation[index] for index in positions])
-                ),
+                "d_func_sequence": float(sequence_summary["d_func"]),
+                "components": {
+                    "final": float(sequence_summary["d_final"]),
+                    "kin": float(sequence_summary["d_kin"]),
+                    "grip": float(sequence_summary["d_grip"]),
+                    "tail_cvar90": float(sequence_summary["tail"]["cvar90"]),
+                },
             }
         )
     functional["per_sequence"] = [

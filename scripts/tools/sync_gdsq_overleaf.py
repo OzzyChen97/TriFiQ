@@ -30,6 +30,7 @@ AUDIT_ROOT = REPO_ROOT / "runs/gdsq_extension_preregistered_v1/overleaf_sync"
 BEFORE = AUDIT_ROOT / "audit_before.json"
 AFTER = AUDIT_ROOT / "audit_after.json"
 EXCLUDED_PARTS = {".build", "__pycache__", ".git"}
+CACHED_CLONE = Path("/tmp/quantvla-paper")
 
 
 def require(condition: bool, message: str) -> None:
@@ -505,6 +506,70 @@ def apply_remote_from_head() -> dict[str, Any]:
     return value
 
 
+def apply_remote_from_cached_clone() -> dict[str, Any]:
+    """Exactly replace the project using an already fetched clean clone."""
+    require(BEFORE.is_file(), "run head-audit before cached-apply")
+    require((CACHED_CLONE / ".git").is_dir(), f"missing cached clone: {CACHED_CLONE}")
+    before = json.loads(BEFORE.read_text(encoding="utf-8"))
+    project_id, token = credentials()
+    fingerprint = hashlib.sha256(project_id.encode("utf-8")).hexdigest()
+    require(before["project_id_sha256"] == fingerprint, "Overleaf project changed after audit")
+    local_files = source_files()
+    local_tree = tree_record(local_files)
+    for relative, path in local_files.items():
+        require(token.encode("utf-8") not in path.read_bytes(), f"token leaked into source: {relative}")
+
+    with tempfile.TemporaryDirectory(prefix="gdsq-overleaf-cached-apply-", dir="/tmp") as temporary:
+        access = GitAccess(project_id, token, Path(temporary))
+        branch = str(before["remote"]["branch"])
+        parent = str(before["remote"]["commit"])
+        require(resolve_remote_head(access, branch) == parent, "remote HEAD changed after head audit")
+        require(access.run(["rev-parse", "HEAD"], cwd=CACHED_CLONE) == parent, "cached clone is stale")
+        require(not access.run(["status", "--porcelain"], cwd=CACHED_CLONE), "cached clone is dirty")
+        access.run(["rm", "-r", "--ignore-unmatch", "--", "."], cwd=CACHED_CLONE)
+        for relative, source in local_files.items():
+            destination = CACHED_CLONE / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+        access.run(["add", "--all"], cwd=CACHED_CLONE)
+        tracked = [name for name in access.run(["ls-files"], cwd=CACHED_CLONE).splitlines() if name]
+        require(set(tracked) == set(local_files), "staged Overleaf tree differs from local paper tree")
+        access.run([
+            "-c", "user.name=Codex", "-c", "user.email=codex@local.invalid",
+            "commit", "--quiet", "-m", "Replace project with audited GDSQ-VLA paper tree",
+        ], cwd=CACHED_CLONE)
+        new_commit = access.run(["rev-parse", "HEAD"], cwd=CACHED_CLONE)
+        local_git_tree = access.run(["rev-parse", "HEAD^{tree}"], cwd=CACHED_CLONE)
+        access.run(["push", "--quiet", "origin", f"HEAD:{branch}"], cwd=CACHED_CLONE)
+        require(resolve_remote_head(access, branch) == new_commit, "fresh ls-remote did not observe pushed commit")
+
+    value = {
+        "schema_version": 1,
+        "kind": "gdsq_overleaf_post_replace_audit",
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "project_id_sha256": fingerprint,
+        "previous_commit": parent,
+        "new_commit": new_commit,
+        "normal_non_force_push": True,
+        "remote_tree_replaced": True,
+        "credential_persisted": False,
+        "verified_by_fresh_ls_remote": True,
+        "verified_by_fresh_clone": False,
+        "local": local_tree,
+        "local_git_tree_oid": local_git_tree,
+        "remote": {
+            "commit": new_commit,
+            "branch": branch,
+            "git_tree_oid": local_git_tree,
+            "file_count": local_tree["file_count"],
+            "tree_sha256": local_tree["tree_sha256"],
+            "verification_basis": "Fresh ls-remote observes the commit created from the exact audited local tree in the previously fetched clean clone.",
+        },
+    }
+    write_json(AFTER, value)
+    return value
+
+
 def summary(value: dict[str, Any]) -> dict[str, Any]:
     remote = value.get("remote") or {}
     local = value.get("local") or {}
@@ -526,7 +591,7 @@ def main() -> None:
         "command",
         choices=(
             "audit", "metadata-audit", "head-audit", "apply", "metadata-apply",
-            "head-apply", "verify", "status"
+            "head-apply", "cached-apply", "verify", "status"
         ),
     )
     args = parser.parse_args()
@@ -542,6 +607,8 @@ def main() -> None:
         value = apply_remote_metadata()
     elif args.command == "head-apply":
         value = apply_remote_from_head()
+    elif args.command == "cached-apply":
+        value = apply_remote_from_cached_clone()
     elif args.command == "verify":
         value = verify_remote()
     else:

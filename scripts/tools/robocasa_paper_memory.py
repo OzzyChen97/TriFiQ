@@ -122,6 +122,7 @@ def _plan_memory(
     scope_layers: list[str],
     baseline_bytes: int,
     plan_path: Path | None,
+    runtime_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if plan_path is None:
         return {
@@ -153,6 +154,7 @@ def _plan_memory(
     total = float(baseline_bytes)
     packed_weights = weight_scales = rotations = permutation_indices = 0.0
     quantized_parameters = quantized_layers = planned_skips = 0
+    quantized_native_bias_bytes = 0.0
     for layer_name, config in entries.items():
         weight_name = f"{layer_name}.weight"
         if weight_name not in scope:
@@ -182,6 +184,58 @@ def _plan_memory(
         permutation_indices += permutation
         quantized_parameters += parameters
         quantized_layers += 1
+        bias_name = weight_name[:-7] + ".bias"
+        if bias_name in shapes:
+            quantized_native_bias_bytes += _numel(shapes[bias_name]) * 2.0
+
+    accounting_source = "plan_formula"
+    runtime_contract_sha256 = None
+    activation_scales = correction_biases = 0.0
+    if runtime_info is not None:
+        contract = runtime_info.get("quantization_contract") or {}
+        if contract.get("packed_low_bit_residency"):
+            if int(runtime_info.get("wrapped_layers", -1)) != quantized_layers:
+                raise ValueError("runtime/plan quantized layer count mismatch")
+            if (
+                int(contract.get("weight_bits", -1)) != 4
+                or int(contract.get("block_in", -1)) != 64
+                or int(contract.get("fp_weight_sized_buffers", -1)) != 0
+            ):
+                raise ValueError("runtime is not the required inference-only group64 W4 deployment")
+            runtime_packed = float(contract.get("packed_weight_bytes", 0))
+            runtime_scales = float(contract.get("dequant_scale_bytes", 0))
+            runtime_input_gain = float(contract.get("input_gain_bytes", 0))
+            runtime_activation_scales = float(contract.get("activation_scale_bytes", 0))
+            runtime_biases = float(contract.get("bias_bytes", 0))
+            if runtime_packed <= 0:
+                raise ValueError("verified packed runtime reports zero packed bytes")
+            expected_packed = quantized_parameters * 4.0 / 8.0
+            if runtime_packed != expected_packed:
+                raise ValueError(
+                    f"runtime packed-byte mismatch: {runtime_packed} != {expected_packed}"
+                )
+            # The live real-quant contract is authoritative for deployed
+            # quantized buffers.  Retain untouched FP16 scope tensors, replace
+            # quantized native weights/biases with their exact resident W4
+            # representation, and do not resurrect rotations absent at runtime.
+            total = (
+                baseline_bytes
+                - quantized_parameters * 2.0
+                - quantized_native_bias_bytes
+                + runtime_packed
+                + runtime_scales
+                + runtime_input_gain
+                + runtime_activation_scales
+                + runtime_biases
+            )
+            packed_weights = runtime_packed
+            weight_scales = runtime_scales
+            rotations = runtime_input_gain
+            activation_scales = runtime_activation_scales
+            correction_biases = runtime_biases
+            permutation_indices = 0.0
+            accounting_source = "verified_real_quant_runtime_contract"
+            runtime_contract_sha256 = runtime_info.get("quantization_contract_sha256")
 
     component_bytes = int(round(total))
     return {
@@ -190,6 +244,8 @@ def _plan_memory(
         "fp16_layers": len(scope_layers) - quantized_layers,
         "planned_fp16_skips": planned_skips,
         "quantized_parameters": quantized_parameters,
+        "accounting_source": accounting_source,
+        "runtime_contract_sha256": runtime_contract_sha256,
         "component_bytes": component_bytes,
         "component_mib": component_bytes / 2**20,
         "component_gib": component_bytes / 2**30,
@@ -200,6 +256,8 @@ def _plan_memory(
             "weight_scales": weight_scales / 2**20,
             "rotations": rotations / 2**20,
             "permutation_indices": permutation_indices / 2**20,
+            "activation_scales": activation_scales / 2**20,
+            "resident_quant_biases": correction_biases / 2**20,
         },
     }
 
@@ -212,10 +270,16 @@ def calculate_manifest(manifest_path: Path) -> dict[str, Any]:
     scope_layers = paper_scope(shapes)
     baseline, weight_bytes, bias_bytes = _base_bytes(shapes, scope_layers)
     configs = {}
+    runtime_path = manifest_path.parent / "runtime_info.json"
+    runtime = json.loads(runtime_path.read_text()) if runtime_path.is_file() else {}
     for config in manifest.get("configs", []):
         config_id = str(config["id"])
         configs[config_id] = _plan_memory(
-            shapes, scope_layers, baseline, _reference_path(config.get("plan"))
+            shapes,
+            scope_layers,
+            baseline,
+            _reference_path(config.get("plan")),
+            runtime.get(config_id),
         )
     if not configs:
         raise ValueError(f"manifest contains no configs: {manifest_path}")
@@ -232,6 +296,7 @@ def calculate_manifest(manifest_path: Path) -> dict[str, Any]:
         ],
         "atm_ohb": "folded into existing scales; zero additional operators/buffers",
         "checkpoint": str(checkpoint),
+        "runtime_info": str(runtime_path) if runtime_path.is_file() else None,
         "scope_linear_layers": len(scope_layers),
         "fp16_weight_bytes": weight_bytes,
         "fp16_bias_bytes": bias_bytes,

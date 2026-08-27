@@ -45,12 +45,17 @@ from quantvla_cross_model_protocol import (
     require_protocol_attestation,
     validate_quant_plan,
 )
+from quantvla_dynamic_a8_protocol import (
+    require_protocol_attestation as require_dynamic_a8_protocol_attestation,
+    validate_runtime as validate_dynamic_a8_runtime,
+)
 
 import msgpack
 import zmq
 
 REPO = Path(__file__).resolve().parents[2]
 GROOT_PY = Path("/home1/gyy/probe/miniforge3/envs/groot_test/bin/python")
+ROBOCASA_PY = Path("/home1/gyy/probe/miniforge3/envs/robocasa365/bin/python")
 DEFAULT_CHECKPOINT = REPO / (
     "checkpoints/robocasa365/gr00t_n1-5/foundation_model_learning/"
     "target_posttraining/atomic_seen/checkpoint-60000"
@@ -529,6 +534,56 @@ def clean_server_env(base: dict[str, str]) -> dict[str, str]:
     return env
 
 
+def clean_client_env(base: dict[str, str]) -> dict[str, str]:
+    """Keep the official RoboCasa package ahead of repository namespaces.
+
+    The GR00T server needs ``<repo>/code`` on ``PYTHONPATH``, but forwarding
+    that path to the RoboCasa client shadows its installed package before the
+    evaluator can register the benchmark's environments (396 becomes the 19
+    base robosuite environments).  Matrix launchers are often themselves run
+    with this server path, so sanitize it explicitly at the process boundary.
+    """
+    env = dict(base)
+    safe_paths = []
+    blocked = {REPO.resolve(), (REPO / "code").resolve()}
+    for value in env.get("PYTHONPATH", "").split(os.pathsep):
+        if not value:
+            continue
+        path = Path(value)
+        resolved = (REPO / path).resolve() if not path.is_absolute() else path.resolve()
+        if resolved in blocked:
+            continue
+        safe_paths.append(value)
+    if safe_paths:
+        env["PYTHONPATH"] = os.pathsep.join(safe_paths)
+    else:
+        env.pop("PYTHONPATH", None)
+    return env
+
+
+def verify_client_task_registration(tasks: list[str]) -> None:
+    """Fail before model loading when the official RoboCasa registry is hidden."""
+    probe = (
+        "import json, os; import robocasa, robosuite; "
+        "wanted=json.loads(os.environ['QUANTVLA_PREFLIGHT_TASKS']); "
+        "missing=[x for x in wanted if x not in robosuite.ALL_ENVIRONMENTS]; "
+        "assert len(robosuite.ALL_ENVIRONMENTS) >= 300, "
+        "f'incomplete RoboCasa registry: {len(robosuite.ALL_ENVIRONMENTS)}'; "
+        "assert not missing, f'unregistered RoboCasa tasks: {missing}'"
+    )
+    env = clean_client_env(os.environ)
+    env["QUANTVLA_PREFLIGHT_TASKS"] = json.dumps(tasks)
+    proc = subprocess.run(
+        [str(ROBOCASA_PY), "-c", probe], cwd=REPO, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip().splitlines()[-5:]
+        raise SystemExit(
+            "RoboCasa client task-registration preflight failed:\n" + "\n".join(detail)
+        )
+
+
 def build_manifest(
     spec_path: Path, run_dir: Path, phase: str, seeds: list[int], smoke_task: str,
     checkpoint: Path, task_set: str, task_override: str | None,
@@ -607,6 +662,11 @@ def build_manifest(
     enriched = []
     pack_cache: dict[str, dict | None] = {}
     for raw in configs:
+        activation_mode = str(raw.get("activation_mode", "static_a8"))
+        if activation_mode not in {"static_a8", "dynamic_a8", "fp16"}:
+            raise SystemExit(
+                f"{raw['id']}: activation_mode must be static_a8, dynamic_a8, or fp16"
+            )
         plan_artifact = artifact(raw.get("plan"))
         act_scale_artifact = artifact(raw.get("act_scale"))
         hessian_w4_artifact = artifact(raw.get("hessian_w4"))
@@ -627,6 +687,16 @@ def build_manifest(
                 is not False
             ):
                 raise SystemExit(f"{raw['id']}: invalid frozen ErrorFold artifact")
+            if activation_mode == "dynamic_a8":
+                require_dynamic_a8_protocol_attestation(
+                    errorfold_document, source=errorfold_artifact["path"]
+                )
+                if (errorfold_document.get("meta") or {}).get(
+                    "activation_mode"
+                ) != "dynamic_a8":
+                    raise SystemExit(
+                        f"{raw['id']}: dynamic runtime refuses non-DyRange ErrorFold"
+                    )
         omega_pack_artifact = artifact(raw.get("omega_pack"))
         omega_attestation_artifact = None
         omega_calibration_artifact = artifact(raw.get("omega_calibration_manifest"))
@@ -638,11 +708,15 @@ def build_manifest(
             quant_selection_attestation = validate_quant_plan(
                 plan_document, model="gr00t", source=plan_artifact["path"]
             )
-            if quant_selection_attestation["target_layers"] != int(
+            # ``expected_wrapped`` is the number of deployed W4 modules, not
+            # the complete adapter-bound candidate inventory.  Mixed static
+            # profiles retain some target layers as native FP16 and therefore
+            # have target_layers > quantized_w4_layers.
+            if quant_selection_attestation["quantized_w4_layers"] != int(
                 raw.get("expected_wrapped", 0)
             ):
                 raise SystemExit(
-                    f"{raw['id']}: adapter target count does not match expected_wrapped"
+                    f"{raw['id']}: quantized W4 count does not match expected_wrapped"
                 )
         if omega_pack_artifact:
             omega_path = Path(omega_pack_artifact["path"])
@@ -729,6 +803,7 @@ def build_manifest(
             "atm": artifact(raw.get("atm")),
             "ohb": bool(raw.get("ohb", False)),
             "ohb_only": bool(raw.get("ohb_only", False)),
+            "activation_mode": activation_mode,
             "meta": raw.get("meta") or {},
         }
         # Preserve optional selector-free deployment modes only when the spec
@@ -752,8 +827,17 @@ def build_manifest(
             raise SystemExit(f"{config['id']}: cannot mix DuQuant and Omega-QVLA")
         if config["expected_wrapped"] and not config["plan"] and not config["omega_pack"]:
             raise SystemExit(f"{config['id']}: quantized config requires plan")
-        if config["expected_wrapped"] and config["plan"] and not config["act_scale"]:
+        if (
+            config["expected_wrapped"]
+            and config["plan"]
+            and config["activation_mode"] == "static_a8"
+            and not config["act_scale"]
+        ):
             raise SystemExit(f"{config['id']}: quantized config requires act_scale")
+        if config["activation_mode"] != "static_a8" and config["act_scale"]:
+            raise SystemExit(
+                f"{config['id']}: {config['activation_mode']} must not load a static A8 table"
+            )
         if config["expected_wrapped"] and config["plan"] and not config["packdir"]:
             raise SystemExit(f"{config['id']}: quantized config requires packdir")
         if config["errorfold"] and not config["hessian_w4"]:
@@ -953,9 +1037,26 @@ def start_server(
     elif config["plan"]:
         env["GR00T_DUQUANT_PLAN"] = config["plan"]["path"]
         env["GR00T_DUQUANT_PACKDIR"] = config["packdir"]["path"]
-        env["GR00T_DUQUANT_ACT_SCALE_PATH"] = config["act_scale"]["path"]
+        activation_mode = config.get("activation_mode", "static_a8")
+        env["GR00T_DUQUANT_ABITS"] = "0" if activation_mode == "fp16" else "8"
+        env["GR00T_DUQUANT_ACT_DYNAMIC"] = (
+            "1" if activation_mode == "dynamic_a8" else "0"
+        )
+        if config["act_scale"]:
+            env["GR00T_DUQUANT_ACT_SCALE_PATH"] = config["act_scale"]["path"]
+        else:
+            env.pop("GR00T_DUQUANT_ACT_SCALE_PATH", None)
         if config.get("hessian_w4"):
             env["GR00T_DUQUANT_HESSIAN_W4_PATH"] = config["hessian_w4"]["path"]
+            # Hessian W4 artifacts are deployment-ready packed codes.  Make
+            # real-quant finalization an explicit property of the immutable
+            # matrix config instead of accidentally inheriting it from the
+            # caller's shell.  Without this flag the service exposes the
+            # requested Hessian path but retains one FP weight-sized buffer
+            # per wrapped layer, so the residency preflight can never pass.
+            env["QUANTVLA_ADAPTER_ONLY"] = "1"
+        else:
+            env.pop("QUANTVLA_ADAPTER_ONLY", None)
         if config.get("errorfold"):
             env["GR00T_ERRORFOLD_PATH"] = config["errorfold"]["path"]
         cmd = ["bash", str(QUANT_SERVER)]
@@ -1079,6 +1180,29 @@ def wait_and_verify(
             if expect_ohb and int(info.get("ohb_layers", 0)) == 0:
                 raise RuntimeError(f"OHB hooks absent: {info}")
             runtime_contract = info.get("quantization_contract") or {}
+            activation_mode = config.get("activation_mode", "static_a8")
+            expected_activation_bits = 0 if activation_mode == "fp16" else 8
+            if config["expected_wrapped"] and int(
+                runtime_contract.get("activation_bits", -1)
+            ) != expected_activation_bits:
+                raise RuntimeError(f"activation bit-width mismatch: {info}")
+            expected_static = activation_mode == "static_a8"
+            if config["expected_wrapped"] and bool(
+                runtime_contract.get("static_activation_scales")
+            ) != expected_static:
+                raise RuntimeError(f"activation mode mismatch: {info}")
+            if activation_mode == "dynamic_a8" and runtime_contract.get(
+                "calibration_policy"
+            ) != "online_dynamic_per_forward_per_channel_amax":
+                raise RuntimeError(f"dynamic A8 policy mismatch: {info}")
+            if activation_mode == "dynamic_a8":
+                require_dynamic_a8_protocol_attestation(
+                    info, source=f"{config['id']} GR00T runtime"
+                )
+                validate_dynamic_a8_runtime(
+                    runtime_contract,
+                    source=f"{config['id']} GR00T runtime contract",
+                )
             if config["expected_wrapped"] and not runtime_contract.get(
                 "packed_low_bit_residency", False
             ):
@@ -1200,10 +1324,59 @@ def start_clients(
             )
             proc = subprocess.Popen(
                 cmd, cwd=REPO, stdout=log_handle, stderr=subprocess.STDOUT,
+                env=clean_client_env(os.environ),
                 start_new_session=True,
             )
             children.append((proc, log_handle, f"{config['id']}/s{shard_index}"))
     return children
+
+
+def verify_complete_client_results(
+    manifest: dict, manifest_sha: str
+) -> None:
+    """Require one usable closed-loop row for every requested task/seed pair."""
+    errors = []
+    shard_seed_groups = manifest.get("shard_seeds")
+    for config in manifest["configs"]:
+        for shard_index, tasks in enumerate(manifest["shards"]):
+            seeds = (
+                shard_seed_groups[shard_index]
+                if shard_seed_groups is not None else manifest["seeds"]
+            )
+            expected = {(task, seed) for task in tasks for seed in seeds}
+            out_path = Path(config["result_files"][shard_index])
+            counts: Counter = Counter()
+            if out_path.exists():
+                for line in out_path.read_text().splitlines():
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if (
+                        row.get("config") == config["id"]
+                        and row.get("manifest_sha256") == manifest_sha
+                        and row.get("config_sha256") == config["config_sha256"]
+                        and isinstance(row.get("success"), bool)
+                        and not row.get("crashed")
+                    ):
+                        counts[(row.get("task"), row.get("seed"))] += 1
+            missing = sorted(expected - set(counts))
+            duplicates = sorted(key for key, count in counts.items() if count != 1)
+            unexpected = sorted(set(counts) - expected)
+            if missing or duplicates or unexpected:
+                errors.append({
+                    "config": config["id"],
+                    "shard": shard_index,
+                    "missing": missing,
+                    "duplicates": duplicates,
+                    "unexpected": unexpected,
+                    "result_file": str(out_path),
+                })
+    if errors:
+        raise RuntimeError(
+            "matrix clients exited without a complete valid result matrix; "
+            f"rerun will resume missing rows: {errors}"
+        )
 
 
 def stop_process(proc: subprocess.Popen) -> None:
@@ -1252,6 +1425,7 @@ def main() -> None:
     manifest, manifest_sha = write_or_validate_manifest(
         run_dir / "manifest.json", manifest
     )
+    verify_client_task_registration(manifest["tasks"])
     requested_gpus = [
         instance["gpu"]
         for config in manifest["configs"] for instance in server_instances(config)
@@ -1353,6 +1527,7 @@ def main() -> None:
             print(f"[matrix] client {label} exit={rc}")
         if failures:
             raise SystemExit(f"matrix clients failed: {failures}; rerun resumes by task/seed")
+        verify_complete_client_results(manifest, manifest_sha)
         print(f"[matrix] complete: {len(manifest['tasks'])} tasks x "
               f"{len(manifest['seeds'])} seeds x {len(manifest['configs'])} configs")
     finally:

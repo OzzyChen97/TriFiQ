@@ -26,6 +26,8 @@ def _tensor(value: Any) -> torch.Tensor:
 
 
 def _stratified_rows(value: Any, rows: int) -> torch.Tensor:
+    if int(rows) < 1:
+        raise ValueError("rows must be positive")
     tensor = _tensor(value).detach().to(torch.float32)
     flat = tensor.reshape(-1, tensor.shape[-1])
     if flat.shape[0] <= rows:
@@ -38,6 +40,47 @@ def _stratified_rows(value: Any, rows: int) -> torch.Tensor:
     return flat.index_select(0, indices).cpu()
 
 
+def _stratified_rows_per_sample(
+    value: Any, rows_per_sample: int, *, rank2_rows_per_call: int = 8
+) -> torch.Tensor:
+    """Take deterministic token/position rows from every batch sample.
+
+    The old capture flattened the complete batch and retained two rows per
+    *forward call*.  With calibration batches of eight, six observations were
+    therefore absent from every Hessian/A8/ErrorFold statistic.  Treat axis 0
+    as the observation axis whenever it is explicit (rank >= 3), then sample
+    positions independently inside every observation.
+
+    Rank-2 Linear inputs have no recoverable batch axis.  They sample eight
+    stratified rows per call (the frozen calibration batch size), which covers
+    every contiguous observation block for the flattened action-MLP layout.
+    """
+    if int(rows_per_sample) < 1:
+        raise ValueError("rows_per_sample must be positive")
+    tensor = _tensor(value).detach().to(torch.float32)
+    if tensor.ndim < 3:
+        if int(rank2_rows_per_call) < 1:
+            raise ValueError("rank2_rows_per_call must be positive")
+        return _stratified_rows(tensor, int(rank2_rows_per_call))
+    samples = int(tensor.shape[0])
+    channels = int(tensor.shape[-1])
+    per_sample = tensor.reshape(samples, -1, channels)
+    positions = int(per_sample.shape[1])
+    if positions <= int(rows_per_sample):
+        return per_sample.reshape(-1, channels).cpu()
+    indices = (
+        torch.linspace(
+            0,
+            positions - 1,
+            int(rows_per_sample),
+            device=per_sample.device,
+        )
+        .round()
+        .to(torch.long)
+    )
+    return per_sample.index_select(1, indices).reshape(-1, channels).cpu()
+
+
 class LayerCapture:
     """Capture a bounded, deterministic row sample from every call/layer."""
 
@@ -45,12 +88,18 @@ class LayerCapture:
         self,
         names: Sequence[str],
         *,
-        rows_per_call: int = 2,
+        rows_per_sample: int = 1,
+        rank2_rows_per_call: int = 8,
         max_rows_per_layer: int = 4096,
         step_getter: Callable[[], int | None] | None = None,
     ) -> None:
         self.names = tuple(names)
-        self.rows_per_call = int(rows_per_call)
+        if int(rows_per_sample) < 1:
+            raise ValueError("rows_per_sample must be positive")
+        self.rows_per_sample = int(rows_per_sample)
+        if int(rank2_rows_per_call) < 1:
+            raise ValueError("rank2_rows_per_call must be positive")
+        self.rank2_rows_per_call = int(rank2_rows_per_call)
         self.max_rows_per_layer = int(max_rows_per_layer)
         self.step_getter = step_getter or (lambda: None)
         self.inputs: dict[str, list[torch.Tensor]] = defaultdict(list)
@@ -69,8 +118,16 @@ class LayerCapture:
 
     def _hook(self, name: str):
         def capture(_module, inputs, output):
-            input_rows = _stratified_rows(inputs, self.rows_per_call)
-            output_rows = _stratified_rows(output, self.rows_per_call)
+            input_rows = _stratified_rows_per_sample(
+                inputs,
+                self.rows_per_sample,
+                rank2_rows_per_call=self.rank2_rows_per_call,
+            )
+            output_rows = _stratified_rows_per_sample(
+                output,
+                self.rows_per_sample,
+                rank2_rows_per_call=self.rank2_rows_per_call,
+            )
             self._append(self.inputs[name], input_rows)
             self._append(self.outputs[name], output_rows)
             step = self.step_getter()
@@ -115,7 +172,18 @@ class LayerCapture:
             "calibration_buffer_sha256": np.asarray(calibration_buffer_sha256),
             "checkpoint_sha256": np.asarray(checkpoint_sha256),
             "plan_sha256": np.asarray(plan_sha256),
+            "capture_sampling_strategy": np.asarray(
+                "deterministic_stratified_rows_per_observation"
+            ),
+            "capture_rows_per_observation": np.asarray(self.rows_per_sample),
+            "capture_rank2_rows_per_call": np.asarray(self.rank2_rows_per_call),
             "capture_calls": np.asarray([self.calls[name] for name in self.names]),
+            "capture_input_rows": np.asarray(
+                [sum(chunk.shape[0] for chunk in self.inputs[name]) for name in self.names]
+            ),
+            "capture_output_rows": np.asarray(
+                [sum(chunk.shape[0] for chunk in self.outputs[name]) for name in self.names]
+            ),
         }
         for index, name in enumerate(self.names):
             arrays[f"inputs_{index:04d}"] = self._cat(self.inputs[name], name).numpy()
@@ -138,8 +206,10 @@ class LayerCapture:
 class AttentionCapture:
     """Paired-row capture for attention logits and direction-aware head output."""
 
-    def __init__(self, *, rows_per_call: int = 2, max_rows_per_layer: int = 4096) -> None:
-        self.rows_per_call = int(rows_per_call)
+    def __init__(self, *, rows_per_sample: int = 1, max_rows_per_layer: int = 4096) -> None:
+        if int(rows_per_sample) < 1:
+            raise ValueError("rows_per_sample must be positive")
+        self.rows_per_sample = int(rows_per_sample)
         self.max_rows_per_layer = int(max_rows_per_layer)
         self.logits: dict[str, list[torch.Tensor]] = defaultdict(list)
         self.head_outputs: dict[str, list[torch.Tensor]] = defaultdict(list)
@@ -153,14 +223,16 @@ class AttentionCapture:
         # B,H,Q,K -> observations/tokens as rows, heads as ridge channels.
         tensor = value.detach().to(torch.float32).permute(0, 2, 3, 1)
         self._append(
-            self.logits[name], _stratified_rows(tensor, self.rows_per_call)
+            self.logits[name],
+            _stratified_rows_per_sample(tensor, self.rows_per_sample),
         )
 
     def record_head_output(self, name: str, value: torch.Tensor) -> None:
         # B,H,S,D -> B,S,H*D, preserving direction inside every head.
         tensor = value.detach().to(torch.float32).transpose(1, 2).flatten(-2)
         self._append(
-            self.head_outputs[name], _stratified_rows(tensor, self.rows_per_call)
+            self.head_outputs[name],
+            _stratified_rows_per_sample(tensor, self.rows_per_sample),
         )
 
     def entries(self) -> list[tuple[str, str, np.ndarray]]:
@@ -211,6 +283,21 @@ def merge_paired_outputs(
             "checkpoint_sha256": np.asarray(fp16["checkpoint_sha256"]),
             "plan_sha256": np.asarray(fp16["plan_sha256"]),
         }
+        paired_metadata = (
+            "capture_sampling_strategy",
+            "capture_rows_per_observation",
+            "capture_rank2_rows_per_call",
+            "capture_calls",
+            "capture_output_rows",
+        )
+        for key in paired_metadata:
+            if key not in fp16 or key not in quant:
+                raise ValueError(f"paired capture lacks required metadata: {key}")
+            teacher_meta = np.asarray(fp16[key])
+            candidate_meta = np.asarray(quant[key])
+            if not np.array_equal(teacher_meta, candidate_meta):
+                raise ValueError(f"paired capture metadata mismatch: {key}")
+            arrays[key] = teacher_meta
         for index, name in enumerate(names):
             teacher = np.asarray(fp16[f"outputs_{index:04d}"])
             candidate = np.asarray(quant[f"outputs_{index:04d}"])

@@ -67,6 +67,10 @@ from quantvla_cross_model_protocol import (  # noqa: E402
     protocol_attestation,
     validate_quant_plan,
 )
+from quantvla_dynamic_a8_protocol import (  # noqa: E402
+    protocol_attestation as dynamic_a8_protocol_attestation,
+    validate_runtime as validate_dynamic_a8_runtime,
+)
 
 
 @dataclass
@@ -465,6 +469,14 @@ def _runtime_info(policy) -> dict:
             "claim_scope": "algorithmic W4A4; fake-quantized FP matmul runtime",
         }
     elif quant_layers:
+        plan_target_layers = 0
+        if plan_path:
+            plan_target_layers = len(
+                (json.loads(Path(plan_path).read_text(encoding="utf-8")).get("layers") or {})
+            )
+        mixed_static_profile = bool(
+            plan_target_layers and len(quant_layers) < plan_target_layers
+        )
         weight_bits = {int(layer.weight_bits) for layer in quant_layers}
         if len(weight_bits) != 1:
             raise RuntimeError(
@@ -492,7 +504,9 @@ def _runtime_info(policy) -> dict:
                 if packed_residency else "duquant_fake_quant"
             ),
             "layer_selection_policy": (
-                "all_model_adapter_bound_target_linear_layers_uniform_w4"
+                "shared_static_compression_profile_over_model_adapter_bound_layers"
+                if mixed_static_profile
+                else "all_model_adapter_bound_target_linear_layers_uniform_w4"
                 if os.environ.get("QUANTVLA_ADAPTER_ONLY", "0")
                 not in ("0", "false", "False", "")
                 else "architecture_specific_gdsq_sensitivity_plan"
@@ -529,9 +543,13 @@ def _runtime_info(policy) -> dict:
             "lambda_smooth": float(uniform_value(quant_layers, "lambda_smooth")),
             "activation_percentile": float(uniform_value(quant_layers, "act_percentile")),
             "calibration_policy": (
-                "offline_static_prefix_single_dit_per_flow_step"
-                if hessian_runtime.get("hessian_w4_loaded")
-                else "offline_static_per_channel_percentile"
+                "online_dynamic_per_forward_per_channel_amax"
+                if bool(uniform_value(quant_layers, "act_dynamic"))
+                else (
+                    "offline_static_prefix_single_dit_per_flow_step"
+                    if hessian_runtime.get("hessian_w4_loaded")
+                    else "offline_static_per_channel_percentile"
+                )
             ),
             "calibration_batches": int(uniform_value(quant_layers, "calib_batches")),
             "calibration_batch_size": 8,
@@ -605,6 +623,11 @@ def _runtime_info(policy) -> dict:
         ),
         "protocol": closed_loop_runtime_protocol(),
     }
+    if quant_layers and not quantization_contract.get("static_activation_scales", True):
+        validate_dynamic_a8_runtime(
+            quantization_contract, source="GR00T quantization contract"
+        )
+        payload["dynamic_a8_protocol"] = dynamic_a8_protocol_attestation()
     if torch.cuda.is_available():
         device = next(policy.model.parameters()).device
         payload["gpu_memory_bytes"] = {

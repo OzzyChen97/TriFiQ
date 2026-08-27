@@ -199,7 +199,7 @@ gr00t_grid() {
     buffer_sha="$(jq -r '.artifact_calibration_buffer_sha256' "$directory/scores_merged.json")"
     for metric in dfunc dpac; do
         local metric_name="d_func_v1"
-        [[ "$metric" == "dpac" ]] && metric_name="d_pac_v1"
+        [[ "$metric" == "dpac" ]] && metric_name="d_pac_v2"
         "$GROOT_PY" "$REPO/scripts/tools/fit_softfold_compensation.py" \
             --raw-correction "$raw" --validation-scores "$directory/scores_merged.json" \
             --metric "$metric_name" --teacher-checkpoint-sha256 "$checkpoint_sha" \
@@ -240,7 +240,7 @@ gr00t_grid4() {
     buffer_sha="$(jq -r '.artifact_calibration_buffer_sha256' "$directory/scores_merged.json")"
     for metric in dfunc dpac; do
         metric_name="d_func_v1"
-        [[ "$metric" == "dpac" ]] && metric_name="d_pac_v1"
+        [[ "$metric" == "dpac" ]] && metric_name="d_pac_v2"
         "$GROOT_PY" "$REPO/scripts/tools/fit_softfold_compensation.py" \
             --raw-correction "$raw" --validation-scores "$directory/scores_merged.json" \
             --metric "$metric_name" --teacher-checkpoint-sha256 "$checkpoint_sha" \
@@ -280,7 +280,7 @@ pi05_grid() {
     buffer_sha="$(jq -r '.artifact_calibration_buffer_sha256' "$directory/scores_merged.json")"
     for metric in dfunc dpac; do
         local metric_name="d_func_v1"
-        [[ "$metric" == "dpac" ]] && metric_name="d_pac_v1"
+        [[ "$metric" == "dpac" ]] && metric_name="d_pac_v2"
         "$OPENPI_PY" "$REPO/scripts/tools/fit_softfold_compensation.py" \
             --raw-correction "$PI_RAW" --validation-scores "$directory/scores_merged.json" \
             --metric "$metric_name" --teacher-checkpoint-sha256 "$checkpoint_sha" \

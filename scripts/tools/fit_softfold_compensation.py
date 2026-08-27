@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Materialize and select the shared v3 ATM × ErrorFold 9x9 grid.
 
-Selection uses paired per-sequence differences to the empirically best
-candidate.  No task label, rollout success, learned gate or runtime branch is
-accepted.
+The preregistered selection uses paired per-sequence differences to the
+empirically best candidate.  An explicit minimum-objective rule is also
+available for the gate-light v5.1 ablation.  Neither rule accepts task labels,
+rollout success, learned gates or runtime branches.
 """
 
 from __future__ import annotations
@@ -23,6 +24,10 @@ from quantvla_cross_model_protocol import (
     protocol_attestation,
     require_protocol_attestation,
 )
+from quantvla_dynamic_a8_protocol import (
+    protocol_attestation as dynamic_a8_protocol_attestation,
+    require_protocol_attestation as require_dynamic_a8_protocol_attestation,
+)
 from quantvla_errorfold import materialize_entry
 
 
@@ -32,6 +37,8 @@ ERRORFOLD_GRID = tuple(
 )
 if GRID != ERRORFOLD_GRID:
     raise ValueError("v3 SoftFold requires identical ATM/ErrorFold grids")
+
+DPAC_PROTOCOL = PROTOCOL["metrics"]["d_pac"]
 
 
 def sha256_file(path: str | Path) -> str:
@@ -111,6 +118,47 @@ def score_rows(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def _d_pac_selection_contributions(values: Sequence[float]) -> dict[str, Any]:
+    """Represent mean + CVaR as aligned per-sequence contributions.
+
+    The mean of the returned contribution vector is exactly
+    ``mean(values) + tail_weight * CVaR_alpha(values)``.  This lets paired
+    one-SE operate on sequence-aligned differences without silently dropping
+    the preregistered outer CVaR term.
+    """
+    if not values:
+        raise ValueError("D_PAC selection needs at least one sequence")
+    alpha = float(DPAC_PROTOCOL["outer_cvar_alpha"])
+    tail_weight = float(DPAC_PROTOCOL["outer_cvar_weight"])
+    tail_count = max(1, int(math.ceil((1.0 - alpha) * len(values))))
+    tail_indices = {
+        index
+        for index, _value in sorted(
+            enumerate(values), key=lambda item: (float(item[1]), item[0]), reverse=True
+        )[:tail_count]
+    }
+    multiplier = len(values) / tail_count
+    contributions = [
+        float(value)
+        + (tail_weight * multiplier * float(value) if index in tail_indices else 0.0)
+        for index, value in enumerate(values)
+    ]
+    sequence_mean = statistics.fmean(float(value) for value in values)
+    cvar = statistics.fmean(float(values[index]) for index in sorted(tail_indices))
+    objective = sequence_mean + tail_weight * cvar
+    if not math.isclose(statistics.fmean(contributions), objective, rel_tol=1e-12, abs_tol=1e-12):
+        raise AssertionError("D_PAC contribution decomposition drift")
+    return {
+        "sequence_mean": sequence_mean,
+        "cvar": cvar,
+        "cvar_alpha": alpha,
+        "tail_weight": tail_weight,
+        "selection_objective": objective,
+        "paired_selection_values": contributions,
+        "tail_sequence_indices": sorted(tail_indices),
+    }
+
+
 def summarize_candidates(
     rows: Iterable[Mapping[str, Any]], metric: str = "d_pac_v2"
 ) -> list[dict[str, Any]]:
@@ -128,19 +176,62 @@ def summarize_candidates(
             n_samples = len(values)
         if len(values) != n_samples:
             raise ValueError("paired one-SE requires equal, aligned sample counts")
+        if metric == "d_func_v1":
+            objective = statistics.fmean(values)
+            objective_fields = {
+                "sequence_mean": objective,
+                "cvar": None,
+                "selection_objective": objective,
+                "paired_selection_values": list(values),
+            }
+        else:
+            objective_fields = _d_pac_selection_contributions(values)
+            objective = float(objective_fields["selection_objective"])
         summaries.append(
             {
                 "gate": {"atm": gate_atm, "errorfold": gate_errorfold},
-                "mean": statistics.fmean(values),
+                # Retain the historical field name for artifact consumers;
+                # for D_PAC it now means the complete mean+CVaR objective.
+                "mean": objective,
                 "n_sequences": len(values),
                 "per_sequence": values,
                 "config_id": row.get("config_id"),
                 "correction_norm": float(
                     row.get("correction_norm", gate_atm * gate_atm + gate_errorfold * gate_errorfold)
                 ),
+                **objective_fields,
             }
         )
     return summaries
+
+
+def summarize_dual_candidates(
+    rows: Iterable[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Align local D_func and long-horizon D_PAC objectives by gate."""
+    materialized = [dict(row) for row in rows]
+    local = summarize_candidates(materialized, "d_func_v1")
+    long_horizon = summarize_candidates(materialized, "d_pac_v2")
+    local_by_gate = {
+        _gate(row): row
+        for row in local
+    }
+    result = []
+    for pac_row in long_horizon:
+        pair = _gate(pac_row)
+        func_row = local_by_gate[pair]
+        result.append(
+            {
+                "gate": dict(pac_row["gate"]),
+                "config_id": pac_row.get("config_id"),
+                "correction_norm": float(pac_row["correction_norm"]),
+                "d_func_objective": float(func_row["selection_objective"]),
+                "d_pac_objective": float(pac_row["selection_objective"]),
+                "d_func_per_sequence": list(func_row["per_sequence"]),
+                "d_pac_per_sequence": list(pac_row["per_sequence"]),
+            }
+        )
+    return result
 
 
 def require_grid(summaries: Sequence[Mapping[str, Any]]) -> None:
@@ -165,7 +256,14 @@ def select_one_standard_error(
     lambda_identity: float = 0.0,
     lambda_interaction: float = 0.0,
 ) -> dict[str, Any]:
-    """Paired one-SE followed by correction norm, gate sum and interaction."""
+    """Paired one-SE followed by correction norm, gate sum and interaction.
+
+    A candidate is never allowed to manufacture eligibility by having an
+    enormous paired standard error while its point estimate is worse than the
+    identity correction.  Identity is part of every complete SoftFold grid,
+    so this is a reference candidate invariant rather than an extra tuned
+    threshold.
+    """
     if not summaries:
         raise ValueError("no SoftFold candidates")
     if lambda_identity < 0.0 or lambda_interaction < 0.0:
@@ -182,12 +280,25 @@ def select_one_standard_error(
         )
         ranked.append(row)
     best = min(ranked, key=lambda row: (row["regularized_objective"], row["mean"]))
-    best_values = best["per_sequence"]
+    identity_rows = [
+        row
+        for row in ranked
+        if float(row["gate"]["atm"]) == 0.0
+        and float(row["gate"]["errorfold"]) == 0.0
+    ]
+    if len(identity_rows) != 1:
+        raise ValueError("paired one-SE requires exactly one identity gate candidate")
+    identity = identity_rows[0]
+    identity_tolerance = max(1e-15, 1e-12 * abs(float(identity["mean"])))
+    best_values = best.get("paired_selection_values", best["per_sequence"])
     eligible = []
+    paired_eligible_count = 0
     for row in ranked:
         differences = [
             float(value) - float(best_value)
-            for value, best_value in zip(row["per_sequence"], best_values)
+            for value, best_value in zip(
+                row.get("paired_selection_values", row["per_sequence"]), best_values
+            )
         ]
         difference_mean = statistics.fmean(differences)
         difference_se = (
@@ -198,7 +309,13 @@ def select_one_standard_error(
         row["paired_difference_mean"] = difference_mean
         row["paired_difference_standard_error"] = difference_se
         row["paired_differences"] = differences
-        if difference_mean <= difference_se + 1e-15:
+        row["paired_one_se_eligible"] = difference_mean <= difference_se + 1e-15
+        row["identity_non_degrading"] = (
+            float(row["mean"]) <= float(identity["mean"]) + identity_tolerance
+        )
+        if row["paired_one_se_eligible"]:
+            paired_eligible_count += 1
+        if row["paired_one_se_eligible"] and row["identity_non_degrading"]:
             eligible.append(row)
     selected = min(
         eligible,
@@ -214,10 +331,233 @@ def select_one_standard_error(
     return {
         "selected": selected,
         "best": best,
+        "identity": identity,
         "eligible_count": len(eligible),
+        "paired_eligible_before_identity_bound": paired_eligible_count,
         "paired_one_standard_error": True,
+        "identity_non_degradation_bound": True,
         "lambda_identity": float(lambda_identity),
         "lambda_interaction": float(lambda_interaction),
+        "candidates": ranked,
+    }
+
+
+def select_minimum_objective(
+    summaries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Select the global offline metric minimum with deterministic tie breaks.
+
+    Reliability shrinkage has already been applied while materializing each
+    ErrorFold candidate.  Consequently this rule needs no additional gate,
+    success label, task mapping, or fitted hyperparameter.  The tiny tolerance
+    is solely for numerically identical JSON round trips; it is not a one-SE
+    acceptance band.
+    """
+    if not summaries:
+        raise ValueError("no SoftFold candidates")
+    ranked = [dict(value) for value in summaries]
+    best_objective = min(float(row["selection_objective"]) for row in ranked)
+    tie_tolerance = max(1e-15, 1e-12 * max(1.0, abs(best_objective)))
+    tied = [
+        row
+        for row in ranked
+        if abs(float(row["selection_objective"]) - best_objective) <= tie_tolerance
+    ]
+    selected = min(
+        tied,
+        key=lambda row: (
+            float(row["correction_norm"]),
+            float(row["gate"]["atm"]) + float(row["gate"]["errorfold"]),
+            float(row["gate"]["atm"]) * float(row["gate"]["errorfold"]),
+            float(row["gate"]["errorfold"]),
+            float(row["gate"]["atm"]),
+        ),
+    )
+    identity_rows = [
+        row
+        for row in ranked
+        if float(row["gate"]["atm"]) == 0.0
+        and float(row["gate"]["errorfold"]) == 0.0
+    ]
+    if len(identity_rows) != 1:
+        raise ValueError("minimum-objective selection requires exactly one identity candidate")
+    return {
+        "selected": selected,
+        "best": selected,
+        "identity": identity_rows[0],
+        "eligible_count": len(tied),
+        "paired_one_standard_error": False,
+        "identity_non_degradation_bound": False,
+        "tie_tolerance": tie_tolerance,
+        "candidates": ranked,
+    }
+
+
+def select_atm_only_minimum(
+    summaries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Select the offline minimum after disabling all Linear/head affines.
+
+    The complete 9x9 grid is still required by ``fit`` before this component
+    ablation is applied.  Restricting ErrorFold to zero isolates the smaller
+    attention-logit correction and avoids choosing the family from rollout
+    success.
+    """
+    restricted = [
+        row
+        for row in summaries
+        if float(row["gate"]["errorfold"]) == 0.0
+    ]
+    if len(restricted) != len(GRID):
+        raise ValueError("ATM-only selection requires all nine ErrorFold=0 candidates")
+    result = select_minimum_objective(restricted)
+    result["correction_family"] = "attention_logits_only"
+    result["errorfold_gate_fixed"] = 0.0
+    return result
+
+
+def select_minimax_dual_regret(
+    summaries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Complement D_func and D_PAC without a fitted or hand-tuned weight.
+
+    For each metric, its grid minimum has regret zero and identity has regret
+    one.  Minimizing the worse of the two regrets finds the scale-independent
+    knee of the Pareto frontier.  Because identity is always available, the
+    selected candidate cannot degrade either metric when both improvement
+    spans are non-zero.
+    """
+    if not summaries:
+        raise ValueError("no SoftFold candidates")
+    ranked = [dict(value) for value in summaries]
+    identity_rows = [
+        row
+        for row in ranked
+        if float(row["gate"]["atm"]) == 0.0
+        and float(row["gate"]["errorfold"]) == 0.0
+    ]
+    if len(identity_rows) != 1:
+        raise ValueError("dual-regret selection requires exactly one identity candidate")
+    identity = identity_rows[0]
+    best_values = {
+        "d_func": min(float(row["d_func_objective"]) for row in ranked),
+        "d_pac": min(float(row["d_pac_objective"]) for row in ranked),
+    }
+    identity_values = {
+        "d_func": float(identity["d_func_objective"]),
+        "d_pac": float(identity["d_pac_objective"]),
+    }
+    spans = {
+        name: identity_values[name] - best_values[name]
+        for name in best_values
+    }
+    for row in ranked:
+        regrets = {}
+        for name, field in (
+            ("d_func", "d_func_objective"),
+            ("d_pac", "d_pac_objective"),
+        ):
+            scale = spans[name]
+            tolerance = max(1e-15, 1e-12 * max(1.0, abs(identity_values[name])))
+            delta = float(row[field]) - best_values[name]
+            if scale > tolerance:
+                regrets[name] = delta / scale
+            else:
+                regrets[name] = 0.0 if delta <= tolerance else delta / tolerance
+        row["normalized_regret"] = regrets
+        row["worst_normalized_regret"] = max(regrets.values())
+        row["mean_normalized_regret"] = statistics.fmean(regrets.values())
+    selected = min(
+        ranked,
+        key=lambda row: (
+            float(row["worst_normalized_regret"]),
+            float(row["mean_normalized_regret"]),
+            float(row["correction_norm"]),
+            float(row["gate"]["atm"]) + float(row["gate"]["errorfold"]),
+            float(row["gate"]["atm"]) * float(row["gate"]["errorfold"]),
+            float(row["gate"]["errorfold"]),
+            float(row["gate"]["atm"]),
+        ),
+    )
+    return {
+        "selected": selected,
+        "best": {
+            "d_func": min(ranked, key=lambda row: float(row["d_func_objective"])),
+            "d_pac": min(ranked, key=lambda row: float(row["d_pac_objective"])),
+        },
+        "identity": identity,
+        "individual_best_objectives": best_values,
+        "identity_objectives": identity_values,
+        "normalization_spans": spans,
+        "eligible_count": len(ranked),
+        "paired_one_standard_error": False,
+        "identity_non_degradation_bound": True,
+        "candidates": ranked,
+    }
+
+
+def select_atm_only_dual_pareto_knee(
+    summaries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Find the local/long-horizon Pareto knee in the ATM-only family.
+
+    Each objective is normalized by the loss range between the D_func-optimal
+    and D_PAC-optimal ATM candidates.  This gives both objectives equal regret
+    at their opposite endpoint without a fitted weight or rollout feedback.
+    """
+    ranked = [
+        dict(row)
+        for row in summaries
+        if float(row["gate"]["errorfold"]) == 0.0
+    ]
+    if len(ranked) != len(GRID):
+        raise ValueError("ATM-only Pareto selection requires all nine ErrorFold=0 candidates")
+    func_best = min(ranked, key=lambda row: float(row["d_func_objective"]))
+    pac_best = min(ranked, key=lambda row: float(row["d_pac_objective"]))
+    best_values = {
+        "d_func": float(func_best["d_func_objective"]),
+        "d_pac": float(pac_best["d_pac_objective"]),
+    }
+    endpoint_spans = {
+        "d_func": float(pac_best["d_func_objective"]) - best_values["d_func"],
+        "d_pac": float(func_best["d_pac_objective"]) - best_values["d_pac"],
+    }
+    for row in ranked:
+        regrets = {}
+        for name, field in (
+            ("d_func", "d_func_objective"),
+            ("d_pac", "d_pac_objective"),
+        ):
+            span = endpoint_spans[name]
+            tolerance = max(1e-15, 1e-12 * max(1.0, abs(best_values[name])))
+            delta = float(row[field]) - best_values[name]
+            regrets[name] = (
+                delta / span
+                if span > tolerance
+                else (0.0 if delta <= tolerance else delta / tolerance)
+            )
+        row["normalized_endpoint_regret"] = regrets
+        row["worst_normalized_endpoint_regret"] = max(regrets.values())
+        row["mean_normalized_endpoint_regret"] = statistics.fmean(regrets.values())
+    selected = min(
+        ranked,
+        key=lambda row: (
+            float(row["worst_normalized_endpoint_regret"]),
+            float(row["mean_normalized_endpoint_regret"]),
+            float(row["correction_norm"]),
+            float(row["gate"]["atm"]),
+        ),
+    )
+    return {
+        "selected": selected,
+        "best": {"d_func": func_best, "d_pac": pac_best},
+        "individual_best_objectives": best_values,
+        "endpoint_normalization_spans": endpoint_spans,
+        "eligible_count": len(ranked),
+        "paired_one_standard_error": False,
+        "identity_non_degradation_bound": False,
+        "correction_family": "attention_logits_only",
+        "errorfold_gate_fixed": 0.0,
         "candidates": ranked,
     }
 
@@ -272,6 +612,8 @@ def validate_raw_correction_protocol(raw: Mapping[str, Any], *, source: str) -> 
     }
     if mismatches:
         raise ValueError(f"{source}: raw ErrorFold protocol drift: {mismatches}")
+    if raw_meta.get("activation_mode") == "dynamic_a8":
+        require_dynamic_a8_protocol_attestation(raw, source=source)
     return raw_meta
 
 
@@ -310,6 +652,11 @@ def materialize_grid(
                 "schema_version": 3,
                 "kind": "errorfold_grid_candidate",
                 "cross_model_protocol": protocol_attestation(),
+                "dynamic_a8_protocol": (
+                    dynamic_a8_protocol_attestation()
+                    if raw_meta.get("activation_mode") == "dynamic_a8"
+                    else None
+                ),
                 "meta": {
                     **raw_meta,
                     "metric": PROTOCOL["metrics"]["d_pac"]["formula_id"],
@@ -358,15 +705,57 @@ def fit(args: argparse.Namespace) -> dict[str, Any]:
     validation = json.loads(validation_path.read_text(encoding="utf-8"))
     require_protocol_attestation(validation, source=str(validation_path))
     raw_meta = validate_raw_correction_protocol(raw, source=str(raw_path))
+    dynamic_a8 = raw_meta.get("activation_mode") == "dynamic_a8"
+    if dynamic_a8:
+        require_dynamic_a8_protocol_attestation(
+            validation, source=str(validation_path)
+        )
+        if validation.get("activation_mode") != "dynamic_a8":
+            raise ValueError(
+                "dynamic ErrorFold raw correction requires DyRange-A8 validation scores"
+            )
     if validation.get("raw_correction_sha256") != sha256_file(raw_path):
         raise ValueError("validation scores do not descend from this raw ErrorFold artifact")
     if args.allow_partial_grid:
         raise ValueError("v3 requires the complete shared 9x9 grid")
     if float(args.lambda_identity) != 0.0 or float(args.lambda_interaction) != 0.0:
         raise ValueError("v3 freezes explicit lambdas at zero; reliability provides shrinkage")
-    summaries = summarize_candidates(score_rows(validation), args.metric)
-    require_grid(summaries)
-    selection = select_one_standard_error(summaries)
+    rows = score_rows(validation)
+    if args.selection_rule in (
+        "minimax_dual_regret",
+        "atm_only_dual_pareto_knee",
+    ):
+        summaries = summarize_dual_candidates(rows)
+        require_grid(summaries)
+        if args.selection_rule == "minimax_dual_regret":
+            selection = select_minimax_dual_regret(summaries)
+            selection_rule = (
+                "minimum_worst_identity_normalized_regret_over_d_func_and_d_pac"
+            )
+            metric_id = "d_func_v1_plus_d_pac_v2_minimax_normalized_regret"
+        else:
+            selection = select_atm_only_dual_pareto_knee(summaries)
+            selection_rule = (
+                "minimum_worst_endpoint_normalized_regret_over_d_func_and_d_pac_"
+                "with_errorfold_gate_fixed_zero"
+            )
+            metric_id = "d_func_v1_plus_d_pac_v2_atm_only_pareto_knee"
+    else:
+        summaries = summarize_candidates(rows, args.metric)
+        require_grid(summaries)
+        metric_id = args.metric
+    if args.selection_rule == "paired_one_se":
+        selection = select_one_standard_error(summaries)
+        selection_rule = PROTOCOL["softfold"]["selection_rule"]
+    elif args.selection_rule == "minimum_objective":
+        selection = select_minimum_objective(summaries)
+        selection_rule = "minimum_offline_objective_then_correction_norm_gate_sum_interaction"
+    elif args.selection_rule == "atm_only_minimum":
+        selection = select_atm_only_minimum(summaries)
+        selection_rule = (
+            "minimum_offline_objective_with_errorfold_gate_fixed_zero_then_"
+            "correction_norm_gate_sum_interaction"
+        )
     gate = selection["selected"]["gate"]
     layers, correction_norm = fold_layers(
         raw.get("layers", raw),
@@ -398,15 +787,19 @@ def fit(args: argparse.Namespace) -> dict[str, Any]:
         "schema_version": 3,
         "kind": "errorfold_compensation",
         "cross_model_protocol": protocol_attestation(),
+        "dynamic_a8_protocol": (
+            dynamic_a8_protocol_attestation() if dynamic_a8 else None
+        ),
         "teacher_checkpoint_sha256": checkpoint_hash,
         "quant_plan_sha256": plan_hash,
         "buffer_sha256": buffer_hash,
-        "metric": args.metric,
+        "metric": metric_id,
         "gate": gate,
         "correction_norm": correction_norm,
         "layers": layers,
         "selection": {
-            "rule": PROTOCOL["softfold"]["selection_rule"],
+            "rule": selection_rule,
+            "rule_id": args.selection_rule,
             "uses_task_labels": False,
             "uses_rollout_success": False,
             "sample_unit": "paired_shared_buffer_sequence",
@@ -414,7 +807,7 @@ def fit(args: argparse.Namespace) -> dict[str, Any]:
         },
         "meta": {
             **raw_meta,
-            "metric": args.metric,
+            "metric": metric_id,
             "atm_application": PROTOCOL["deployment"]["atm_application"],
             "errorfold_application": PROTOCOL["deployment"]["errorfold_application"],
             "selector_free": True,
@@ -434,6 +827,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--validation-scores", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--metric", default="d_pac_v2", choices=("d_pac_v2", "d_func_v1"))
+    parser.add_argument(
+        "--selection-rule",
+        default="paired_one_se",
+        choices=(
+            "paired_one_se",
+            "minimum_objective",
+            "minimax_dual_regret",
+            "atm_only_minimum",
+            "atm_only_dual_pareto_knee",
+        ),
+        help=(
+            "paired_one_se is the frozen v3 rule; minimum_objective is the "
+            "shared gate-light v5.1 ablation; minimax_dual_regret complements "
+            "local D_func and long-horizon D_PAC without a tuned weight; "
+            "atm_only_minimum is the shared attention-logit-only ablation; "
+            "atm_only_dual_pareto_knee balances both metrics inside that family"
+        ),
+    )
     parser.add_argument("--teacher-checkpoint")
     parser.add_argument("--teacher-checkpoint-sha256")
     parser.add_argument("--quant-plan")

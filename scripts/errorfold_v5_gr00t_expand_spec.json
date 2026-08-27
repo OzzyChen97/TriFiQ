@@ -1,0 +1,40 @@
+{
+  "purpose": "Strict paired GR00T expansion of the frozen DyRange-A8 full-W4 D_PAC-v2 configuration; closed-loop outcomes are audit-only.",
+  "comparisons": [],
+  "decision": {
+    "selection_used_closed_loop_success": false,
+    "selection_noise": "A",
+    "closed_loop_role": "frozen_candidate_audit_only",
+    "diagnostic_only": true
+  },
+  "configs": [
+    {
+      "id": "v5_dynamic_dpac_v2",
+      "gpu": 6,
+      "port": 21160,
+      "replicas": [
+        {
+          "gpu": 7,
+          "port": 21161
+        }
+      ],
+      "plan": "/home1/gyy/vla/QuantVLA/checkpoints/packs/robocasa365/quantvla_v1_uniform_w4a8.json",
+      "packdir": "/home1/gyy/vla/QuantVLA/runs/errorfold_v5_iter/calibration/gr00t_full_w4_dynamic/identity_pack",
+      "hessian_w4": "/home1/gyy/vla/QuantVLA/runs/errorfold_v4_iter/calibration/gr00t_full_w4/hessian_w4.npz",
+      "errorfold": "/home1/gyy/vla/QuantVLA/runs/errorfold_v5_iter/frozen/gr00t_full_w4_dynamic/errorfold_dpac_v2.json",
+      "atm": "/home1/gyy/vla/QuantVLA/runs/errorfold_v5_iter/frozen/gr00t_full_w4_dynamic/errorfold_dpac_v2.json",
+      "ohb": true,
+      "atm_application": "fold_q_weight",
+      "ohb_application": "fold_o_weight_perhead",
+      "activation_mode": "dynamic_a8",
+      "expected_wrapped": 116,
+      "egl_device": 6,
+      "meta": {
+        "role": "v5_dyrange_full_w4_errorfold_selected_by_d_pac_v2",
+        "gate_atm": 0.0,
+        "gate_errorfold": 0.0,
+        "selection_used_closed_loop_success": false
+      }
+    }
+  ]
+}

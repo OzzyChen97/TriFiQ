@@ -22,17 +22,52 @@ V3_A8="${PI05_V3_A8:-$V3_ROOT/a8_scales.npz}"
 V3_HESSIAN_W4="${PI05_V3_HESSIAN_W4:-$V3_ROOT/hessian_w4.npz}"
 V3_ERRORFOLD_DFUNC="${PI05_V3_ERRORFOLD_DFUNC:-$V3_ROOT/errorfold_dfunc.json}"
 V3_ERRORFOLD_DPAC="${PI05_V3_ERRORFOLD_DPAC:-$V3_ROOT/errorfold_dpac_v2.json}"
+V5_ROOT="${PI05_V5_ROOT:-$REPO_ROOT/runs/errorfold_v4_iter/calibration/pi05_full_w4}"
+V5_PACK_DIR="${PI05_V5_PACK_DIR:-$V5_ROOT/identity_pack}"
+V5_HESSIAN_W4="${PI05_V5_HESSIAN_W4:-$V5_ROOT/hessian_w4.npz}"
+V5_ERRORFOLD="${PI05_V5_ERRORFOLD:-}"
 RUNTIME_SELECTOR="${PI05_RUNTIME_SELECTOR:-$REPO_ROOT/runs/atmohb_dynamic_selector_v8/selector.json}"
+OMEGA_ROOT="${PI05_OMEGA_ROOT:-$REPO_ROOT/external/Omega-QVLA}"
+OMEGA_PACK="${PI05_OMEGA_PACK:-}"
+OMEGA_CALIBRATION_MANIFEST="${PI05_OMEGA_CALIBRATION_MANIFEST:-}"
+OMEGA_ATTESTATION="${OMEGA_PACK%.pt}.attestation.json"
+OMEGA_INCLUDE='.*paligemma_with_expert\.(?:paligemma\.model\.language_model|gemma_expert\.model)\.layers\.\d+\..*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)'
 CONTROL_DIR="${PI05_CONTROL_DIR:-$ALIGNED_ROOT/official_target_paired50/control}"
 CONTROL_DIR="$(mkdir -p "$CONTROL_DIR" && cd "$CONTROL_DIR" && pwd)"
 
 usage() {
     echo "usage: $0 start CONFIG GPU PORT INSTANCE | stop INSTANCE | status" >&2
-    echo "CONFIG: fp16 | quantvla_w4a8_paper | errorfold_dfunc | errorfold_dpac_v2 | legacy configs" >&2
+    echo "CONFIG: fp16 | omega_qvla_w4a4 | quantvla_w4a8_paper | quantvla_w4a8_dynamic | quantvla_w4a8_dynamic_profile | quantvla_w4a8_dynamic_profile_errorfold | errorfold_dfunc | errorfold_dpac_v2 | legacy configs" >&2
 }
 
 sha256_file() {
-    sha256sum "$1" | cut -d' ' -f1
+    local artifact="$1"
+    local resolved signature cache_key cache_dir cache_file lock_file cached_signature cached_digest digest temporary fd
+    resolved="$(readlink -f -- "$artifact")"
+    signature="$(stat -c '%d:%i:%s:%y:%z' -- "$resolved")"
+    cache_dir="${QUANTVLA_HASH_CACHE_DIR:-$REPO_ROOT/runs/.artifact_sha256_cache}"
+    mkdir -p "$cache_dir"
+    cache_key="$(printf '%s' "$resolved" | sha256sum | cut -d' ' -f1)"
+    cache_file="$cache_dir/$cache_key.tsv"
+    lock_file="$cache_dir/$cache_key.lock"
+    exec {fd}>"$lock_file"
+    flock "$fd"
+    if [[ -s "$cache_file" ]]; then
+        IFS=$'\t' read -r cached_signature cached_digest <"$cache_file" || true
+        if [[ "$cached_signature" == "$signature" && "$cached_digest" =~ ^[0-9a-f]{64}$ ]]; then
+            flock -u "$fd"
+            exec {fd}>&-
+            printf '%s\n' "$cached_digest"
+            return
+        fi
+    fi
+    digest="$(sha256sum "$resolved" | cut -d' ' -f1)"
+    temporary="$cache_file.tmp.$$"
+    printf '%s\t%s\n' "$signature" "$digest" >"$temporary"
+    mv -f "$temporary" "$cache_file"
+    flock -u "$fd"
+    exec {fd}>&-
+    printf '%s\n' "$digest"
 }
 
 require_file() {
@@ -64,7 +99,7 @@ clear_quant_environment() {
     local variable
     while IFS='=' read -r variable _; do
         case "$variable" in
-            OPENPI_DUQUANT_*|OPENPI_ATM_*|OPENPI_OHB_*|OPENPI_RUNTIME_SELECTOR_*|OPENPI_ERRORFOLD_PATH|QUANTVLA_ADAPTER_ONLY) unset "$variable" ;;
+            OPENPI_DUQUANT_*|OPENPI_ATM_*|OPENPI_OHB_*|OPENPI_RUNTIME_SELECTOR_*|OPENPI_ERRORFOLD_PATH|OPENPI_OMEGA_*|GR00T_GPTQ*|QUANTVLA_ADAPTER_ONLY) unset "$variable" ;;
         esac
     done < <(env)
 }
@@ -75,6 +110,7 @@ configure_quant() {
     local wrapped="$3"
     local pack_dir="${4:-$PACK_DIR}"
     local row_rotation="${5:-restore}"
+    local activation_mode="${6:-static_a8}"
     export OPENPI_DUQUANT_PLAN="$plan"
     export OPENPI_DUQUANT_PLAN_STRICT=1
     export OPENPI_DUQUANT_WBITS_DEFAULT=4
@@ -90,8 +126,15 @@ configure_quant() {
     export OPENPI_DUQUANT_CALIB_STEPS=32
     export OPENPI_DUQUANT_DENOISING_STEPS=4
     export OPENPI_DUQUANT_PACKDIR="$pack_dir"
-    export OPENPI_DUQUANT_ACT_SCALE_PATH="$scale"
-    export OPENPI_DUQUANT_REQUIRE_ACT_SCALE=1
+    if [[ "$activation_mode" == "dynamic_a8" ]]; then
+        unset OPENPI_DUQUANT_ACT_SCALE_PATH
+        export OPENPI_DUQUANT_ACT_DYNAMIC=1
+        export OPENPI_DUQUANT_REQUIRE_ACT_SCALE=0
+    else
+        export OPENPI_DUQUANT_ACT_SCALE_PATH="$scale"
+        export OPENPI_DUQUANT_ACT_DYNAMIC=0
+        export OPENPI_DUQUANT_REQUIRE_ACT_SCALE=1
+    fi
     export OPENPI_DUQUANT_CALIB_BUFFER_SHA256
     OPENPI_DUQUANT_CALIB_BUFFER_SHA256="$(sha256_file "$BUFFER")"
     export OPENPI_DUQUANT_STRICT_ARTIFACTS=1
@@ -103,9 +146,16 @@ configure_quant() {
 
 configure_errorfold_v3() {
     local artifact="$1"
-    export OPENPI_DUQUANT_HESSIAN_W4_PATH="$V3_HESSIAN_W4"
+    configure_errorfold "$artifact" "$V3_HESSIAN_W4" "$FULL_PLAN"
+}
+
+configure_errorfold() {
+    local artifact="$1"
+    local hessian_w4="$2"
+    local plan="$3"
+    export OPENPI_DUQUANT_HESSIAN_W4_PATH="$hessian_w4"
     export OPENPI_ERRORFOLD_PATH="$artifact"
-    configure_atm "$artifact" "$FULL_PLAN" 1 1
+    configure_atm "$artifact" "$plan" 1 1
     unset OPENPI_OHB_EXPECT_MODE
     export OPENPI_ATM_APPLICATION=fold_q_weight
     export OPENPI_OHB_APPLICATION=fold_o_weight_perhead
@@ -172,6 +222,11 @@ start_server() {
     local gdsq_wrapped=""
     case "$config" in
         fp16) ;;
+        omega_qvla_w4a4)
+            for artifact in "$OMEGA_PACK" "$OMEGA_ATTESTATION" "$OMEGA_CALIBRATION_MANIFEST"; do
+                require_file "$artifact"
+            done
+            ;;
         quantvla_w4a8_atmohb|quantvla_w4a8_paper)
             for artifact in "$PACK_DIR/manifest.json" "$FULL_PLAN" "$FULL_A8" "$FULL_A8.json" "$FULL_ATM"; do
                 require_file "$artifact"
@@ -188,6 +243,35 @@ start_server() {
                 echo "missing v3 identity pack directory: $V3_PACK_DIR" >&2
                 exit 1
             fi
+            ;;
+        quantvla_w4a8_dynamic)
+            for artifact in "$FULL_PLAN" "$V5_HESSIAN_W4" "$V5_HESSIAN_W4.json"; do
+                require_file "$artifact"
+            done
+            if [[ ! -d "$V5_PACK_DIR" ]]; then
+                echo "missing dynamic-A8 identity pack directory: $V5_PACK_DIR" >&2
+                exit 1
+            fi
+            ;;
+        quantvla_w4a8_dynamic_profile)
+            for artifact in "$FULL_PLAN" "$V5_HESSIAN_W4" "$V5_HESSIAN_W4.json"; do
+                require_file "$artifact"
+            done
+            if [[ ! -d "$V5_PACK_DIR" ]]; then
+                echo "missing dynamic-A8 profile pack directory: $V5_PACK_DIR" >&2
+                exit 1
+            fi
+            gdsq_wrapped="$(wrapped_layers "$FULL_PLAN")"
+            ;;
+        quantvla_w4a8_dynamic_profile_errorfold)
+            for artifact in "$FULL_PLAN" "$V5_HESSIAN_W4" "$V5_HESSIAN_W4.json" "$V5_ERRORFOLD"; do
+                require_file "$artifact"
+            done
+            if [[ ! -d "$V5_PACK_DIR" ]]; then
+                echo "missing dynamic-A8 ErrorFold profile pack directory: $V5_PACK_DIR" >&2
+                exit 1
+            fi
+            gdsq_wrapped="$(wrapped_layers "$FULL_PLAN")"
             ;;
         quantvla_w4a8_softfold_dfunc|quantvla_w4a8_softfold_dpac)
             for artifact in "$PACK_DIR/manifest.json" "$FULL_PLAN" "$FULL_A8" "$FULL_A8.json" "$SOFTFOLD_ATM"; do
@@ -224,6 +308,23 @@ start_server() {
         export OPENPI_RUNTIME_INFO_PATH="$runtime_file"
         case "$config" in
             fp16) ;;
+            omega_qvla_w4a4)
+                export OPENPI_OMEGA_QVLA=1
+                export OPENPI_OMEGA_ROOT="$OMEGA_ROOT"
+                export OPENPI_OMEGA_PACK="$OMEGA_PACK"
+                export OPENPI_OMEGA_PACK_SHA256
+                OPENPI_OMEGA_PACK_SHA256="$(sha256_file "$OMEGA_PACK")"
+                export OPENPI_OMEGA_CALIBRATION_MANIFEST="$OMEGA_CALIBRATION_MANIFEST"
+                export OPENPI_FORMAL_EXPECT_WRAPPED=252
+                export GR00T_GPTQ=1
+                export GR00T_GPTQ_PATH="$OMEGA_PACK"
+                export GR00T_GPTQ_INCLUDE="$OMEGA_INCLUDE"
+                export GR00T_GPTQ_EXCLUDE='(?:^|\.)(vision_tower|vision_model|embeddings|embed_tokens|norm|layernorm|lm_head)(?:\.|$)'
+                export GR00T_GPTQ_WBITS_DEFAULT=4
+                export GR00T_GPTQ_ABITS=4
+                export GR00T_GPTQ_MISSING=error
+                export GR00T_GPTQ_KEEP_FP=0
+                ;;
             quantvla_w4a8_atmohb|quantvla_w4a8_paper)
                 export QUANTVLA_ADAPTER_ONLY=1
                 configure_quant "$FULL_PLAN" "$FULL_A8" 180
@@ -236,6 +337,24 @@ start_server() {
                 export QUANTVLA_ADAPTER_ONLY=1
                 configure_quant "$FULL_PLAN" "$V3_A8" 180 "$V3_PACK_DIR" 0
                 configure_errorfold_v3 "$selected"
+                ;;
+            quantvla_w4a8_dynamic)
+                export OPENPI_FORMAL_EXPECT_WRAPPED=180
+                export QUANTVLA_ADAPTER_ONLY=1
+                export OPENPI_DUQUANT_HESSIAN_W4_PATH="$V5_HESSIAN_W4"
+                configure_quant "$FULL_PLAN" "" 180 "$V5_PACK_DIR" 0 dynamic_a8
+                ;;
+            quantvla_w4a8_dynamic_profile)
+                export OPENPI_FORMAL_EXPECT_WRAPPED="$gdsq_wrapped"
+                export QUANTVLA_ADAPTER_ONLY=1
+                export OPENPI_DUQUANT_HESSIAN_W4_PATH="$V5_HESSIAN_W4"
+                configure_quant "$FULL_PLAN" "" "$gdsq_wrapped" "$V5_PACK_DIR" 0 dynamic_a8
+                ;;
+            quantvla_w4a8_dynamic_profile_errorfold)
+                export OPENPI_FORMAL_EXPECT_WRAPPED="$gdsq_wrapped"
+                export QUANTVLA_ADAPTER_ONLY=1
+                configure_quant "$FULL_PLAN" "" "$gdsq_wrapped" "$V5_PACK_DIR" 0 dynamic_a8
+                configure_errorfold "$V5_ERRORFOLD" "$V5_HESSIAN_W4" "$FULL_PLAN"
                 ;;
             quantvla_w4a8_softfold_dfunc|quantvla_w4a8_softfold_dpac)
                 export OPENPI_FORMAL_EXPECT_WRAPPED=180

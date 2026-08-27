@@ -1,0 +1,38 @@
+{
+  "purpose": "Strict paired GR00T audit of the frozen target-2.2x raw-risk OutputImpact mask selected only by full-network D_PAC-v2 on noise-A; closed-loop outcomes are audit-only.",
+  "comparisons": [],
+  "decision": {
+    "selection_used_closed_loop_success": false,
+    "selection_noise": "A",
+    "closed_loop_role": "frozen_candidate_audit_only",
+    "diagnostic_only": true
+  },
+  "configs": [
+    {
+      "id": "v5_dynamic_outputimpact_raw22",
+      "gpu": 6,
+      "port": 21170,
+      "replicas": [
+        {
+          "gpu": 7,
+          "port": 21171
+        }
+      ],
+      "plan": "/home1/gyy/vla/QuantVLA/runs/errorfold_v5_iter/plans/gr00t_dynamic_outputimpact_target2.2x_raw.json",
+      "packdir": "/home1/gyy/vla/QuantVLA/runs/errorfold_v5_iter/calibration/gr00t_full_w4_dynamic/identity_pack",
+      "hessian_w4": "/home1/gyy/vla/QuantVLA/runs/errorfold_v5_iter/calibration/gr00t_dynamic_outputimpact_target2.2x_raw/hessian_w4.npz",
+      "ohb": false,
+      "activation_mode": "dynamic_a8",
+      "expected_wrapped": 76,
+      "egl_device": 6,
+      "meta": {
+        "role": "v5_dyrange_target2.2x_outputimpact_raw_selected_by_full_network_d_pac_v2",
+        "target_model_compression": 2.2,
+        "achieved_model_compression": 2.201273874724853,
+        "risk_mode": "raw",
+        "offline_noise_a_d_pac": 1.171011939052522,
+        "selection_used_closed_loop_success": false
+      }
+    }
+  ]
+}

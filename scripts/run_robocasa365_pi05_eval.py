@@ -31,6 +31,10 @@ from quantvla_cross_model_protocol import (  # noqa: E402
     closed_loop_runtime_protocol,
     require_protocol_attestation,
 )
+from quantvla_dynamic_a8_protocol import (  # noqa: E402
+    require_protocol_attestation as require_dynamic_a8_protocol_attestation,
+    validate_runtime as validate_dynamic_a8_runtime,
+)
 from openpi_client.websocket_client_policy import WebsocketClientPolicy
 
 
@@ -449,6 +453,12 @@ def main() -> None:
     metadata_hash = canonical_hash(server_metadata)
     server_runtime = server_metadata.get("openpi_runtime") or {}
     require_protocol_attestation(server_runtime, source="pi0.5 runtime")
+    server_quant_contract = server_runtime.get("cross_model_quantization_contract") or {}
+    if server_quant_contract.get("static_activation_scales") is False:
+        require_dynamic_a8_protocol_attestation(server_runtime, source="pi0.5 runtime")
+        validate_dynamic_a8_runtime(
+            server_quant_contract, source="pi0.5 runtime contract"
+        )
     if (server_runtime.get("model_adapter") or {}).get("model") != "pi05":
         raise SystemExit("pi0.5 server adapter attestation is missing")
     server_protocol = server_runtime.get("protocol") or {}

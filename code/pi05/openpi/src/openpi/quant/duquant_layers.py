@@ -50,6 +50,8 @@ class DuQuantConfig:
     pack_dir: Optional[str] = None
     row_rot_mode: Optional[str] = None
     block_out_size: Optional[int] = None
+    # Shared v5 activation policy: deterministic per-forward per-channel A8.
+    act_dynamic: Optional[bool] = None
 
     def __post_init__(self):
         """Read environment variables at instantiation time."""
@@ -73,6 +75,10 @@ class DuQuantConfig:
             self.row_rot_mode = os.environ.get("OPENPI_DUQUANT_ROW_ROT", "restore")
         if self.block_out_size is None:
             self.block_out_size = int(os.environ.get("OPENPI_DUQUANT_BLOCK_OUT", os.environ.get("OPENPI_DUQUANT_BLOCK", 16)))
+        if self.act_dynamic is None:
+            self.act_dynamic = os.environ.get("OPENPI_DUQUANT_ACT_DYNAMIC", "0") not in (
+                "0", "false", "False", ""
+            )
 
 
 def _parse_per_layer_wbits(env_val: Optional[str]) -> Dict[str, int]:
@@ -235,10 +241,14 @@ class DuQuantLinear(nn.Module):
         denoising_steps = int(os.environ.get("OPENPI_DUQUANT_DENOISING_STEPS", 10))
         calls_per_batch = denoising_steps if ".gemma_expert." in name else 1
         self._calibration_calls_per_batch = calls_per_batch
-        self.calibrator = PercentileCalibrator(
-            percentile=cfg.act_percentile,
-            max_batches=cfg.calib_batches * calls_per_batch,
-        ) if self.cfg.act_bits > 0 else None
+        self.calibrator = (
+            PercentileCalibrator(
+                percentile=cfg.act_percentile,
+                max_batches=cfg.calib_batches * calls_per_batch,
+            )
+            if self.cfg.act_bits > 0 and not self.cfg.act_dynamic
+            else None
+        )
         self.register_buffer("_act_scale", None)
         self._act_scale_initialized = False
 
@@ -329,7 +339,11 @@ class DuQuantLinear(nn.Module):
 
     @property
     def act_scale_ready(self) -> bool:
-        return self.cfg.act_bits <= 0 or bool(self._act_scale_initialized)
+        return (
+            self.cfg.act_bits <= 0
+            or bool(self.cfg.act_dynamic)
+            or bool(self._act_scale_initialized)
+        )
 
     def set_act_scale(self, scale: torch.Tensor) -> None:
         expected = self.in_features
@@ -516,6 +530,15 @@ class DuQuantLinear(nn.Module):
         if self.cfg.act_bits <= 0:
             return torch.ones(x.shape[-1], dtype=x.dtype, device=x.device)
 
+        if self.cfg.act_dynamic:
+            with torch.no_grad():
+                x_abs = torch.abs(x.detach().to(torch.float32))
+                x2d = x_abs.reshape(-1, x_abs.shape[-1])
+                scale = torch.clamp(
+                    x2d.amax(dim=0) / qmax(self.cfg.act_bits), min=1e-6
+                )
+                return scale.to(dtype=x.dtype, device=x.device)
+
         if self._act_scale_initialized:
             if self._act_scale.ndim == 1:
                 return self._act_scale
@@ -608,7 +631,11 @@ class DuQuantLinear(nn.Module):
             return False
         # During act-scale calibration the eager path must observe the
         # rotated input; the fused path only handles the frozen static scale.
-        if self.cfg.act_bits > 0 and not self._act_scale_initialized:
+        if (
+            self.cfg.act_bits > 0
+            and not self.cfg.act_dynamic
+            and not self._act_scale_initialized
+        ):
             return False
         return self._prepare_triton_caches()
 
@@ -647,7 +674,11 @@ class DuQuantLinear(nn.Module):
             return int(self._W_packed_u4.numel())
         if not self._triton_enabled or self.weight_bits != 4:
             raise RuntimeError(f"{self.name}: real-quant finalization requires Triton W4")
-        if self.cfg.act_bits > 0 and not self._act_scale_initialized:
+        if (
+            self.cfg.act_bits > 0
+            and not self.cfg.act_dynamic
+            and not self._act_scale_initialized
+        ):
             raise RuntimeError(f"{self.name}: static A8 scale is not ready")
         if self.in_features % 64 or self.out_features % 64:
             raise RuntimeError(f"{self.name}: real-quant kernel requires 64-aligned shapes")
@@ -976,6 +1007,7 @@ def enable_duquant_if_configured(model: nn.Module) -> dict:
         "plan_sha256": plan.sha256 if plan is not None else None,
         "weight_bits": cfg.weight_bits,
         "act_bits": cfg.act_bits,
+        "act_dynamic": bool(cfg.act_dynamic),
         "block_in": cfg.block_size,
         "block_out": cfg.block_out_size,
         "act_percentile": cfg.act_percentile,
@@ -1031,7 +1063,7 @@ def enable_duquant_if_configured(model: nn.Module) -> dict:
         require_scale = env.get("OPENPI_DUQUANT_REQUIRE_ACT_SCALE", "0") not in (
             "0", "false", "False", "",
         )
-        if require_scale:
+        if require_scale and not cfg.act_dynamic:
             raise RuntimeError(f"required static A8 scale file is missing: {scale_path}")
     hessian_path = env.get("OPENPI_DUQUANT_HESSIAN_W4_PATH")
     if hessian_path:
@@ -1125,7 +1157,7 @@ def load_hessian_w4(
     metadata = json.loads(sidecar.read_text(encoding="utf-8"))
     if metadata.get("schema_version") != 3 or metadata.get("group_size") != 64:
         raise ValueError("unsupported Hessian W4 artifact schema/group")
-    if metadata.get("protocol_id") != "quantvla-gr00t-pi05-errorfold-v3":
+    if metadata.get("protocol_id") != "quantvla-gr00t-pi05-errorfold-v4":
         raise ValueError("Hessian W4 artifact protocol drift")
     actual_hash = sha256_file(artifact)
     if metadata.get("npz_sha256") != actual_hash:

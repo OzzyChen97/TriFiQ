@@ -48,6 +48,9 @@ from quantvla_cross_model_protocol import (  # noqa: E402
     protocol_attestation,
     validate_quant_plan,
 )
+from quantvla_dynamic_a8_protocol import (  # noqa: E402
+    protocol_attestation as dynamic_a8_protocol_attestation,
+)
 from quantvla_metric_protocol import summarize_pair  # noqa: E402
 from quantvla_model_adapters import (  # noqa: E402
     canonical_physical_chunk,
@@ -68,6 +71,12 @@ ALIGNED_ROOT = REPO_ROOT / "runs/pi05_gdsq_gr00t_aligned"
 
 
 DEFAULT_CONFIGS: dict[str, dict[str, Any]] = {
+    "quantvla_w4a8": {
+        "plan": ALIGNED_ROOT / "plans/pi05_quantvla_uniform_w4a8_d4.plan.json",
+        "a8": ALIGNED_ROOT / "a8/pi05_quantvla_uniform_w4a8_d4_p999_b32x8.npz",
+        "atm": None,
+        "wrapped": 180,
+    },
     "quantvla_w4a8_atmohb": {
         "plan": ALIGNED_ROOT / "plans/pi05_quantvla_uniform_w4a8_d4.plan.json",
         "a8": ALIGNED_ROOT / "a8/pi05_quantvla_uniform_w4a8_d4_p999_b32x8.npz",
@@ -139,7 +148,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--artifact-calibration-buffer", default=str(DEFAULT_ORIGINAL_CALIBRATION_BUFFER))
     parser.add_argument("--pack-dir", default=str(DEFAULT_PACK))
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--activation-mode",
+        choices=("static_a8", "dynamic_a8", "fp16"),
+        default="static_a8",
+        help="Shared activation policy; dynamic_a8 uses per-forward per-channel amax.",
+    )
     parser.add_argument("--n-obs", type=int, default=16)
+    parser.add_argument(
+        "--noise-rule",
+        choices=("A", "B"),
+        default="A",
+        help="A selects/fits; B is allowed only as a frozen single-config audit.",
+    )
     parser.add_argument("--gamma", type=float, default=1.2)
     parser.add_argument(
         "--selection-metric",
@@ -158,6 +179,37 @@ def parse_args() -> argparse.Namespace:
         default=",".join(DEFAULT_CONFIGS),
         help="Comma-separated config ids from the default registry.",
     )
+    parser.add_argument(
+        "--candidate-plan",
+        action="append",
+        default=[],
+        metavar="ID=PLAN.json",
+        help=(
+            "Register an arbitrary selector-free W4/FP16 plan for offline "
+            "FP16-relative scoring. Repeat for multiple compression points."
+        ),
+    )
+    parser.add_argument(
+        "--candidate-hessian",
+        action="append",
+        default=[],
+        metavar="ID=HESSIAN.npz",
+        help=(
+            "Bind a candidate-specific Hessian W4 inventory. This is required "
+            "when candidates retain different FP16 layer subsets."
+        ),
+    )
+    parser.add_argument(
+        "--errorfold-candidate-manifest",
+        default=None,
+        help=(
+            "Score a selector-free set of ErrorFold artifacts while reusing one "
+            "packed model. The manifest freezes the common plan/A8/Hessian "
+            "artifacts and is used by the shared blockwise SoftFold search."
+        ),
+    )
+    parser.add_argument("--candidate-shard-index", type=int, default=0)
+    parser.add_argument("--candidate-shard-count", type=int, default=1)
     parser.add_argument(
         "--strict-artifacts",
         action="store_true",
@@ -259,6 +311,7 @@ def configure_quant(
     pack_dir: Path,
     artifact_buffer_hash: str,
     strict_artifacts: bool,
+    activation_mode: str = "static_a8",
 ) -> None:
     configure_base()
     plan = Path(spec["plan"]).expanduser().resolve()
@@ -268,7 +321,7 @@ def configure_quant(
             "OPENPI_DUQUANT_PLAN": str(plan),
             "OPENPI_DUQUANT_PLAN_STRICT": "1",
             "OPENPI_DUQUANT_WBITS_DEFAULT": "4",
-            "OPENPI_DUQUANT_ABITS": "8",
+            "OPENPI_DUQUANT_ABITS": "0" if activation_mode == "fp16" else "8",
             "OPENPI_DUQUANT_BLOCK": "64",
             "OPENPI_DUQUANT_BLOCK_OUT": "64",
             "OPENPI_DUQUANT_EXPECT_BLOCK": "64",
@@ -280,8 +333,8 @@ def configure_quant(
             "OPENPI_DUQUANT_CALIB_STEPS": "32",
             "OPENPI_DUQUANT_DENOISING_STEPS": "4",
             "OPENPI_DUQUANT_PACKDIR": str(pack_dir),
-            "OPENPI_DUQUANT_ACT_SCALE_PATH": str(a8),
-            "OPENPI_DUQUANT_REQUIRE_ACT_SCALE": "1",
+            "OPENPI_DUQUANT_ACT_DYNAMIC": "1" if activation_mode == "dynamic_a8" else "0",
+            "OPENPI_DUQUANT_REQUIRE_ACT_SCALE": "1" if activation_mode == "static_a8" else "0",
             "OPENPI_DUQUANT_CALIB_BUFFER_SHA256": artifact_buffer_hash,
             "OPENPI_DUQUANT_STRICT_ARTIFACTS": "1" if strict_artifacts else "0",
             "OPENPI_DUQUANT_PRECACHE_WEIGHTS": "1",
@@ -289,6 +342,10 @@ def configure_quant(
             "OPENPI_DUQUANT_QUIET": "1",
         }
     )
+    if activation_mode == "static_a8":
+        os.environ["OPENPI_DUQUANT_ACT_SCALE_PATH"] = str(a8)
+    else:
+        os.environ.pop("OPENPI_DUQUANT_ACT_SCALE_PATH", None)
     if spec.get("hessian_w4"):
         os.environ["OPENPI_DUQUANT_HESSIAN_W4_PATH"] = str(
             Path(spec["hessian_w4"]).expanduser().resolve()
@@ -353,6 +410,50 @@ def main() -> None:
     if float(args.pac_overlap_weight) != 0.0:
         raise ValueError("pi0.5-only forecast overlap is forbidden")
     registry = dict(DEFAULT_CONFIGS)
+    if args.candidate_plan and (args.softfold_grid or args.errorfold_candidate_manifest):
+        raise ValueError(
+            "--candidate-plan cannot be combined with a reusable ErrorFold candidate set"
+        )
+    if args.softfold_grid and args.errorfold_candidate_manifest:
+        raise ValueError(
+            "--softfold-grid and --errorfold-candidate-manifest are mutually exclusive"
+        )
+    for raw_candidate in args.candidate_plan:
+        if "=" not in raw_candidate:
+            raise ValueError("--candidate-plan must use ID=PLAN.json")
+        config_id, raw_path = raw_candidate.split("=", 1)
+        if (
+            not config_id
+            or any(not (char.isalnum() or char in "_.-") for char in config_id)
+            or config_id in registry
+        ):
+            raise ValueError(f"invalid or duplicate candidate id: {config_id!r}")
+        plan = Path(raw_path).expanduser().resolve()
+        payload = json.loads(plan.read_text(encoding="utf-8"))
+        selection = validate_quant_plan(
+            payload, model="pi05", source=f"candidate {config_id}"
+        )
+        registry[config_id] = {
+            "plan": plan,
+            # Dynamic A8/FP16 modes do not consume this table, but keeping a
+            # valid placeholder makes the common scoring path explicit.
+            "a8": DEFAULT_CONFIGS["quantvla_w4a8"]["a8"],
+            "atm": None,
+            "wrapped": selection["quantized_w4_layers"],
+        }
+    for raw_hessian in args.candidate_hessian:
+        if "=" not in raw_hessian:
+            raise ValueError("--candidate-hessian must use ID=HESSIAN.npz")
+        config_id, raw_path = raw_hessian.split("=", 1)
+        if config_id not in registry:
+            raise ValueError(f"candidate Hessian references unknown id: {config_id!r}")
+        hessian = Path(raw_path).expanduser().resolve()
+        if not hessian.is_file() or not Path(str(hessian) + ".json").is_file():
+            raise FileNotFoundError(f"candidate Hessian artifact is incomplete: {hessian}")
+        registry[config_id] = {**registry[config_id], "hessian_w4": str(hessian)}
+    base_spec: dict[str, Any] | None = None
+    candidate_manifest: dict[str, Any] | None = None
+    candidate_manifest_path: Path | None = None
     if args.softfold_grid:
         if not args.softfold_raw:
             raise ValueError("--softfold-grid requires --softfold-raw")
@@ -368,11 +469,19 @@ def main() -> None:
         v3_plan = Path(args.v3_plan).expanduser().resolve()
         v3_a8 = Path(args.v3_a8).expanduser().resolve()
         v3_plan_payload = json.loads(v3_plan.read_text(encoding="utf-8"))
+        v3_layers = v3_plan_payload.get("layers") or {}
+        wrapped_layers = sum(
+            not bool((entry if isinstance(entry, dict) else {}).get("skip", False))
+            and int((entry if isinstance(entry, dict) else {}).get("bits", 0) or 0) > 0
+            for entry in v3_layers.values()
+        )
+        if wrapped_layers <= 0:
+            raise ValueError("v3 SoftFold plan does not contain a quantized W4 layer")
         base_spec = {
             **DEFAULT_CONFIGS[args.softfold_base],
             "plan": v3_plan,
             "a8": v3_a8,
-            "wrapped": len(v3_plan_payload.get("layers") or {}),
+            "wrapped": wrapped_layers,
             "hessian_w4": str(Path(args.hessian_w4).expanduser().resolve()),
         }
         registry.update(
@@ -392,24 +501,103 @@ def main() -> None:
         config_ids = all_grid_config_ids
         if not config_ids:
             raise ValueError("SoftFold grid shard is empty")
+    elif args.errorfold_candidate_manifest:
+        candidate_manifest_path = Path(
+            args.errorfold_candidate_manifest
+        ).expanduser().resolve()
+        candidate_manifest = json.loads(
+            candidate_manifest_path.read_text(encoding="utf-8")
+        )
+        if (
+            candidate_manifest.get("schema_version") != 1
+            or candidate_manifest.get("kind")
+            != "blockwise_errorfold_candidate_manifest"
+        ):
+            raise ValueError("unsupported blockwise ErrorFold candidate manifest")
+        common = candidate_manifest.get("common") or {}
+        candidates = candidate_manifest.get("candidates") or {}
+        if not isinstance(candidates, dict) or not candidates:
+            raise ValueError("blockwise ErrorFold manifest has no candidates")
+        plan = Path(common["plan"]).expanduser().resolve()
+        a8 = Path(common["a8"]).expanduser().resolve()
+        hessian_w4 = Path(common["hessian_w4"]).expanduser().resolve()
+        plan_payload = json.loads(plan.read_text(encoding="utf-8"))
+        selection = validate_quant_plan(
+            plan_payload, model="pi05", source=str(plan)
+        )
+        wrapped = int(selection["quantized_w4_layers"])
+        base_spec = {
+            **DEFAULT_CONFIGS["quantvla_w4a8_atmohb"],
+            "plan": plan,
+            "a8": a8,
+            "wrapped": wrapped,
+            "hessian_w4": str(hessian_w4),
+        }
+        if (
+            args.candidate_shard_count < 1
+            or not 0 <= args.candidate_shard_index < args.candidate_shard_count
+        ):
+            raise ValueError("invalid blockwise candidate shard")
+        config_ids = []
+        for candidate_index, (config_id, entry) in enumerate(sorted(candidates.items())):
+            if (
+                not config_id
+                or any(
+                    not (char.isalnum() or char in "_.-")
+                    for char in config_id
+                )
+            ):
+                raise ValueError(f"invalid blockwise candidate id: {config_id!r}")
+            correction = Path(entry["errorfold"]).expanduser().resolve()
+            if not correction.is_file():
+                raise FileNotFoundError(correction)
+            registry[config_id] = {
+                **base_spec,
+                "errorfold": correction,
+                "atm": correction,
+                "gate": entry.get("gate"),
+                "gate_profile": entry.get("gate_profile"),
+                "correction_norm": entry.get("correction_norm"),
+            }
+            if candidate_index % args.candidate_shard_count == args.candidate_shard_index:
+                config_ids.append(config_id)
+        if not config_ids:
+            raise ValueError("blockwise candidate shard is empty")
     else:
+        if args.candidate_shard_index != 0 or args.candidate_shard_count != 1:
+            raise ValueError(
+                "candidate sharding requires --errorfold-candidate-manifest"
+            )
         if args.softfold_grid_shard_index != 0 or args.softfold_grid_shard_count != 1:
             raise ValueError("SoftFold grid sharding requires --softfold-grid")
         config_ids = [item.strip() for item in args.include.split(",") if item.strip()]
     unknown = sorted(set(config_ids) - set(registry))
     if unknown:
         raise ValueError(f"unknown config ids: {unknown}")
+    if args.noise_rule == "B" and len(config_ids) != 1:
+        raise ValueError("noise-B is a frozen audit and requires exactly one config")
+    if args.hessian_w4 and not args.softfold_grid and not args.errorfold_candidate_manifest:
+        hessian_override = str(Path(args.hessian_w4).expanduser().resolve())
+        for config_id in config_ids:
+            registry[config_id] = {
+                **registry[config_id],
+                "hessian_w4": registry[config_id].get("hessian_w4", hessian_override),
+            }
     checkpoint_dir = Path(args.checkpoint_dir).expanduser().resolve()
     buffer_path = Path(args.buffer).expanduser().resolve()
     pack_dir = Path(args.pack_dir).expanduser().resolve()
     artifact_buffer_hash = sha256_file(Path(args.artifact_calibration_buffer).expanduser().resolve())
-    calibration_attestation = validate_calibration_artifact(
-        base_spec["a8"] if args.softfold_grid else registry[config_ids[0]]["a8"],
-        model="pi05",
-        expected_buffer_sha256=artifact_buffer_hash,
-    )
+    calibration_attestation = None
+    reusable_errorfold = bool(args.softfold_grid or args.errorfold_candidate_manifest)
+    if args.activation_mode == "static_a8":
+        assert base_spec is not None or config_ids
+        calibration_attestation = validate_calibration_artifact(
+            base_spec["a8"] if reusable_errorfold else registry[config_ids[0]]["a8"],
+            model="pi05",
+            expected_buffer_sha256=artifact_buffer_hash,
+        )
     base_plan_path = Path(
-        base_spec["plan"] if args.softfold_grid else registry[config_ids[0]]["plan"]
+        base_spec["plan"] if reusable_errorfold else registry[config_ids[0]]["plan"]
     ).resolve()
     quant_selection_attestation = validate_quant_plan(
         json.loads(base_plan_path.read_text(encoding="utf-8")),
@@ -422,10 +610,12 @@ def main() -> None:
     record_details = record_metadata(records)
 
     payload: dict[str, Any] = {
-        "schema_version": 3 if args.softfold_grid else 1,
+        "schema_version": 3 if reusable_errorfold else 1,
         "kind": (
             "errorfold_v3_pi05_softfold_grid_score"
             if args.softfold_grid
+            else "errorfold_blockwise_profile_score"
+            if args.errorfold_candidate_manifest
             else "fp16_guided_quant_config_score"
         ),
         "cross_model_protocol": protocol_attestation(),
@@ -436,9 +626,14 @@ def main() -> None:
         "buffer_sha256": buffer_provenance["sha256"],
         "artifact_calibration_buffer_sha256": artifact_buffer_hash,
         "strict_artifacts": bool(args.strict_artifacts),
+        "activation_mode": args.activation_mode,
         "calibration_attestation": calibration_attestation,
         "quantization_selection": quant_selection_attestation,
         "n_obs": args.n_obs,
+        "noise": args.noise_rule,
+        "selection_role": (
+            "noise_a_selection" if args.noise_rule == "A" else "frozen_noise_b_audit"
+        ),
         "gamma": args.gamma,
         "selection_metric": args.selection_metric,
         "pac_overlap_weight": args.pac_overlap_weight,
@@ -454,9 +649,25 @@ def main() -> None:
             if args.softfold_grid
             else None
         ),
+        "errorfold_candidate_manifest": (
+            str(candidate_manifest_path) if candidate_manifest_path else None
+        ),
+        "errorfold_candidate_manifest_sha256": (
+            sha256_file(candidate_manifest_path) if candidate_manifest_path else None
+        ),
+        "errorfold_candidate_shard": (
+            {
+                "index": args.candidate_shard_index,
+                "count": args.candidate_shard_count,
+                "candidate_count": len(config_ids),
+                "config_ids": config_ids,
+            }
+            if candidate_manifest_path
+            else None
+        ),
         "quant_plan_sha256": (
             sha256_file(base_plan_path)
-            if args.softfold_grid
+            if reusable_errorfold
             else None
         ),
         # Keep the shared provenance field identical to the GR00T scorer.
@@ -464,12 +675,12 @@ def main() -> None:
         # diagnostic readers.
         "plan_sha256": (
             sha256_file(base_plan_path)
-            if args.softfold_grid
+            if reusable_errorfold
             else None
         ),
         "a8_sha256": (
             sha256_file(Path(base_spec["a8"]).resolve())
-            if args.softfold_grid
+            if reusable_errorfold and args.activation_mode == "static_a8"
             else None
         ),
         "raw_correction_sha256": (
@@ -478,8 +689,8 @@ def main() -> None:
             else None
         ),
         "hessian_w4_sha256": (
-            sha256_file(Path(args.hessian_w4).expanduser().resolve())
-            if args.softfold_grid and args.hessian_w4
+            sha256_file(Path(base_spec["hessian_w4"]).expanduser().resolve())
+            if reusable_errorfold and base_spec and base_spec.get("hessian_w4")
             else None
         ),
         "source_sha256": {
@@ -505,6 +716,8 @@ def main() -> None:
         "records": record_details,
         "scores": {},
     }
+    if args.activation_mode == "dynamic_a8":
+        payload["dynamic_a8_protocol"] = dynamic_a8_protocol_attestation()
     output = Path(args.out).expanduser().resolve()
     if output.is_file():
         previous = json.loads(output.read_text(encoding="utf-8"))
@@ -513,6 +726,8 @@ def main() -> None:
             "buffer_sha256",
             "artifact_calibration_buffer_sha256",
             "n_obs",
+            "noise",
+            "selection_role",
             "gamma",
             "selection_metric",
             "pac_overlap_weight",
@@ -522,8 +737,12 @@ def main() -> None:
             "a8_sha256",
             "raw_correction_sha256",
             "hessian_w4_sha256",
+            "errorfold_candidate_manifest_sha256",
+            "errorfold_candidate_shard",
             "source_sha256",
             "cross_model_protocol",
+            "dynamic_a8_protocol",
+            "activation_mode",
         )
         if any(previous.get(key) != payload.get(key) for key in invariant_keys):
             raise ValueError(f"existing score shard provenance drift: {output}")
@@ -533,7 +752,7 @@ def main() -> None:
     started = time.time()
     fp16 = load_policy(checkpoint_dir, args.device)
     reference, reference_actions, timings = run_records(
-        fp16, records, args.device, noise_index=0
+        fp16, records, args.device, noise_index=0 if args.noise_rule == "A" else 1
     )
     payload["fp16"] = {
         "latency_mean_s": float(np.mean(timings)),
@@ -544,7 +763,8 @@ def main() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    if args.softfold_grid:
+    if reusable_errorfold:
+        assert base_spec is not None
         shared_spec = {
             **base_spec,
             "atm": None,
@@ -557,6 +777,7 @@ def main() -> None:
             pack_dir=pack_dir,
             artifact_buffer_hash=artifact_buffer_hash,
             strict_artifacts=args.strict_artifacts,
+            activation_mode=args.activation_mode,
         )
         policy = load_policy(checkpoint_dir, args.device)
         runtime = enable_duquant_if_configured(policy._model)
@@ -584,7 +805,7 @@ def main() -> None:
         correction = spec.get("errorfold") or spec.get("atm")
         atm = Path(correction).expanduser().resolve() if correction else None
         started = time.time()
-        if args.softfold_grid:
+        if reusable_errorfold:
             assert policy is not None
             reset_errorfold_attention_folds(policy._model)
             runtime = apply_errorfold(policy._model, Path(spec["errorfold"]))
@@ -626,6 +847,7 @@ def main() -> None:
                 pack_dir=pack_dir,
                 artifact_buffer_hash=artifact_buffer_hash,
                 strict_artifacts=args.strict_artifacts,
+                activation_mode=args.activation_mode,
             )
             policy = load_policy(checkpoint_dir, args.device)
             runtime = enable_duquant_if_configured(policy._model)
@@ -641,7 +863,10 @@ def main() -> None:
             if not real_quant["packed_low_bit_residency"]:
                 raise RuntimeError(f"{config_id}: packed W4 residency was not finalized")
         trajectory, physical_actions, timings = run_records(
-            policy, records, args.device, noise_index=0
+            policy,
+            records,
+            args.device,
+            noise_index=0 if args.noise_rule == "A" else 1,
         )
         pair = summarize_pair(
             canonical_physical_chunk(reference_actions, model="pi05"),
@@ -653,14 +878,23 @@ def main() -> None:
         payload["scores"][config_id] = {
             "plan": str(plan),
             "plan_sha256": digest_path(plan),
-            "a8": str(a8),
-            "a8_sha256": digest_path(a8),
+            "a8": str(a8) if args.activation_mode == "static_a8" else None,
+            "a8_sha256": digest_path(a8) if args.activation_mode == "static_a8" else None,
+            "hessian_w4": (
+                str(Path(spec["hessian_w4"]).expanduser().resolve())
+                if spec.get("hessian_w4") else None
+            ),
+            "hessian_w4_sha256": (
+                digest_path(Path(spec["hessian_w4"]).expanduser().resolve())
+                if spec.get("hessian_w4") else None
+            ),
             "atm": str(atm) if atm else None,
             "atm_sha256": digest_path(atm),
             "wrapped_layers": int(runtime["wrapped_layers"]),
             "atm_enabled": bool(atm_runtime.get("enabled")),
             "real_quant_residency": real_quant,
             "gate": spec.get("gate"),
+            "gate_profile": spec.get("gate_profile"),
             "correction_norm": spec.get("correction_norm"),
             "d_func": float(metrics["d_func"]),
             "d_solver": float(metrics["d_solver"]),
@@ -684,14 +918,14 @@ def main() -> None:
             f"D_PAC={payload['scores'][config_id]['d_pac']:.6g}",
             flush=True,
         )
-        if not args.softfold_grid:
+        if not reusable_errorfold:
             del policy
             policy = None
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-    if args.softfold_grid:
+    if reusable_errorfold:
         assert policy is not None
         payload["deployment_residency_preflight"] = finalize_real_quant(policy._model)
         del policy
@@ -707,9 +941,15 @@ def main() -> None:
         "value": payload["scores"][best][metric_key],
         "d_func": payload["scores"][best]["d_func"],
         "d_pac": payload["scores"][best]["d_pac"],
-        "selection_rule": "diagnostic_argmin_only",
+        "selection_rule": (
+            "diagnostic_argmin_only" if args.noise_rule == "A" else None
+        ),
         "final_selection_rule": "paired_one_standard_error_then_minimum_correction_norm_gate_sum_interaction",
-        "status": "diagnostic_argmin_only_final_selection_uses_shared_one_standard_error_rule",
+        "status": (
+            "diagnostic_argmin_only_final_selection_uses_shared_one_standard_error_rule"
+            if args.noise_rule == "A"
+            else "frozen_noise_b_audit_no_selection"
+        ),
     }
     atomic_json(output, payload)
     print(

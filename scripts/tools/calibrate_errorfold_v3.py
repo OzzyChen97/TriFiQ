@@ -91,6 +91,15 @@ def _ordered_layer_names(model: torch.nn.Module, plan_names: Sequence[str]) -> l
     return names
 
 
+def _quantized_plan_names(plan_payload: dict[str, Any]) -> list[str]:
+    layers = plan_payload.get("layers") or {}
+    return [
+        str(name)
+        for name, raw in layers.items()
+        if not bool((raw if isinstance(raw, dict) else {}).get("skip", False))
+    ]
+
+
 def _save_attention(path: Path, capture: AttentionCapture) -> None:
     entries = capture.entries()
     arrays: dict[str, np.ndarray] = {
@@ -138,6 +147,34 @@ def _validate_fp16_stage(
             actual = str(np.asarray(archive[key]).item())
             if actual != value:
                 raise ValueError(f"FP16 stage {key} drift: {actual} != {value}")
+        capture = PROTOCOL["hessian_w4a8"]["capture_sampling"]
+        expected_capture = {
+            "capture_sampling_strategy": capture["strategy"],
+            "capture_rows_per_observation": capture["rows_per_observation_per_call"],
+            "capture_rank2_rows_per_call": capture["rank2_rows_per_call"],
+        }
+        for key, value in expected_capture.items():
+            actual = np.asarray(archive[key]).item()
+            if actual != value:
+                raise ValueError(f"FP16 stage {key} drift: {actual} != {value}")
+        row_counts = np.asarray(archive["capture_input_rows"])
+        minimum_rows = int(capture["minimum_prefix_rows_per_layer"])
+        if row_counts.size == 0 or int(row_counts.min()) < minimum_rows:
+            actual_minimum = None if row_counts.size == 0 else int(row_counts.min())
+            raise ValueError(
+                f"FP16 capture coverage below {minimum_rows}: min={actual_minimum}"
+            )
+        names = [str(value) for value in archive["layer_names"].tolist()]
+        for index, name in enumerate(names):
+            step_key = f"step_inputs_{index:04d}"
+            if step_key in archive:
+                per_step = np.asarray(archive[step_key])
+                required = int(capture["minimum_rows_per_flow_step_per_layer"])
+                if per_step.shape[0] != 4 or per_step.shape[1] < required:
+                    raise ValueError(
+                        f"{name}: flow-step capture coverage {per_step.shape} "
+                        f"< (4,{required},C)"
+                    )
     capture_sha256 = sha256_file(paths["fp16"])
     a8_sidecar = Path(
         str(paths["a8"]) + (".meta.json" if model == "gr00t" else ".json")
@@ -175,6 +212,7 @@ def _capture_gr00t(
     device: str,
     batch_size: int,
     quantized: bool,
+    activation_mode: str = "static_a8",
 ) -> tuple[dict[str, np.ndarray], AttentionCapture, dict[str, Any]]:
     from gr00t.atm import (
         clear_atm_capture,
@@ -200,16 +238,25 @@ def _capture_gr00t(
     strip_quant_env()
     os.environ.pop("QUANTVLA_ADAPTER_ONLY", None)
     if quantized:
-        set_quant_env(DEFAULT_INCLUDE, DEFAULT_EXCLUDE, str(pack_dir), row_rot="0")
+        set_quant_env(
+            DEFAULT_INCLUDE,
+            DEFAULT_EXCLUDE,
+            str(pack_dir),
+            row_rot="0",
+            act_dynamic=activation_mode == "dynamic_a8",
+        )
         os.environ.update(
             {
                 "QUANTVLA_ADAPTER_ONLY": "1",
                 "GR00T_DUQUANT_PLAN": str(plan),
                 "GR00T_DUQUANT_FUSED": "1",
-                "GR00T_DUQUANT_ACT_SCALE_PATH": str(a8),
                 "GR00T_DUQUANT_HESSIAN_W4_PATH": str(hessian),
             }
         )
+        if activation_mode == "static_a8":
+            os.environ["GR00T_DUQUANT_ACT_SCALE_PATH"] = str(a8)
+        else:
+            os.environ.pop("GR00T_DUQUANT_ACT_SCALE_PATH", None)
     policy = load_policy(
         str(checkpoint),
         data_config="examples.RoboCasa365.custom_data_config:RoboCasa365DataConfig",
@@ -218,7 +265,7 @@ def _capture_gr00t(
     )
     model = policy.model
     plan_payload = json.loads(plan.read_text(encoding="utf-8"))
-    names = _ordered_layer_names(model, list(plan_payload["layers"]))
+    names = _ordered_layer_names(model, _quantized_plan_names(plan_payload))
     if quantized:
         wrapped = [
             (name, module)
@@ -230,14 +277,17 @@ def _capture_gr00t(
         runtime = getattr(model, "_gr00t_duquant_runtime", {})
         if runtime.get("hessian_w4_loaded") != len(names):
             raise RuntimeError(f"GR00T Hessian W4 did not load: {runtime}")
-        load_act_scales(
-            model,
-            str(a8),
-            require={
-                "plan_sha256": plan_hash,
-                "calibration_buffer_sha256": buffer_hash,
-            },
-        )
+        if activation_mode == "static_a8":
+            load_act_scales(
+                model,
+                str(a8),
+                require={
+                    "plan_sha256": plan_hash,
+                    "calibration_buffer_sha256": buffer_hash,
+                },
+            )
+        elif not all(bool(module.cfg.act_dynamic) for _, module in wrapped):
+            raise RuntimeError("GR00T dynamic ErrorFold capture did not enable DyRange-A8")
     ensure_dit_attention_patch(model, scope="dit")
     linear = LayerCapture(names, step_getter=get_current_dit_step)
     attention = AttentionCapture()
@@ -304,6 +354,7 @@ def _configure_pi05_quant(
     hessian: Path,
     buffer_hash: str,
     expected_wrapped: int,
+    activation_mode: str = "static_a8",
 ) -> None:
     for key in list(os.environ):
         if key.startswith(("OPENPI_DUQUANT_", "OPENPI_ATM_", "OPENPI_OHB_")):
@@ -331,8 +382,12 @@ def _configure_pi05_quant(
             "OPENPI_DUQUANT_CALIB_STEPS": "32",
             "OPENPI_DUQUANT_DENOISING_STEPS": "4",
             "OPENPI_DUQUANT_PACKDIR": str(pack_dir),
-            "OPENPI_DUQUANT_ACT_SCALE_PATH": str(a8),
-            "OPENPI_DUQUANT_REQUIRE_ACT_SCALE": "1",
+            "OPENPI_DUQUANT_ACT_DYNAMIC": (
+                "1" if activation_mode == "dynamic_a8" else "0"
+            ),
+            "OPENPI_DUQUANT_REQUIRE_ACT_SCALE": (
+                "0" if activation_mode == "dynamic_a8" else "1"
+            ),
             "OPENPI_DUQUANT_CALIB_BUFFER_SHA256": buffer_hash,
             "OPENPI_DUQUANT_STRICT_ARTIFACTS": "1",
             "OPENPI_DUQUANT_PRECACHE_WEIGHTS": "1",
@@ -341,6 +396,10 @@ def _configure_pi05_quant(
             "OPENPI_DUQUANT_QUIET": "1",
         }
     )
+    if activation_mode == "static_a8":
+        os.environ["OPENPI_DUQUANT_ACT_SCALE_PATH"] = str(a8)
+    else:
+        os.environ.pop("OPENPI_DUQUANT_ACT_SCALE_PATH", None)
 
 
 def _capture_pi05(
@@ -357,6 +416,7 @@ def _capture_pi05(
     device: str,
     batch_size: int,
     quantized: bool,
+    activation_mode: str = "static_a8",
 ) -> tuple[dict[str, np.ndarray], AttentionCapture, dict[str, Any]]:
     from openpi.policies import policy_config
     from openpi.quant import enable_duquant_if_configured
@@ -384,7 +444,8 @@ def _capture_pi05(
             a8=a8,
             hessian=hessian,
             buffer_hash=buffer_hash,
-            expected_wrapped=len(plan_payload["layers"]),
+            expected_wrapped=len(_quantized_plan_names(plan_payload)),
+            activation_mode=activation_mode,
         )
     else:
         os.environ.update(
@@ -403,7 +464,7 @@ def _capture_pi05(
         runtime = enable_duquant_if_configured(policy._model)
         policy._model.to(device)
     model = policy._model
-    names = _ordered_layer_names(model, list(plan_payload["layers"]))
+    names = _ordered_layer_names(model, _quantized_plan_names(plan_payload))
     if quantized:
         wrapped_names = [
             name
@@ -412,6 +473,8 @@ def _capture_pi05(
         ]
         if wrapped_names != names or runtime.get("hessian_w4_loaded") != len(names):
             raise RuntimeError(f"pi0.5 quant inventory/Hessian drift: {runtime}")
+        if activation_mode == "dynamic_a8" and not runtime.get("act_dynamic"):
+            raise RuntimeError("pi0.5 dynamic ErrorFold capture did not enable DyRange-A8")
     ensure_pi05_attention_patch(model, scope="expert")
     linear = LayerCapture(names, step_getter=get_current_dit_step)
     attention = AttentionCapture()
@@ -485,6 +548,8 @@ def main() -> None:
         "checkpoint_sha256": checkpoint_hash,
         "plan_sha256": plan_hash,
         "protocol_sha256": PROTOCOL_SHA256,
+        "quantized_w4_layers": selection["quantized_w4_layers"],
+        "retained_fp16_target_layers": selection["retained_fp16_target_layers"],
         "packed_weights_source": "hessian_w4.npz",
         "permutation": False,
         "row_rotation": "identity",
@@ -564,6 +629,7 @@ def main() -> None:
                 device=args.device,
                 batch_size=args.batch_size,
                 quantized=False,
+                activation_mode="static_a8",
             )
             save_npz(paths["fp16"], fp16_arrays)
             _save_attention(paths["fp16_attention"], fp16_attention)
@@ -573,6 +639,13 @@ def main() -> None:
                 paths["hessian"],
                 model_name,
                 device=args.hessian_device or args.device,
+            )
+            _validate_fp16_stage(
+                paths,
+                model=model_name,
+                checkpoint_sha256=checkpoint_hash,
+                plan_sha256=plan_hash,
+                buffer_sha256=buffer_hash,
             )
         # The quantized stage is atomic as a group.  Preserve the expensive,
         # validated FP16/Hessian stage, but rebuild any interrupted downstream
@@ -594,6 +667,7 @@ def main() -> None:
             device=args.device,
             batch_size=args.batch_size,
             quantized=True,
+            activation_mode="static_a8",
         )
         save_npz(paths["quant"], quant_arrays)
         _save_attention(paths["quant_attention"], quant_attention)

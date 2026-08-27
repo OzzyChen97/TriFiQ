@@ -85,6 +85,15 @@ def parse_args() -> argparse.Namespace:
         default="quantvla-w4",
         help="Exact QuantVLA all-W4 bytes (default) or the legacy uniform-W6 budget.",
     )
+    parser.add_argument(
+        "--target-compression",
+        type=float,
+        default=None,
+        help=(
+            "Target candidate-weight compression FP16_bytes/plan_bytes. Overrides "
+            "--budget-reference and searches the shared binary W4/FP16 space."
+        ),
+    )
     parser.add_argument("--n-perturb", type=int, default=10)
     parser.add_argument("--perturb-sigma", type=float, default=0.25)
     parser.add_argument("--n-topk", type=int, default=10)
@@ -240,7 +249,10 @@ def select(args: argparse.Namespace) -> dict[str, Any]:
         scores, sensitivity, names, tau_rms, tau_sat, bit=4
     )
     guard_diagnostics = list(removed)
-    exact_quantvla_budget = args.budget_reference == "quantvla-w4"
+    exact_quantvla_budget = (
+        args.target_compression is None
+        and args.budget_reference == "quantvla-w4"
+    )
     if exact_quantvla_budget:
         filtered_scores = unguarded_scores
         removed = []
@@ -250,8 +262,11 @@ def select(args: argparse.Namespace) -> dict[str, Any]:
         final_selector.layer_bytes_fp16(shape["out"], shape["in"], shape["has_bias"])
         for shape in shapes.values()
     )
+    minimum_budget = final_selector.quantvla_w4_budget(
+        shapes, args.group, args.row_rot
+    )
     if exact_quantvla_budget:
-        budget = final_selector.quantvla_w4_budget(shapes, args.group, args.row_rot)
+        budget = minimum_budget
         greedy = final_selector.quantvla_w4_plan(shapes, args.group, args.row_rot)
         greedy_objective = final_selector.plan_objective(greedy, filtered_scores, weights)
         candidates: list[dict[str, Any]] = [
@@ -265,7 +280,16 @@ def select(args: argparse.Namespace) -> dict[str, Any]:
         uniform_w6 = {
             name: {"bits": 6, "group": args.group, "skip": False} for name in names
         }
-        budget = final_selector.plan_total_bytes(uniform_w6, shapes, args.row_rot)
+        if args.target_compression is not None:
+            budget, _maximum_compression = (
+                final_selector.budget_from_target_compression(
+                    fp16_bytes, minimum_budget, args.target_compression
+                )
+            )
+        else:
+            budget = final_selector.plan_total_bytes(
+                uniform_w6, shapes, args.row_rot
+            )
         greedy, greedy_objective = final_selector.greedy_plan(
             shapes, filtered_scores, weights, budget, args.row_rot
         )
@@ -423,8 +447,14 @@ def select(args: argparse.Namespace) -> dict[str, Any]:
             "budget_reference": (
                 "quantvla_all_candidate_w4_static_bytes"
                 if exact_quantvla_budget
-                else "uniform_w6_static_bytes"
+                else (
+                    f"target_candidate_compression_{args.target_compression:g}x"
+                    if args.target_compression is not None
+                    else "uniform_w6_static_bytes"
+                )
             ),
+            "target_compression": args.target_compression,
+            "achieved_candidate_compression": fp16_bytes / primary_bytes,
             "search_start": "QuantVLA full W4" if exact_quantvla_budget else "native FP16",
             "budget_semantics": "theoretical packed static weight bytes only",
             "skip_semantics": "native torch.nn.Linear FP16; no wrapper, rotation, or A8",
@@ -446,6 +476,7 @@ def select(args: argparse.Namespace) -> dict[str, Any]:
         "fp16_total_bytes": fp16_bytes,
         "budget_fraction_of_fp16": budget / fp16_bytes,
         "total_bytes": primary_bytes,
+        "achieved_candidate_compression": fp16_bytes / primary_bytes,
         "objective": float(primary["objective"]),
         "primary_source": primary["source"],
         "packdirs": {str(args.group): str(pack_dir)},

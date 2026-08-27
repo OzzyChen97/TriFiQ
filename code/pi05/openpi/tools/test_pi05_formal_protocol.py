@@ -177,17 +177,7 @@ def test_week1_control_uses_fail_closed_formal_runtime(tmp_path, monkeypatch) ->
     runtime = {
         "config_id": "uniform_w6",
         "checkpoint_sha256": "checkpoint",
-        "protocol": {
-            "action_horizon": 50,
-            "n_action_steps": 16,
-            "replan_steps": 16,
-            "flow_steps": 4,
-            "split": "target",
-            "fresh_environment_per_episode": True,
-            "official_task_horizon": True,
-            "render": True,
-            "paired_noise": PROTOCOL,
-        },
+        "protocol": SERVER_MODULE.closed_loop_runtime_protocol(),
         "model_dtype": {
             "resolved": "float16",
             "linear_layers_by_weight_dtype": {"float16": 1},

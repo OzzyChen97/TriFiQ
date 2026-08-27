@@ -4,6 +4,7 @@ import copy
 import math
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -18,10 +19,21 @@ sys.path.insert(0, str(REPO_ROOT / "code/pi05/openpi/src"))
 from fit_softfold_compensation import (  # noqa: E402
     GRID,
     require_grid,
+    select_atm_only_dual_pareto_knee,
+    select_atm_only_minimum,
+    select_minimum_objective,
+    select_minimax_dual_regret,
     select_one_standard_error,
     summarize_candidates,
+    summarize_dual_candidates,
 )
 from quantvla_cross_model_protocol import PROTOCOL, validate_quant_plan  # noqa: E402
+from quantvla_dynamic_a8_protocol import (  # noqa: E402
+    PROTOCOL as DYNAMIC_A8_PROTOCOL,
+    protocol_attestation as dynamic_a8_protocol_attestation,
+    require_protocol_attestation as require_dynamic_a8_protocol_attestation,
+    validate_runtime as validate_dynamic_a8_runtime,
+)
 from quantvla_errorfold import (  # noqa: E402
     fit_errorfold,
     fold_dequant_scales,
@@ -36,16 +48,30 @@ from quantvla_hessian_w4 import (  # noqa: E402
 )
 from quantvla_metric_protocol import (  # noqa: E402
     aggregate_d_pac_sequences,
+    d_func,
     d_pac_sequence,
     physical_action_scale,
     summarize_noise_a_b,
     summarize_pair,
 )
 from quantvla_model_adapters import (  # noqa: E402
+    _load_archive_rows,
     _resize_uint8_image,
     canonical_physical_chunk,
 )
-from quantvla_v3_capture import _stratified_rows  # noqa: E402
+from quantvla_v3_capture import (  # noqa: E402
+    _stratified_rows,
+    _stratified_rows_per_sample,
+)
+from gr00t_select_plan import budget_from_target_compression  # noqa: E402
+from select_errorbudget_plan import select_protected_layers  # noqa: E402
+from select_outputimpact_plan import reliability_shrunk_risk  # noqa: E402
+from gr00t.quantization.duquant_layers import (  # noqa: E402
+    DuQuantLinear as Gr00tDuQuantLinear,
+)
+from openpi.quant.duquant_layers import (  # noqa: E402
+    DuQuantLinear as Pi05DuQuantLinear,
+)
 
 
 def _records(count: int = 8) -> list[dict]:
@@ -61,12 +87,13 @@ def _teacher() -> torch.Tensor:
 
 
 def test_v3_protocol_freezes_physical_action_and_shared_search() -> None:
-    assert PROTOCOL["protocol_id"] == "quantvla-gr00t-pi05-errorfold-v3"
+    assert PROTOCOL["protocol_id"] == "quantvla-gr00t-pi05-errorfold-v4"
     assert PROTOCOL["metrics"]["canonical_action"]["space"].startswith("physical")
     assert PROTOCOL["metrics"]["d_pac"]["formula_id"].startswith("d_pac_v2")
     assert PROTOCOL["metrics"]["d_pac"]["pi05_forecast_overlap"] is False
     assert len(PROTOCOL["softfold"]["grid"]["gate_atm"]) == 9
     assert len(PROTOCOL["softfold"]["grid"]["gate_errorfold"]) == 9
+    assert PROTOCOL["hessian_w4a8"]["capture_sampling"]["rows_per_observation_per_call"] == 1
 
 
 def test_d_pac_v2_fp16_identity_is_strict_zero() -> None:
@@ -87,9 +114,14 @@ def test_dfunc_one_se_samples_are_task_seed_sequences_not_replans() -> None:
     assert len(summary["per_obs"]) == 8
     assert len(summary["per_sequence"]) == 2
     assert summary["selection_sample_unit"] == "paired_task_seed_sequence"
-    assert summary["per_sequence"][0] == pytest.approx(
-        sum(summary["per_obs"][:4]) / 4.0
-    )
+    first = d_func(teacher[:4], candidate[:4])
+    assert summary["per_sequence"][0] == pytest.approx(first["d_func"])
+    assert summary["sequences"][0]["components"] == {
+        "final": pytest.approx(first["d_final"]),
+        "kin": pytest.approx(first["d_kin"]),
+        "grip": pytest.approx(first["d_grip"]),
+        "tail_cvar90": pytest.approx(first["tail"]["cvar90"]),
+    }
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA capture regression")
@@ -98,6 +130,26 @@ def test_v3_capture_stratified_indices_follow_tensor_device() -> None:
     rows = _stratified_rows(value, 3)
     assert rows.device.type == "cpu"
     assert rows.shape == (3, 8)
+
+
+def test_capture_samples_every_observation_in_batch() -> None:
+    value = torch.arange(8 * 5 * 3, dtype=torch.float32).reshape(8, 5, 3)
+    rows = _stratified_rows_per_sample(value, 1)
+    assert rows.shape == (8, 3)
+    # With one row per observation, every batch offset must be represented.
+    torch.testing.assert_close(rows, value[:, 0, :])
+    two_rows = _stratified_rows_per_sample(value, 2)
+    assert two_rows.shape == (16, 3)
+    torch.testing.assert_close(two_rows.reshape(8, 2, 3)[:, 0], value[:, 0])
+    torch.testing.assert_close(two_rows.reshape(8, 2, 3)[:, 1], value[:, -1])
+    rank2 = torch.arange(40, dtype=torch.float32).reshape(10, 4)
+    assert _stratified_rows_per_sample(rank2, 1).shape == (8, 4)
+
+
+def test_selection_buffer_cannot_leak_noise_b_rows() -> None:
+    selection = PROTOCOL["data"]["selection_buffer"]
+    with pytest.raises(ValueError, match="held-out noise-B"):
+        _load_archive_rows(REPO_ROOT / selection["path"], int(selection["observations"]) + 1)
 
 
 def test_gr00t_adapter_resizes_shared_224_images_deterministically() -> None:
@@ -202,8 +254,12 @@ def test_errorfold_closed_form_and_reliability_shrinkage() -> None:
     teacher = quant * 1.2 - 0.15
     fitted = fit_errorfold(teacher, quant)
     gain, bias = gated_affine(fitted, 1.0)
-    torch.testing.assert_close(quant * gain + bias, teacher, atol=2e-5, rtol=2e-5)
+    assert torch.mean((quant * gain + bias - teacher).square()) < 0.01 * torch.mean(
+        (quant - teacher).square()
+    )
     assert min(fitted["gain_reliability"]) > 0.99
+    assert min(gain) >= 1.0 / PROTOCOL["errorfold"]["maximum_gain_ratio"]
+    assert max(gain) <= PROTOCOL["errorfold"]["maximum_gain_ratio"]
 
     identity_fit = fit_errorfold(quant, quant)
     assert max(identity_fit["gain_reliability"]) == 0.0
@@ -211,6 +267,21 @@ def test_errorfold_closed_form_and_reliability_shrinkage() -> None:
     identity_gain, identity_bias = gated_affine(identity_fit, 1.0)
     torch.testing.assert_close(identity_gain, torch.ones_like(identity_gain))
     torch.testing.assert_close(identity_bias, torch.zeros_like(identity_bias))
+
+
+def test_errorfold_rejects_direction_reversal_and_unrelated_channels() -> None:
+    generator = torch.Generator().manual_seed(37)
+    quant = torch.randn(256, 4, generator=generator)
+    unrelated = torch.randn(256, 4, generator=generator)
+    reverse_fit = fit_errorfold(-quant, quant)
+    reverse_gain, reverse_bias = gated_affine(reverse_fit, 1.0)
+    torch.testing.assert_close(reverse_gain, torch.ones_like(reverse_gain))
+    torch.testing.assert_close(reverse_bias, torch.zeros_like(reverse_bias))
+
+    unrelated_fit = fit_errorfold(unrelated, quant)
+    unrelated_gain, unrelated_bias = gated_affine(unrelated_fit, 1.0)
+    assert float((unrelated_gain - 1.0).abs().max()) < 0.02
+    assert float(unrelated_bias.abs().max()) < 0.02
 
 
 def test_errorfold_runtime_affine_equals_folded_linear_and_scales() -> None:
@@ -230,7 +301,7 @@ def test_errorfold_runtime_affine_equals_folded_linear_and_scales() -> None:
     torch.testing.assert_close(fold_dequant_scales(scales, gain), scales * gain[:, None])
 
 
-def test_errorfold_supports_direction_reversing_static_fold() -> None:
+def test_static_linear_fold_math_supports_arbitrary_prevalidated_affine() -> None:
     generator = torch.Generator().manual_seed(51)
     x = torch.randn(5, 8, generator=generator)
     weight = torch.randn(4, 8, generator=generator)
@@ -281,6 +352,56 @@ def test_a8_has_one_prefix_table_and_four_deterministic_flow_tables() -> None:
     assert bool((prefix > 0).all()) and bool((flow > 0).all())
 
 
+def test_dynamic_a8_is_identical_across_model_adapter_runtimes() -> None:
+    value = torch.tensor(
+        [
+            [[-1.0, 0.0, 3.0, 0.25], [2.0, -4.0, 1.0, -0.5]],
+            [[0.5, 2.0, -6.0, 1.0], [-3.0, 1.0, 2.0, -2.0]],
+        ],
+        dtype=torch.float16,
+    )
+    expected = value.float().abs().reshape(-1, 4).amax(dim=0) / 127.0
+    outputs = []
+    for layer_type in (Gr00tDuQuantLinear, Pi05DuQuantLinear):
+        layer = object.__new__(layer_type)
+        layer.cfg = SimpleNamespace(act_bits=8, act_dynamic=True)
+        outputs.append(layer_type._get_act_scale(layer, value))
+    torch.testing.assert_close(outputs[0], expected.to(torch.float16))
+    torch.testing.assert_close(outputs[1], expected.to(torch.float16))
+    torch.testing.assert_close(outputs[0], outputs[1])
+
+
+def test_dynamic_a8_v5_attestation_and_runtime_contract_are_fail_closed() -> None:
+    assert DYNAMIC_A8_PROTOCOL["only_allowed_model_difference"] == "model_adapter"
+    assert (
+        DYNAMIC_A8_PROTOCOL["activation_quantization"]["formula"]
+        == "scale_c=max(max_abs(x[...,c])/127,1e-6)"
+    )
+    payload = {"dynamic_a8_protocol": dynamic_a8_protocol_attestation()}
+    require_dynamic_a8_protocol_attestation(payload, source="unit-test")
+    validate_dynamic_a8_runtime(
+        {
+            "activation_bits": 8,
+            "static_activation_scales": False,
+            "calibration_policy": "online_dynamic_per_forward_per_channel_amax",
+        },
+        source="unit-test",
+    )
+    with pytest.raises(ValueError, match="protocol drift"):
+        require_dynamic_a8_protocol_attestation(
+            {"dynamic_a8_protocol": {}}, source="unit-test"
+        )
+    with pytest.raises(ValueError, match="invalid DyRange-A8 runtime"):
+        validate_dynamic_a8_runtime(
+            {
+                "activation_bits": 8,
+                "static_activation_scales": True,
+                "calibration_policy": "offline_static_per_channel_percentile",
+            },
+            source="unit-test",
+        )
+
+
 def _grid_rows() -> list[dict]:
     rows = []
     for atm in GRID:
@@ -311,6 +432,126 @@ def test_complete_grid_and_paired_one_se_ignore_task_and_success() -> None:
     assert second["selected"]["gate"] == first["selected"]["gate"]
 
 
+def test_minimum_objective_selects_point_best_and_ignores_task_and_success() -> None:
+    rows = _grid_rows()
+    summaries = summarize_candidates(rows)
+    require_grid(summaries)
+    first = select_minimum_objective(summaries)
+    changed = copy.deepcopy(rows)
+    for index, row in enumerate(changed):
+        row["task_name"] = f"other-{index}"
+        row["rollout_success"] = bool(index % 2)
+    second = select_minimum_objective(summarize_candidates(changed))
+    assert first["selected"]["gate"] == {"atm": 0.25, "errorfold": 0.625}
+    assert second["selected"]["gate"] == first["selected"]["gate"]
+    assert first["paired_one_standard_error"] is False
+
+
+def test_minimum_objective_ties_prefer_smallest_correction() -> None:
+    rows = [
+        {
+            "gate": {"atm": 1.0, "errorfold": 1.0},
+            "per_sequence": [0.0] * 8,
+            "correction_norm": 2.0,
+        },
+        {
+            "gate": {"atm": 0.0, "errorfold": 0.0},
+            "per_sequence": [0.0] * 8,
+            "correction_norm": 0.0,
+        },
+    ]
+    selected = select_minimum_objective(summarize_candidates(rows))
+    assert selected["selected"]["gate"] == {"atm": 0.0, "errorfold": 0.0}
+
+
+def test_atm_only_minimum_uses_complete_zero_errorfold_slice() -> None:
+    summaries = summarize_candidates(_grid_rows())
+    require_grid(summaries)
+    selected = select_atm_only_minimum(summaries)
+    assert selected["selected"]["gate"] == {"atm": 0.25, "errorfold": 0.0}
+    assert selected["correction_family"] == "attention_logits_only"
+    assert all(
+        row["gate"]["errorfold"] == 0.0 for row in selected["candidates"]
+    )
+
+
+def test_atm_only_dual_pareto_knee_complements_local_and_long_horizon() -> None:
+    rows = []
+    for atm in GRID:
+        for errorfold in GRID:
+            rows.append(
+                {
+                    "gate": {"atm": atm, "errorfold": errorfold},
+                    "correction_norm": atm * atm + errorfold * errorfold,
+                    "d_func_summary": {
+                        "per_sequence": [atm * atm + errorfold * errorfold] * 8
+                    },
+                    "d_pac_summary": {
+                        "per_sequence": [
+                            ((1.0 - atm) ** 2 + errorfold * errorfold) / 2.0
+                        ]
+                        * 8
+                    },
+                }
+            )
+    summaries = summarize_dual_candidates(rows)
+    require_grid(summaries)
+    selected = select_atm_only_dual_pareto_knee(summaries)
+    assert selected["selected"]["gate"] == {"atm": 0.5, "errorfold": 0.0}
+    assert selected["selected"]["normalized_endpoint_regret"] == {
+        "d_func": pytest.approx(0.25),
+        "d_pac": pytest.approx(0.25),
+    }
+
+
+def test_dual_regret_selects_scale_independent_pareto_knee() -> None:
+    rows = []
+    for index, (d_func, d_pac) in enumerate(
+        ((10.0, 100.0), (4.0, 80.0), (2.0, 85.0), (1.0, 90.0))
+    ):
+        gate = index / 8.0
+        rows.append(
+            {
+                "gate": {"atm": gate, "errorfold": 0.0},
+                "correction_norm": gate * gate,
+                "d_func_summary": {"per_sequence": [d_func] * 8},
+                "d_pac_summary": {"per_sequence": [d_pac / 2.0] * 8},
+            }
+        )
+    selection = select_minimax_dual_regret(summarize_dual_candidates(rows))
+    assert selection["selected"]["gate"] == {"atm": 0.25, "errorfold": 0.0}
+    assert selection["selected"]["normalized_regret"]["d_func"] == pytest.approx(1 / 9)
+    assert selection["selected"]["normalized_regret"]["d_pac"] == pytest.approx(1 / 4)
+
+
+def test_dual_regret_ignores_task_and_success_fields() -> None:
+    rows = []
+    for atm in GRID:
+        for errorfold in GRID:
+            rows.append(
+                {
+                    "gate": {"atm": atm, "errorfold": errorfold},
+                    "correction_norm": atm * atm + errorfold * errorfold,
+                    "d_func_summary": {
+                        "per_sequence": [(atm - 0.25) ** 2 + (errorfold - 0.5) ** 2] * 8
+                    },
+                    "d_pac_summary": {
+                        "per_sequence": [((atm - 0.75) ** 2 + (errorfold - 0.5) ** 2) / 2.0] * 8
+                    },
+                    "task_name": "ignored",
+                    "rollout_success": True,
+                }
+            )
+    first = select_minimax_dual_regret(summarize_dual_candidates(rows))
+    changed = copy.deepcopy(rows)
+    for row in changed:
+        row["task_name"] = "changed"
+        row["rollout_success"] = False
+    second = select_minimax_dual_regret(summarize_dual_candidates(changed))
+    assert first["selected"]["gate"] == second["selected"]["gate"]
+    assert first["selected"]["gate"]["errorfold"] == 0.5
+
+
 def test_paired_one_se_uses_differences_not_absolute_task_variance() -> None:
     hard_tasks = [100.0, 0.0, 100.0, 0.0, 100.0, 0.0, 100.0, 0.0]
     rows = [
@@ -330,7 +571,77 @@ def test_paired_one_se_uses_differences_not_absolute_task_variance() -> None:
     assert selected["selected"]["gate"] == {"atm": 1.0, "errorfold": 1.0}
 
 
-def test_adapter_only_quant_plan_remains_all_w4_group64() -> None:
+def test_paired_one_se_cannot_self_qualify_by_unstable_variance() -> None:
+    summaries = [
+        {
+            "gate": {"atm": 1.0, "errorfold": 1.0},
+            "mean": 0.0,
+            "per_sequence": [0.0] * 8,
+            "paired_selection_values": [0.0] * 8,
+            "correction_norm": 10.0,
+        },
+        {
+            "gate": {"atm": 0.0, "errorfold": 0.0},
+            "mean": 1.0,
+            "per_sequence": [1.0] * 8,
+            "paired_selection_values": [1.0] * 8,
+            "correction_norm": 0.0,
+        },
+        {
+            "gate": {"atm": 0.125, "errorfold": 0.0},
+            "mean": 2.0,
+            "per_sequence": [-100.0, 116.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            "paired_selection_values": [
+                -100.0,
+                116.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            "correction_norm": 0.125,
+        },
+    ]
+    selection = select_one_standard_error(summaries)
+    assert selection["paired_eligible_before_identity_bound"] == 2
+    assert selection["eligible_count"] == 1
+    assert selection["selected"]["gate"] == {"atm": 1.0, "errorfold": 1.0}
+    unstable = next(
+        row
+        for row in selection["candidates"]
+        if row["gate"] == {"atm": 0.125, "errorfold": 0.0}
+    )
+    assert unstable["paired_one_se_eligible"] is True
+    assert unstable["identity_non_degrading"] is False
+
+
+def test_d_pac_softfold_selection_uses_mean_plus_cvar() -> None:
+    stable = [2.0] * 10
+    lower_mean_bad_tail = [0.0] * 9 + [10.0]
+    rows = [
+        {
+            "gate": {"atm": 0.0, "errorfold": 0.0},
+            "per_sequence": stable,
+            "correction_norm": 0.0,
+        },
+        {
+            "gate": {"atm": 1.0, "errorfold": 1.0},
+            "per_sequence": lower_mean_bad_tail,
+            "correction_norm": 2.0,
+        },
+    ]
+    summaries = summarize_candidates(rows, metric="d_pac_v2")
+    assert summaries[0]["sequence_mean"] == 2.0
+    assert summaries[0]["mean"] == 4.0
+    assert summaries[1]["sequence_mean"] == 1.0
+    assert summaries[1]["mean"] == 11.0
+    selected = select_one_standard_error(summaries)
+    assert selected["selected"]["gate"] == {"atm": 0.0, "errorfold": 0.0}
+
+
+def test_adapter_only_quant_plan_supports_static_compression_profile() -> None:
     valid = {
         "layers": {
             "adapter.a": {"bits": 4, "group": 64, "skip": False},
@@ -338,14 +649,24 @@ def test_adapter_only_quant_plan_remains_all_w4_group64() -> None:
         }
     }
     assert validate_quant_plan(valid, model="gr00t", source="test")["quantized_w4_layers"] == 2
+    mixed = copy.deepcopy(valid)
+    mixed["layers"]["adapter.b"]["skip"] = True
+    mixed["meta"] = {
+        "target_compression": 2.2,
+        "target_compression_scope": "candidate",
+    }
+    mixed["achieved_compression"] = 2.21
+    mixed_result = validate_quant_plan(mixed, model="pi05", source="test")
+    assert mixed_result["quantized_w4_layers"] == 1
+    assert mixed_result["retained_fp16_target_layers"] == 1
+    assert mixed_result["profile"] == "target_compression"
+    assert mixed_result["target_compression"] == 2.2
+    assert mixed_result["target_compression_scope"] == "candidate"
+    assert mixed_result["achieved_compression"] == 2.21
     invalid = copy.deepcopy(valid)
-    invalid["layers"]["adapter.b"]["skip"] = True
-    try:
+    invalid["layers"]["adapter.b"]["bits"] = 6
+    with pytest.raises(ValueError, match="native FP16 or W4/group64"):
         validate_quant_plan(invalid, model="pi05", source="test")
-    except ValueError as error:
-        assert "every target W4/group64" in str(error)
-    else:
-        raise AssertionError("FP target retention must be rejected")
 
 
 def test_both_real_quant_backends_pack_identical_grouped_nibbles() -> None:
@@ -358,6 +679,40 @@ def test_both_real_quant_backends_pack_identical_grouped_nibbles() -> None:
     pi05 = pack_pi05(weight, scales)
     assert torch.equal(gr00t, pi05)
     assert gr00t.numel() == weight.numel() // 2
+
+
+def test_target_compression_parameter_maps_to_feasible_byte_cap() -> None:
+    budget, maximum = budget_from_target_compression(1000.0, 250.0, 2.0)
+    assert budget == 500.0
+    assert maximum == 4.0
+    with pytest.raises(ValueError, match="must be >= 1.0"):
+        budget_from_target_compression(1000.0, 250.0, 0.9)
+    with pytest.raises(ValueError, match="exceeds"):
+        budget_from_target_compression(1000.0, 250.0, 4.1)
+
+
+def test_errorbudget_protects_highest_risk_per_extra_byte() -> None:
+    rows = {
+        "high": {"risk": 10.0, "w4_bytes": 25.0, "fp16_bytes": 100.0},
+        "efficient": {"risk": 8.0, "w4_bytes": 10.0, "fp16_bytes": 40.0},
+        "low": {"risk": 1.0, "w4_bytes": 15.0, "fp16_bytes": 60.0},
+    }
+    # all-W4=50; 80-byte cap can protect only the most efficient layer.
+    protected, total = select_protected_layers(rows, 80.0)
+    assert protected == {"efficient"}
+    assert total == 80.0
+
+
+def test_outputimpact_uncertainty_modes_only_change_offline_risk() -> None:
+    row = {"d_pac": 2.0, "per_sequence": [0.1, 0.2, 0.3, 1.5]}
+    shrunk = reliability_shrunk_risk(row)
+    raw = reliability_shrunk_risk(row, risk_mode="raw")
+    upper = reliability_shrunk_risk(row, risk_mode="upper_confidence")
+    lower = reliability_shrunk_risk(row, risk_mode="lower_confidence")
+    assert upper["risk"] > raw["risk"] > shrunk["risk"]
+    assert lower["risk"] < raw["risk"]
+    assert {value["d_pac"] for value in (shrunk, raw, upper, lower)} == {2.0}
+    assert len({value["jackknife_se"] for value in (shrunk, raw, upper, lower)}) == 1
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Triton W4 kernel needs CUDA")

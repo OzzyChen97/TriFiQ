@@ -28,7 +28,7 @@ def sha256_file(path: str | Path) -> str:
 
 def load_protocol() -> dict[str, Any]:
     value = json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
-    if value.get("protocol_id") != "quantvla-gr00t-pi05-errorfold-v3":
+    if value.get("protocol_id") != "quantvla-gr00t-pi05-errorfold-v4":
         raise ValueError(f"unexpected cross-model protocol: {value.get('protocol_id')!r}")
     return value
 
@@ -158,11 +158,12 @@ def validate_softfold_runtime(runtime: Mapping[str, Any], *, source: str) -> Non
 def validate_quant_plan(
     value: Mapping[str, Any], *, model: str, source: str
 ) -> dict[str, Any]:
-    """Enforce the shared QuantVLA-budget selection rule after adapter binding.
+    """Enforce the shared static W4/FP16 compression profile after binding.
 
     Layer names and target counts are architecture-specific adapter output.  The
-    decision applied to that inventory is not: every bound target must be W4,
-    with no FP16 retention or mixed-bit choice.
+    decision applied to that inventory is not: every bound target is either a
+    real group-64 W4 layer or an untouched native FP16 layer.  The default
+    profile is full W4; ``target_compression`` enables a static mixed profile.
     """
     if model not in MODELS:
         raise ValueError(f"{source}: unknown model adapter {model!r}")
@@ -170,25 +171,51 @@ def validate_quant_plan(
     if not isinstance(layers, Mapping) or not layers:
         raise ValueError(f"{source}: quant plan has no adapter-bound layers")
     invalid: list[tuple[str, Any, Any, Any]] = []
+    quantized = 0
+    retained = 0
     for name, raw in layers.items():
         row = raw if isinstance(raw, Mapping) else {}
         bits = row.get("bits")
         group = row.get("group", row.get("block_in", 64))
         skip = row.get("skip", not bool(bits))
-        if bool(skip) or int(bits or 0) != 4 or int(group or 0) != 64:
+        if bool(skip):
+            if bits not in (None, 0, 4):
+                invalid.append((str(name), bits, group, skip))
+            else:
+                retained += 1
+        elif int(bits or 0) != 4 or int(group or 0) != 64:
             invalid.append((str(name), bits, group, skip))
+        else:
+            quantized += 1
     if invalid:
         raise ValueError(
-            f"{source}: adapter-only selection requires every target W4/group64; "
+            f"{source}: compression profile requires native FP16 or W4/group64; "
             f"invalid={invalid[:5]} (total {len(invalid)})"
         )
+    if quantized == 0:
+        raise ValueError(f"{source}: compression profile has no W4 target layer")
+    meta = value.get("meta", {})
+    target_compression = (
+        value.get("target_compression")
+        or meta.get("target_compression")
+    )
+    achieved_compression = (
+        value.get("achieved_compression")
+        or value.get("achieved_candidate_compression")
+    )
     return {
         "model": model,
         "rule": PROTOCOL["quantization_selection"]["rule"],
         "budget_reference": PROTOCOL["quantization_selection"]["budget_reference"],
         "target_layers": len(layers),
-        "quantized_w4_layers": len(layers),
-        "retained_fp16_target_layers": 0,
+        "quantized_w4_layers": quantized,
+        "retained_fp16_target_layers": retained,
+        "profile": "all_w4" if retained == 0 else "target_compression",
+        "target_compression": target_compression,
+        "target_compression_scope": (
+            meta.get("target_compression_scope") if target_compression is not None else None
+        ),
+        "achieved_compression": achieved_compression,
         "protocol_sha256": PROTOCOL_SHA256,
     }
 
@@ -197,7 +224,7 @@ def selftest() -> None:
     assert set(MODELS) == {"gr00t", "pi05"}
     assert PROTOCOL["metrics"]["canonical_action"]["space"].startswith("physical")
     assert PROTOCOL["metrics"]["d_pac"]["pi05_forecast_overlap"] is False
-    assert PROTOCOL["quantization_selection"]["retained_fp16_target_layers"] == 0
+    assert PROTOCOL["quantization_selection"]["default_profile"].startswith("all_target")
     assert len(PROTOCOL["softfold"]["grid"]["gate_atm"]) == 9
     assert len(PROTOCOL["softfold"]["grid"]["gate_errorfold"]) == 9
     assert len(PROTOCOL["closed_loop"]["seeds"]) == 20

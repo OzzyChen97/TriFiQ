@@ -410,7 +410,11 @@ class DuQuantLinear(nn.Module):
             return int(self._W_packed_u4.numel())
         if not self.cfg.use_fused or self.weight_bits != 4:
             raise RuntimeError(f"{self.name}: real-quant finalization requires fused W4")
-        if self.cfg.act_bits > 0 and not self._act_scale_initialized:
+        if (
+            self.cfg.act_bits > 0
+            and not self.cfg.act_dynamic
+            and not self._act_scale_initialized
+        ):
             raise RuntimeError(f"{self.name}: static A8 scale is not ready")
         self._maybe_update_weight_cache()
         if not self._fused_ready:
@@ -936,7 +940,7 @@ def load_hessian_w4(
     metadata = json.loads(sidecar.read_text(encoding="utf-8"))
     if metadata.get("schema_version") != 3 or metadata.get("group_size") != 64:
         raise ValueError("unsupported Hessian W4 artifact schema/group")
-    if metadata.get("protocol_id") != "quantvla-gr00t-pi05-errorfold-v3":
+    if metadata.get("protocol_id") != "quantvla-gr00t-pi05-errorfold-v4":
         raise ValueError("Hessian W4 artifact protocol drift")
     actual_hash = hashlib.sha256(artifact.read_bytes()).hexdigest()
     if metadata.get("npz_sha256") != actual_hash:

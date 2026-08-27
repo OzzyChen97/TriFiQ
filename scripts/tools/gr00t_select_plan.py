@@ -113,6 +113,25 @@ def quantvla_w4_budget(
     return plan_total_bytes(quantvla_w4_plan(shapes, group, row_rot), shapes, row_rot)
 
 
+def budget_from_target_compression(
+    fp16_bytes: float, minimum_w4_bytes: float, target_compression: float
+) -> tuple[float, float]:
+    """Convert an explicit FP16/plan compression target into a byte cap."""
+    values = (float(fp16_bytes), float(minimum_w4_bytes), float(target_compression))
+    if not all(math.isfinite(value) and value > 0.0 for value in values):
+        raise ValueError("compression budget inputs must be finite and positive")
+    if target_compression < 1.0:
+        raise ValueError("--target-compression must be >= 1.0")
+    maximum_compression = fp16_bytes / minimum_w4_bytes
+    budget = fp16_bytes / target_compression
+    if budget < minimum_w4_bytes - 1e-3:
+        raise ValueError(
+            f"--target-compression={target_compression:g} exceeds the W4/FP16 "
+            f"maximum {maximum_compression:.6g}"
+        )
+    return budget, maximum_compression
+
+
 # --------------------------------------------------------------------------- #
 # Checkpoint shapes
 # --------------------------------------------------------------------------- #
@@ -908,6 +927,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--budget", default="quantvla-w4",
                    help="'quantvla-w4' (default: exact all-candidate W4 static bytes), "
                         "'uniform-w6' (legacy), 'v1-w4' (alias) or a float byte budget.")
+    p.add_argument(
+        "--target-compression",
+        type=float,
+        default=None,
+        help=(
+            "Target candidate-weight compression FP16_bytes/plan_bytes. Overrides "
+            "--budget and searches a W4/FP16 plan; 1.0 keeps the FP16 byte cap, "
+            "while the maximum feasible value is the all-W4 ratio."
+        ),
+    )
     p.add_argument("--binary", action=argparse.BooleanOptionalAction, default=True,
                    help="v1.3 main path: binary W4/FP16 selection (--no-binary restores the mixed-bit space).")
     p.add_argument("--bits-order", default=None,
@@ -1119,8 +1148,11 @@ def main() -> None:
         print(f"[select] w_i: UNIFORM (--no-weights ablation, w_i = 1)")
     else:
         print(f"[select] w_i three-stage log (metric={args.weight_metric}):")
-        print(f"  {raw_key}:              min {w_log[raw_key]['min']:.6g} / "
-              f"max {w_log[raw_key]['max']:.6g} / mean {w_log[raw_key]['mean']:.6g}")
+        if w_log[raw_key]["mean"] is None:
+            print(f"  {raw_key}:              unavailable -> uniform weights")
+        else:
+            print(f"  {raw_key}:              min {w_log[raw_key]['min']:.6g} / "
+                  f"max {w_log[raw_key]['max']:.6g} / mean {w_log[raw_key]['mean']:.6g}")
         print(f"  normalized_before_clip:  min {w_log['normalized_before_clip']['min']:.4f} / "
               f"max {w_log['normalized_before_clip']['max']:.4f} / mean {w_log['normalized_before_clip']['mean']:.4f}")
         print(f"  final_w_i:               min {w_log['final']['min']:.4f} / "
@@ -1137,7 +1169,10 @@ def main() -> None:
         print(f"[select] guard thresholds auto-estimated (P99 × {args.guard_margin}): "
               f"τ_rms={tau_rms:.4f} τ_sat={tau_sat:.3e}")
     scores, removed = filter_guarded(scores, sens, layer_names, tau_rms, tau_sat)
-    exact_quantvla_budget = args.budget in {"quantvla-w4", "exact-quantvla-w4", "v1-w4"}
+    exact_quantvla_budget = (
+        args.target_compression is None
+        and args.budget in {"quantvla-w4", "exact-quantvla-w4", "v1-w4"}
+    )
     guard_diagnostics = list(removed)
     if exact_quantvla_budget:
         # At the QuantVLA byte cap, retaining any FP16 candidate makes a binary
@@ -1157,13 +1192,22 @@ def main() -> None:
         print("[select] guard filter: no violations")
 
     fp_total = sum(layer_bytes_fp16(s["out"], s["in"], s["has_bias"]) for s in shapes.values())
-    if args.budget == "uniform-w6":
+    minimum_budget = quantvla_w4_budget(shapes, args.group, args.row_rot)
+    if args.target_compression is not None:
+        budget, _maximum_compression = budget_from_target_compression(
+            fp_total, minimum_budget, args.target_compression
+        )
+        print(
+            f"[select] budget (target compression {args.target_compression:g}x over "
+            f"candidate FP16 bytes): {budget / 1e6:.1f} MB"
+        )
+    elif args.budget == "uniform-w6":
         # v1.3 primary budget: uniform-W6 static weight bytes (862.9 MB GR00T)
         w6 = {n: {"bits": 6, "group": args.group, "skip": False} for n in shapes}
         budget = plan_total_bytes(w6, shapes, args.row_rot)
         print(f"[select] budget (uniform-W6 static-byte reference, v1.3): {budget / 1e6:.1f} MB")
     elif exact_quantvla_budget:
-        budget = quantvla_w4_budget(shapes, args.group, args.row_rot)
+        budget = minimum_budget
         print(f"[select] budget (exact QuantVLA all-W4 static bytes): {budget / 1e6:.1f} MB")
     else:
         budget = float(args.budget)
@@ -1269,7 +1313,13 @@ def main() -> None:
             "row_rot": args.row_rot,
             "objective": "Σ w_i·S_i(b_i) layer proxy; full configurations are adjudicated by original-FP16-relative D_PAC",
             "budget_semantics": "静态权重存储字节（理论紧密打包；不含激活/峰值显存/时延/BitOps）",
-            "budget_reference": args.budget,
+            "budget_reference": (
+                f"target_candidate_compression_{args.target_compression:g}x"
+                if args.target_compression is not None
+                else args.budget
+            ),
+            "target_compression": args.target_compression,
+            "achieved_candidate_compression": fp_total / total,
             "search_start": "QuantVLA full W4" if exact_quantvla_budget else "native FP16",
             "full_config_adjudication_metric": "D_PAC against original FP16",
             "budget_fraction_of_fp16": budget_fraction,
@@ -1292,6 +1342,7 @@ def main() -> None:
         "budget_bytes": budget,
         "fp16_total_bytes": fp_total,
         "total_bytes": total,
+        "achieved_candidate_compression": fp_total / total,
         "objective": obj,
         "primary_source": primary["source"],
         "packdirs": {str(args.group): args.packdir} if args.packdir else {},

@@ -53,6 +53,20 @@ def _resize_uint8_image(image: np.ndarray, size: int) -> np.ndarray:
 
 def _load_archive_rows(path: str | Path, n_obs: int) -> list[dict[str, Any]]:
     resolved = Path(path).expanduser().resolve()
+    selection = PROTOCOL["data"]["selection_buffer"]
+    selection_path = Path(str(selection["path"]))
+    if not selection_path.is_absolute():
+        selection_path = Path(__file__).resolve().parents[2] / selection_path
+    # The physical selection archive stores its held-out noise-B mirror after
+    # the registered noise-A rows.  Those rows repeat task/seed/replan and are
+    # not additional selection observations.  Rejecting them here prevents a
+    # larger ``--n-obs`` from silently leaking the held-out audit into gate
+    # selection before the downstream unique-replan check happens to fail.
+    if resolved == selection_path.resolve() and n_obs > int(selection["observations"]):
+        raise ValueError(
+            f"selection buffer exposes only {selection['observations']} noise-A "
+            f"observations; n_obs={n_obs} would include held-out noise-B rows"
+        )
     with np.load(resolved, allow_pickle=False) as archive:
         required = {
             "images",

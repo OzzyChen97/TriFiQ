@@ -29,6 +29,9 @@ from quantvla_cross_model_protocol import (  # noqa: E402
     protocol_attestation,
     validate_quant_plan,
 )
+from quantvla_dynamic_a8_protocol import (  # noqa: E402
+    protocol_attestation as dynamic_a8_protocol_attestation,
+)
 from quantvla_metric_protocol import summarize_pair  # noqa: E402
 from quantvla_model_adapters import (  # noqa: E402
     gr00t_rollout_inputs,
@@ -125,6 +128,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--plan", default=str(DEFAULT_PLAN))
     parser.add_argument("--pack-dir", default=str(DEFAULT_PACK))
     parser.add_argument("--a8", default=str(DEFAULT_A8))
+    parser.add_argument(
+        "--activation-mode",
+        choices=("static_a8", "dynamic_a8"),
+        default="static_a8",
+    )
     parser.add_argument("--hessian-w4", required=True)
     parser.add_argument("--raw-correction", default=str(DEFAULT_RAW))
     parser.add_argument("--data-config", default=DEFAULT_DATA_CONFIG)
@@ -174,16 +182,18 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
     artifact_buffer_path = Path(args.artifact_calibration_buffer).expanduser().resolve()
     grid_dir = Path(args.grid_dir).expanduser().resolve()
     output = Path(args.out).expanduser().resolve()
-    for path in (
+    required_paths = [
         checkpoint / "config.json",
         plan,
-        a8,
         hessian_w4,
         Path(str(hessian_w4) + ".json"),
         raw,
         buffer_path,
         artifact_buffer_path,
-    ):
+    ]
+    if args.activation_mode == "static_a8":
+        required_paths.append(a8)
+    for path in required_paths:
         if not path.is_file():
             raise FileNotFoundError(path)
     if not pack_dir.is_dir():
@@ -200,11 +210,19 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("SoftFold grid shard is empty")
 
     a8_meta_path = Path(str(a8) + ".meta.json")
-    a8_meta = json.loads(a8_meta_path.read_text(encoding="utf-8")) if a8_meta_path.is_file() else {}
-    calibration_attestation = validate_calibration_artifact(
-        a8,
-        model="gr00t",
-        expected_buffer_sha256=sha256_file(artifact_buffer_path),
+    a8_meta = (
+        json.loads(a8_meta_path.read_text(encoding="utf-8"))
+        if args.activation_mode == "static_a8" and a8_meta_path.is_file()
+        else {}
+    )
+    calibration_attestation = (
+        validate_calibration_artifact(
+            a8,
+            model="gr00t",
+            expected_buffer_sha256=sha256_file(artifact_buffer_path),
+        )
+        if args.activation_mode == "static_a8"
+        else None
     )
     quant_selection_attestation = validate_quant_plan(
         json.loads(plan.read_text(encoding="utf-8")),
@@ -215,14 +233,22 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
         "schema_version": 3,
         "kind": "errorfold_v3_gr00t_softfold_grid_score",
         "cross_model_protocol": protocol_attestation(),
+        "dynamic_a8_protocol": (
+            dynamic_a8_protocol_attestation()
+            if args.activation_mode == "dynamic_a8"
+            else None
+        ),
+        "activation_mode": args.activation_mode,
         "checkpoint": str(checkpoint),
         "checkpoint_sha256": sha256_checkpoint(checkpoint),
         "plan": str(plan),
         "plan_sha256": sha256_file(plan),
         "pack_dir": str(pack_dir),
         "pack_dir_sha256": sha256_tree(pack_dir),
-        "a8": str(a8),
-        "a8_sha256": sha256_file(a8),
+        "a8": str(a8) if args.activation_mode == "static_a8" else None,
+        "a8_sha256": (
+            sha256_file(a8) if args.activation_mode == "static_a8" else None
+        ),
         "hessian_w4": str(hessian_w4),
         "hessian_w4_sha256": sha256_file(hessian_w4),
         "artifact_calibration_buffer_sha256": sha256_file(artifact_buffer_path),
@@ -270,6 +296,8 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
             "raw_correction_sha256",
             "pack_dir_sha256",
             "cross_model_protocol",
+            "dynamic_a8_protocol",
+            "activation_mode",
             "n_obs",
             "gamma",
             "softfold_grid_shard",
@@ -314,11 +342,13 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    warm_records, warm_provenance = load_model_records(
-        artifact_buffer_path, 32 * args.batch_size, model="gr00t"
-    )
-    warm_obs, warm_noises = gr00t_rollout_inputs(warm_records)
-    payload["a8_reproduction_buffer_sha256"] = warm_provenance["sha256"]
+    warm_obs = warm_noises = None
+    if args.activation_mode == "static_a8":
+        warm_records, warm_provenance = load_model_records(
+            artifact_buffer_path, 32 * args.batch_size, model="gr00t"
+        )
+        warm_obs, warm_noises = gr00t_rollout_inputs(warm_records)
+        payload["a8_reproduction_buffer_sha256"] = warm_provenance["sha256"]
     expected_wrapped = sum(
         not bool(row.get("skip", not int(row.get("bits", 0) or 0)))
         and int(row.get("bits", 0) or 0) > 0
@@ -330,31 +360,41 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
     # before applying its static coefficients.  This preserves exact candidate
     # semantics while avoiding 81 checkpoint reloads.
     strip_quant_env()
-    set_quant_env(DEFAULT_INCLUDE, DEFAULT_EXCLUDE, str(pack_dir), row_rot="0")
+    set_quant_env(
+        DEFAULT_INCLUDE,
+        DEFAULT_EXCLUDE,
+        str(pack_dir),
+        row_rot="0",
+        act_dynamic=args.activation_mode == "dynamic_a8",
+    )
     os.environ.update(
         {
             "GR00T_DUQUANT_FUSED": "1",
             "GR00T_DUQUANT_PLAN": str(plan),
-            "GR00T_DUQUANT_ACT_SCALE_PATH": str(a8),
             "GR00T_DUQUANT_HESSIAN_W4_PATH": str(hessian_w4),
             "GR00T_ATM_ENABLE": "0",
             "GR00T_OHB_ENABLE": "0",
         }
     )
+    if args.activation_mode == "static_a8":
+        os.environ["GR00T_DUQUANT_ACT_SCALE_PATH"] = str(a8)
+    else:
+        os.environ.pop("GR00T_DUQUANT_ACT_SCALE_PATH", None)
     policy = load_policy(
         str(checkpoint),
         data_config=args.data_config,
         denoising_steps=args.denoising_steps,
         device=args.device,
     )
-    ensure_a8_calibrated(
-        policy,
-        warm_obs,
-        warm_noises,
-        args.batch_size,
-        expected_wrapped=expected_wrapped,
-        act_scale_path=str(a8),
-    )
+    if args.activation_mode == "static_a8":
+        ensure_a8_calibrated(
+            policy,
+            warm_obs,
+            warm_noises,
+            args.batch_size,
+            expected_wrapped=expected_wrapped,
+            act_scale_path=str(a8),
+        )
     quant_layers = [
         module for module in policy.model.modules() if isinstance(module, DuQuantLinear)
     ]
@@ -374,7 +414,6 @@ def score(args: argparse.Namespace) -> dict[str, Any]:
             {
                 "GR00T_DUQUANT_FUSED": "1",
                 "GR00T_DUQUANT_PLAN": str(plan),
-                "GR00T_DUQUANT_ACT_SCALE_PATH": str(a8),
                 "GR00T_DUQUANT_HESSIAN_W4_PATH": str(hessian_w4),
                 "GR00T_ERRORFOLD_PATH": str(registry[identifier]["path"]),
                 "GR00T_ATM_ENABLE": "1",

@@ -12,6 +12,9 @@ from typing import Any
 
 from fit_softfold_compensation import GRID
 from quantvla_cross_model_protocol import require_protocol_attestation
+from quantvla_dynamic_a8_protocol import (
+    require_protocol_attestation as require_dynamic_a8_protocol_attestation,
+)
 
 
 def canonical_gate(row: dict[str, Any]) -> tuple[float, float]:
@@ -40,6 +43,8 @@ def main() -> None:
         "pack_dir_sha256",
         "source_sha256",
         "cross_model_protocol",
+        "dynamic_a8_protocol",
+        "activation_mode",
         "quantization_selection",
     )
     invariants: dict[str, Any] | None = None
@@ -49,6 +54,8 @@ def main() -> None:
         path = Path(raw_path).expanduser().resolve()
         payload = json.loads(path.read_text(encoding="utf-8"))
         require_protocol_attestation(payload, source=str(path))
+        if payload.get("activation_mode") == "dynamic_a8":
+            require_dynamic_a8_protocol_attestation(payload, source=str(path))
         current = {key: payload.get(key) for key in invariant_keys}
         if invariants is None:
             invariants = current

@@ -291,8 +291,8 @@
       "coverage": {
         "duplicate_episodes": 0,
         "expected_episodes": 5000,
-        "missing_episodes": 4100,
-        "observed_episodes": 900
+        "missing_episodes": 2500,
+        "observed_episodes": 2500
       },
       "main_claim_enabled": false,
       "model": "cross_model",
@@ -301,15 +301,26 @@
           "coverage": {
             "duplicate_episodes": 0,
             "expected_episodes": 2500,
-            "missing_episodes": 1600,
-            "observed_episodes": 900
+            "missing_episodes": 0,
+            "observed_episodes": 2500
           },
+          "aggregate": {
+            "bytes": 28948,
+            "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_robocasa365_v1/aggregate/summary.json",
+            "sha256": "88f5a0ffd282148ed98f5c6df3d2087c5b49a76dda5ff4f84e4f14a71b8e749b"
+          },
+          "main_claim_enabled": true,
           "memory": {
             "bytes": 3657,
             "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_robocasa365_v1/aggregate/atomic_seen_paper_memory.json",
             "sha256": "cbd299f7dd28033a194fde6fcf94be7255b96ed094d267fd3252a1ace84a84a2"
           },
-          "status": "running_partial_taskset_complete",
+          "repair_audit": {
+            "bytes": 9471,
+            "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_robocasa365_v1/repair_seed32_39/audit.json",
+            "sha256": "926af56182e8de7fc1d433a548235ffcd92a8793589327d7cb45ebb8f6b667c6"
+          },
+          "status": "complete",
           "task_sets": {
             "atomic_seen": {
               "coverage": {
@@ -337,21 +348,45 @@
               "coverage": {
                 "duplicate_episodes": 0,
                 "expected_episodes": 800,
-                "missing_episodes": 800,
-                "observed_episodes": 0
+                "missing_episodes": 0,
+                "observed_episodes": 800,
+                "seeds_per_task": 50,
+                "tasks": 16
               },
-              "main_claim_enabled": false,
-              "status": "running"
+              "main_claim_enabled": true,
+              "manifest": {
+                "bytes": 15149,
+                "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_robocasa365_v1/results/composite_seen_sixgpu_shared_v4/manifest.json",
+                "sha256": "71da3382b7be0a9857958bf2230a5c1c7a3c898a293d48a9cc9455fd409c7997"
+              },
+              "status": "complete",
+              "summary": {
+                "bytes": 9456,
+                "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_robocasa365_v1/results/composite_seen_sixgpu_shared_v4/summary.json",
+                "sha256": "8b1f229d7ad78b6f1a3fa1a2010a3a760e220f6d799b6db723af7a800a8be857"
+              }
             },
             "composite_unseen": {
               "coverage": {
                 "duplicate_episodes": 0,
                 "expected_episodes": 800,
-                "missing_episodes": 800,
-                "observed_episodes": 0
+                "missing_episodes": 0,
+                "observed_episodes": 800,
+                "seeds_per_task": 50,
+                "tasks": 16
               },
-              "main_claim_enabled": false,
-              "status": "queued"
+              "main_claim_enabled": true,
+              "manifest": {
+                "bytes": 15255,
+                "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_robocasa365_v1/results/composite_unseen_sixgpu_shared_v5/manifest.json",
+                "sha256": "4f81a12ab8ed7152551a25acbc75e59352e2e887fe2c1d0a6a0b39255821b040"
+              },
+              "status": "complete",
+              "summary": {
+                "bytes": 9543,
+                "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_robocasa365_v1/results/composite_unseen_sixgpu_shared_v5/summary.json",
+                "sha256": "693bbfecdcaebd54475899e90cc35346fa2e2e26477c4c7f1ff01c190cb7e233"
+              }
             }
           }
         },
@@ -365,14 +400,14 @@
           "status": "queued_deferred"
         }
       },
-      "notes": "The released Omega-QVLA packs are LIBERO-specific and are not reused. GR00T Atomic-Seen is complete under a frozen RoboCasa365-specific W4A4 pack and may populate only its own task-set cell; Composite and pi0.5 cells remain disabled until their independent coverage gates pass.",
+      "notes": "The released Omega-QVLA packs are LIBERO-specific and are not reused. GR00T is complete under frozen task-set-specific RoboCasa365 W4A4 packs at exactly 2,500 episodes; pi0.5 remains disabled until its independent coverage gate passes.",
       "paper_cells": [
         "main.table1.omega_qvla_robocasa365.gr00t",
         "main.table1.omega_qvla_robocasa365.pi05"
       ],
       "role": "external_baseline_robocasa365_same_protocol",
       "scope": "GR00T and pi0.5 RoboCasa365 target split, 50 tasks x 50 paired scenarios per model",
-      "status": "running_partial_taskset_complete"
+      "status": "gr00t_complete_pi05_deferred"
     },
     "omega_qvla_table1_reproduction": {
       "configuration": "fp16_and_official_omega_qvla_w4a4",

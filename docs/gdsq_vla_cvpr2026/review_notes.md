@@ -67,9 +67,9 @@
 - Claim: the improvement persists across all official RoboCasa365 task groups. | Evidence: complete 50-task aggregate, 50.8% versus 30.4% for W4A8+ATM/OHB; paired gain 20.3 points with CI [16.9, 24.0]. | Status: supported for the frozen GR00T N1.5 checkpoints.
 - Claim: GR00T GDSQ-VLA is competitive with the uniform-W6 fixed-ceiling control. | Evidence: the completed 2,500-episode W6 matrix gives 51.7% at 1.109 GiB versus 50.8% at 1.001 GiB for ours; the paired ours-minus-W6 difference is -1.0 point with 95% task CI [-3.1, 1.2]. The replay audit reproduces the W6 summary byte-for-byte. | Status: supported as descriptive storage--accuracy evidence; not a superiority claim.
 - Claim: the current implementation accelerates inference or lowers live GPU memory. | Evidence: eager runtime shows the opposite. | Status: rejected; paper explicitly limits the claim to theoretical component storage.
-- Claim: static \method transfers to $\pi_{0.5}$ with a significant gain. | Evidence: the complete four-configuration 2,500-episode matrix gives 25.3% for static GDSQ versus 24.8% for the fixed low-bit baseline, but the held-out paired interval crosses zero. | Status: rejected as a superiority claim; reported as an architecture boundary. The formal v8 selector run remains separate until complete.
-- Claim: the GR00T $\Omega$-QVLA Atomic result is 60.1\% at a theoretical 0.599 GiB (3.33$\times$). | Evidence: a frozen 900-episode manifest, exact 18-task$\times$50 coverage, zero formal failures, a strict 10,000-draw task-cluster summary, and an independently hashed packed-storage audit. | Status: supported for the Atomic and storage cells only; Composite and all-task claims remain pending.
-- Claim: Table 2 will compare local FP16, QuantVLA W4A8, Uniform W6, $\Omega$-QVLA W4A4, and GDSQ-VLA on LIBERO. | Evidence: pinned code/packs and a frozen 4,000-episode joint protocol; no author-reported result values are imported. | Status: pending until the exact local coverage and hash gates complete; it is independent of the completed Table 1 GR00T Atomic subset.
+- Claim: static \method transfers to $\pi_{0.5}$ with a significant gain. | Evidence: the complete four-configuration 2,500-episode matrix gives 25.3% for static GDSQ versus 24.8% for the fixed low-bit baseline, but the held-out paired interval crosses zero. | Status: rejected as a superiority claim; reported as an architecture boundary. The separate formal v8 selector run is complete and reported as the final method.
+- Claim: the GR00T $\Omega$-QVLA result is 60.1\% / 25.9\% / 27.5\% on Atomic / Composite-Seen / Composite-Unseen, 38.7\% overall, at a theoretical 0.599 GiB (3.33$\times$). | Evidence: three frozen manifests, exact 50-task$\times$50 coverage, zero formal failures, strict 10,000-draw task-cluster summaries, a 50-task aggregate, an independently hashed packed-storage audit, and a frozen-manifest repair audit for eight infrastructure-timeout retries. | Status: supported for the complete GR00T row as descriptive evidence; no equal-budget superiority claim is made.
+- Claim: Table 2 will compare local FP16, QuantVLA W4A8, Uniform W6, $\Omega$-QVLA W4A4, and GDSQ-VLA on LIBERO. | Evidence: pinned code/packs and a frozen 4,000-episode joint protocol; no author-reported result values are imported. | Status: pending until the exact local coverage and hash gates complete; it is independent of the completed Table 1 GR00T row.
 
 ## Frozen provenance
 
@@ -79,6 +79,7 @@
 - Official Composite-Unseen summary SHA256: `147c400a18689d27b625a943123d8948824fd7a9b4f6095fc13a8b4cfa8a5213`.
 - Official 50-task aggregate summary SHA256: `243162a79a57fa9bf85402364e2cb6bf50c69baa5320fc2256e5821dfd0ef810`.
 - GR00T Uniform-W6 50-task summary SHA256: `3a9165fe10fd69de8c23b254527135c4b30a5d20b8b7bf1030609e887ec75c36`; three-manifest replay audit SHA256: `469440b3f4802af8a82e5ba1661ed8c78f25e4d85e2d5b5f501639d15569b1b0`.
+- GR00T $\Omega$-QVLA summaries: Atomic `bd417d70306bca83a022bca5c5fd2e7cac740738bc1f05a95816acc3ed43916a`, Composite-Seen `8b1f229d7ad78b6f1a3fa1a2010a3a760e220f6d799b6db723af7a800a8be857`, Composite-Unseen `693bbfecdcaebd54475899e90cc35346fa2e2e26477c4c7f1ff01c190cb7e233`, aggregate `88f5a0ffd282148ed98f5c6df3d2087c5b49a76dda5ff4f84e4f14a71b8e749b`, and retry repair audit `926af56182e8de7fc1d433a548235ffcd92a8793589327d7cb45ebb8f6b667c6`.
 - LIBERO Table 2 five-configuration preregistration SHA256: `1f2bc757bc0adbefa6466a89bfcb24d6b6595628e0cbe0f147fa0cd3af23bf73`.
 - Five-seed diagnostic summary SHA256: `da948a0b16976e41a54900305e88ee6e86b95493d8115b871980b3bc2ce0a577`.
 - CVPR template tag: `CVPR2026-v1(latex)` at commit `12909ae437f6dbc7435069cfdb4ca44c18e6a02f`.
@@ -133,9 +134,10 @@
 - [x] Replace Composite-Seen TBD cells from its complete frozen summary.
 - [x] Replace Composite-Unseen TBD cells only from its complete frozen summary.
 - [x] Re-run claim/evidence audit after inserting Composite-Unseen and the complete 50-task aggregate.
-- [x] Confirm the main-paper end label is on page 7 (limit: 8), the supplement starts on page 10, and the complete review PDF is 11 pages including references and supplement.
+- [x] Confirm the main-paper end label is on page 8 (limit: 8), the supplement starts on page 11, and the complete review PDF is 12 pages including references and supplement.
 - [x] Confirm no missing citations, references, or anonymization leaks.
 - [x] Confirm FP16 is labeled uncompressed and excluded from best-compressed highlighting; \method (Ours) is the final row in direct configuration comparisons.
 - [x] Cross-check all 43 cited BibTeX entries; consolidate official RoboCasa365 task groups in one table and report the internal Primary 14 split separately after ratio selection.
 - [x] Audit all tabular assets against the official CVPR 2026 author kit (`CVPR2026-v1(latex)`, commit `12909ae...`): captions above with template-controlled small Roman font, `booktabs` rules, no vertical lines, no scaling, `\small` main-table bodies, and no body text below 8pt `\footnotesize`.
 - [x] Add $\Omega$-QVLA v1 as a protocol-separated LIBERO table, pin its official code and pack revisions, and keep incomplete local reproduction cells claim-disabled.
+- [x] Complete and audit all 2,500 GR00T $\Omega$-QVLA RoboCasa365 episodes, populate the full Table 1 row, and keep the independent $\pi_{0.5}$ row disabled.

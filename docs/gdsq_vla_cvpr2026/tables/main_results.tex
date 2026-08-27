@@ -14,7 +14,7 @@ Configuration & \shortstack{Low-bit\\layers} & \shortstack{Atomic\\SR $\uparrow$
 \quad FP16 & -- & 75.6 & 41.9 & 45.3 & 55.1 & 1.993 & 1.00$\times$ \\
 \quad \quantvla W4A8 & 116 W4 & 49.6 & 19.6 & 19.8 & 30.4 & 0.898 & 2.22$\times$ \\
 \quad Uniform W6 & 116 W6 & 68.4 & 42.9 & 41.8 & 51.7 & 1.109 & 1.80$\times$ \\
-\quad $\Omega$-QVLA W4A4$^{\ddagger}$ & 180 W4 & 60.1 & \textit{pending} & \textit{pending} & \textit{pending} & 0.599 & 3.33$\times$ \\
+\quad $\Omega$-QVLA W4A4$^{\ddagger}$ & 180 W4 & 60.1 & 25.9 & 27.5 & 38.7 & 0.599 & 3.33$\times$ \\
 \quad \textbf{\textsc{GDSQ-VLA}(Ours)} & 100 W4 & 69.0 & 40.6 & 40.4 & 50.8 & 1.001 & 1.99$\times$ \\
 \midrule
 \multicolumn{8}{@{}l}{\textbf{$\pi_{0.5}$}~\cite{intelligence2025pi05}\enspace\textit{(target split)}} \\
@@ -26,5 +26,5 @@ Configuration & \shortstack{Low-bit\\layers} & \shortstack{Atomic\\SR $\uparrow$
 \bottomrule
 \end{tabular}
 \vspace{2pt}
-\parbox{0.99\textwidth}{\footnotesize C-Seen/C-Unseen denote Composite-Seen/Composite-Unseen. Ours uses the frozen v8 selector. Uniform W6 is the direct byte-budget baseline; QuantVLA is a different-rate comparison. Size is theoretical tightly packed candidate-Linear storage, with FP16 shown as the reference. Pending cells are claim-disabled. $^{\ddagger}\Omega$-QVLA uses RoboCasa365-specific calibration; its GR00T Atomic cell is complete, while the remaining cells await exact coverage. Its displayed size includes packed W4 weights and required scales/rotation metadata, not the dequantized evaluation pack.}
+\parbox{0.99\textwidth}{\footnotesize C-Seen/C-Unseen denote Composite-Seen/Composite-Unseen. Ours uses the frozen v8 selector. Uniform W6 is the direct byte-budget baseline; QuantVLA is a different-rate comparison. Size is theoretical tightly packed candidate-Linear storage, with FP16 shown as the reference. Pending cells are claim-disabled. $^{\ddagger}\Omega$-QVLA uses RoboCasa365-specific calibration; its GR00T row has exact 50-task$\times$50-scenario coverage, while its $\pi_{0.5}$ row remains pending. Its displayed size includes packed W4 weights and required scales/rotation metadata, not the dequantized evaluation pack.}
 \end{table*}
