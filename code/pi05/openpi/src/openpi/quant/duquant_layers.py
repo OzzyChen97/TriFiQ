@@ -148,6 +148,14 @@ class DuQuantLinear(nn.Module):
         self.out_features = base.out_features
         self.bias = nn.Parameter(base.bias.detach().clone()) if base.bias is not None else None
         self.register_buffer("_weight", base.weight.detach().clone())
+        # Some upstream policy code inspects ``linear.weight.dtype`` to choose
+        # an autocast path.  Preserve only zero-sized dtype/device metadata so
+        # that inspection remains valid after the FP weight itself is released.
+        self.register_buffer(
+            "_weight_metadata",
+            base.weight.detach().new_empty(0),
+            persistent=False,
+        )
         self.register_buffer(
             "_errorfold_base_bias",
             base.bias.detach().clone() if base.bias is not None else None,
@@ -305,9 +313,11 @@ class DuQuantLinear(nn.Module):
 
     @property
     def weight(self) -> torch.Tensor:
-        """Expose the foldable FP weight until real-quant finalization."""
+        """Expose FP weight before finalization, then zero-sized metadata only."""
         if self._weight is None:
-            raise RuntimeError(f"{self.name}: FP weight was released for real-quant inference")
+            if self._inference_only_ready:
+                return self._weight_metadata
+            raise RuntimeError(f"{self.name}: FP weight is unavailable")
         return self._weight
 
     @weight.setter

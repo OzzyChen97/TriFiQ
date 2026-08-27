@@ -458,3 +458,41 @@ def test_pi05_w4_masks_ragged_batch_rows() -> None:
         )
         torch.cuda.synchronize()
         torch.testing.assert_close(actual, expected, atol=2e-2, rtol=2e-2)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="Triton W4 kernel needs CUDA")
+def test_gr00t_w4_masks_ragged_batch_rows() -> None:
+    from gr00t.quantization.duquant_fused import (
+        fused_linear_w4_nibbles,
+        pack_w4_nibbles,
+    )
+
+    generator = torch.Generator().manual_seed(83)
+    weight = torch.randn(64, 64, generator=generator, dtype=torch.float32).cuda() * 0.03
+    scales = (weight.abs().amax(dim=1, keepdim=True) / 7.0).clamp_min(1e-6)
+    packed = pack_w4_nibbles(weight, scales)
+    codes = unpack_signed_nibbles(packed.cpu(), 64).cuda().to(torch.float32)
+    dequant = codes * scales
+    for rows in (1, 63, 65, 129):
+        x = torch.randn(rows, 64, generator=generator, dtype=torch.float16).cuda()
+        expected = (x.float() @ dequant.T).to(torch.float16)
+        actual = fused_linear_w4_nibbles(x, packed, scales)
+        torch.cuda.synchronize()
+        torch.testing.assert_close(actual, expected, atol=2e-2, rtol=2e-2)
+
+
+def test_pi05_finalized_weight_exposes_only_dtype_metadata() -> None:
+    from openpi.quant.duquant_layers import DuQuantLinear
+
+    layer = object.__new__(DuQuantLinear)
+    torch.nn.Module.__init__(layer)
+    layer.name = "test.finalized"
+    layer.register_buffer("_weight", None)
+    layer.register_buffer(
+        "_weight_metadata",
+        torch.empty(0, dtype=torch.bfloat16),
+        persistent=False,
+    )
+    layer._inference_only_ready = True
+    assert layer.weight.dtype == torch.bfloat16
+    assert layer.weight.numel() == 0

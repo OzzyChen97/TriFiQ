@@ -75,7 +75,12 @@ def _w4_dequant_matmul_kernel(
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
     for _ in range(0, tl.cdiv(K, BLOCK_K)):
-        a = tl.load(a_ptrs, mask=offs_k[None, :] < K - _ * BLOCK_K, other=0.0)
+        a = tl.load(
+            a_ptrs,
+            mask=(offs_m[:, None] < M)
+            & (offs_k[None, :] < K - _ * BLOCK_K),
+            other=0.0,
+        )
         wq = tl.load(wq_ptrs, mask=offs_k[None, :] < K - _ * BLOCK_K, other=0)
         ws = tl.load(WS + offs_n, mask=offs_n < N, other=1.0)
         w = wq.to(tl.float32) * ws[:, None]
@@ -167,7 +172,11 @@ def _w4_nibble_dequant_matmul_kernel(
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
     for block_k in range(0, tl.cdiv(K, BLOCK_K)):
         k = block_k * BLOCK_K + offs_k
-        a = tl.load(a_ptrs, mask=k[None, :] < K, other=0.0)
+        a = tl.load(
+            a_ptrs,
+            mask=(offs_m[:, None] < M) & (k[None, :] < K),
+            other=0.0,
+        )
         packed = tl.load(
             WQ + offs_n[:, None] * stride_wn + (k[None, :] // 2) * stride_wb,
             mask=(offs_n[:, None] < N) & (k[None, :] < K),
