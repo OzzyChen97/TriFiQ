@@ -59,6 +59,11 @@ declare -A GR_CHECKPOINT=(
     [composite_seen]="$CHECKPOINT_ROOT/composite_seen/checkpoint-60000"
     [composite_unseen]="$CHECKPOINT_ROOT/composite_unseen/checkpoint-60000"
 )
+declare -A GR_PAPER_PACK=(
+    [atomic_seen]="$PACK_ROOT/duquant_packed_robocasa365_protocolfix_d4_w4a8_b64c32ls015"
+    [composite_seen]="$PACK_ROOT/duquant_packed_robocasa365_composite_seen_d4_w4a8_b64c32ls015"
+    [composite_unseen]="$PACK_ROOT/duquant_packed_robocasa365_composite_unseen_d4_w4a8_b64c32ls015"
+)
 declare -A TASKS=(
     [atomic_seen]="CloseBlenderLid,CloseFridge,CloseToasterOvenDoor,NavigateKitchen,OpenDrawer"
     [composite_seen]="DeliverStraw,KettleBoiling,LoadDishwasher,PrepareCoffee,WashLettuce"
@@ -349,6 +354,56 @@ audit_noise_b_all() {
     wait_many "${pids[@]}"
 }
 
+paper_a8_complete() {
+    local label="$1" output="$ROOT/calibration/gr00t/$label/paper_a8_shared_n256.npz"
+    local sidecar="$output.meta.json"
+    [[ -s "$output" && -s "$sidecar" ]] || return 1
+    jq -e \
+        --arg buffer "$(sha256sum "$CALIBRATION_BUFFER" | cut -d' ' -f1)" \
+        --arg plan "$(sha256sum "${GR_PLAN[$label]}" | cut -d' ' -f1)" \
+        --arg checkpoint "$(realpath "${GR_CHECKPOINT[$label]}")" \
+        '
+        .source_buffer_sha256 == $buffer and
+        .plan_sha256 == $plan and
+        .checkpoint_path == $checkpoint and
+        .calib_batches == 32 and .calibration_seed == 0 and
+        .denoising_steps == 4 and .act_percentile == 99.9 and
+        .wrapped_layers == 116
+        ' "$sidecar" >/dev/null
+}
+
+run_paper_a8_job() {
+    local label="$1" gpu="$2"
+    local directory="$ROOT/calibration/gr00t/$label"
+    local output="$directory/paper_a8_shared_n256.npz"
+    if paper_a8_complete "$label"; then
+        echo "[errorfold-v3] reuse shared-buffer paper A8 label=$label"
+        return
+    fi
+    mkdir -p "$directory"
+    wait_gpu_headroom "$gpu" "$GR_MIN_FREE_MIB"
+    CUDA_VISIBLE_DEVICES="$gpu" PYTHONUNBUFFERED=1 GR00T_DUQUANT_FUSED=1 \
+        "$GROOT_PY" "$REPO/scripts/tools/calibrate_a8_plan_gr00t.py" \
+        --model-path "${GR_CHECKPOINT[$label]}" \
+        --plan "${GR_PLAN[$label]}" --packdir "${GR_PAPER_PACK[$label]}" \
+        --buffer "$CALIBRATION_BUFFER" --out "$output" \
+        --suite robocasa365_atomic --obs-format robocasa365 \
+        --denoising-steps 4 --batch-size 8 --calib-steps 32 \
+        --calibration-seed 0 \
+        >"$directory/paper_a8.log" 2>&1
+    paper_a8_complete "$label"
+}
+
+calibrate_paper_a8_all() {
+    phase calibrate_gr00t_paper_a8_on_shared_buffer
+    local pids=()
+    run_paper_a8_job atomic_seen "${CALIBRATION_GPUS[0]}" & pids+=("$!")
+    run_paper_a8_job composite_seen "${CALIBRATION_GPUS[1]}" & pids+=("$!")
+    run_paper_a8_job composite_unseen "${CALIBRATION_GPUS[2]}" & pids+=("$!")
+    QUEUE_CHILDREN=("${pids[@]}")
+    wait_many "${pids[@]}"
+}
+
 matrix_complete() {
     local model="$1" directory="$2" task_set="${3:-all}"
     "$GROOT_PY" - "$MANIFEST" "$model" "$directory" "$task_set" <<'PY' >/dev/null
@@ -407,6 +462,7 @@ run_gr00t_matrix() {
 }
 
 gr00t_closed_loop() {
+    calibrate_paper_a8_all
     phase materialize_gr00t_specs
     "$GROOT_PY" "$REPO/scripts/tools/make_errorfold_v3_gr00t_specs.py" \
         --run-root "$ROOT" --out-dir "$ROOT/specs" >"$ROOT/specs.log" 2>&1

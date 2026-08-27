@@ -496,3 +496,14 @@ def test_pi05_finalized_weight_exposes_only_dtype_metadata() -> None:
     layer._inference_only_ready = True
     assert layer.weight.dtype == torch.bfloat16
     assert layer.weight.numel() == 0
+
+
+def test_gr00t_paper_baseline_uses_shared_buffer_a8_artifact(tmp_path: Path) -> None:
+    from make_errorfold_v3_gr00t_specs import build
+
+    spec = build(tmp_path, "atomic_seen")
+    paper = next(row for row in spec["configs"] if row["id"] == "quantvla_w4a8_paper")
+    assert Path(paper["act_scale"]) == (
+        tmp_path
+        / "calibration/gr00t/atomic_seen/paper_a8_shared_n256.npz"
+    )

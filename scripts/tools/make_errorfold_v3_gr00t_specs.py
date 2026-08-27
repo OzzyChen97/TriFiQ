@@ -63,7 +63,9 @@ def build(root: Path, task_set: str) -> dict:
         "expected_wrapped": wrapped,
         "plan": str(plan),
         "packdir": str(PACKS / legacy["pack"]),
-        "act_scale": str(PACKS / legacy["a8"]),
+        # Recalibrated with the paper-faithful static-A8 rule, but on the same
+        # frozen 256-observation buffer used by both model adapters and v3.
+        "act_scale": str(calibration / "paper_a8_shared_n256.npz"),
         "atm": str(PACKS / legacy["atm"]),
         "ohb": True,
         "meta": {"method": "paper_faithful_quantvla_w4a8"},
