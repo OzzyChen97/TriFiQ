@@ -532,10 +532,22 @@ def enable_pi05_atm_if_configured(model: nn.Module) -> None:
     # intentionally independent of the legacy request/task runtime selector.
     expected_ohb_application = os.environ.get(OHB_APPLICATION_ENV)
     artifact_ohb_application = metadata.get("ohb_application")
+    v3_errorfold_static_head_fold = (
+        payload.get("schema_version") == 3
+        and payload.get("kind")
+        in {"errorfold_compensation", "errorfold_grid_candidate"}
+        and metadata.get("atm_application") == "fold_q_weight"
+        and metadata.get("errorfold_application")
+        == "fold_affine_into_weight_dequant_scale_and_bias"
+        and metadata.get("selector_free") is True
+        and metadata.get("runtime_branch") is False
+        and artifact_ohb_application is None
+        and expected_ohb_application == "fold_o_weight_perhead"
+    )
     fold_equivalent = (
         expected_ohb_application in {"fold_o_weight", "fold_o_weight_perhead"}
         and artifact_ohb_application == "runtime_output"
-    )
+    ) or v3_errorfold_static_head_fold
     if expected_ohb_application and artifact_ohb_application != expected_ohb_application and not fold_equivalent:
         raise ValueError(
             f"ATM/OHB metadata mismatch for ohb_application: "

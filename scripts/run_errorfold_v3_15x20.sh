@@ -132,6 +132,51 @@ calibration_complete() {
             "$(sha256sum "$REPO/scripts/tools/calibrate_errorfold_v3.py" | cut -d' ' -f1)" ]]
 }
 
+grid_score_complete() {
+    local model="$1" directory="$2" shard="$3"
+    local output="$directory/scores_shard${shard}.json"
+    [[ -s "$output" ]] || return 1
+    local scorer runtime_source runtime_key kind
+    if [[ "$model" == "gr00t" ]]; then
+        scorer="$REPO/scripts/tools/gr00t_score_softfold_grid.py"
+        runtime_source="$REPO/code/gr00t/atm/dit_atm.py"
+        runtime_key="gr00t_atm_runtime"
+        kind="errorfold_v3_gr00t_softfold_grid_score"
+    else
+        scorer="$REPO/scripts/tools/pi05_score_configs_against_fp16.py"
+        runtime_source="$REPO/code/pi05/openpi/src/openpi/quant/atm_pi05.py"
+        runtime_key="pi05_atm_runtime"
+        kind="errorfold_v3_pi05_softfold_grid_score"
+    fi
+    jq -e \
+        --arg kind "$kind" \
+        --argjson shard "$shard" \
+        --argjson shards "$SOFTFOLD_SHARDS" \
+        --arg scorer "$(sha256sum "$scorer" | cut -d' ' -f1)" \
+        --arg metric "$(sha256sum "$REPO/scripts/tools/quantvla_metric_protocol.py" | cut -d' ' -f1)" \
+        --arg adapter "$(sha256sum "$REPO/scripts/tools/quantvla_model_adapters.py" | cut -d' ' -f1)" \
+        --arg fitter "$(sha256sum "$REPO/scripts/tools/fit_softfold_compensation.py" | cut -d' ' -f1)" \
+        --arg runtime_key "$runtime_key" \
+        --arg runtime "$(sha256sum "$runtime_source" | cut -d' ' -f1)" \
+        --arg protocol "$(sha256sum "$MANIFEST" | cut -d' ' -f1)" \
+        '
+        .schema_version == 3 and .kind == $kind and .softfold_grid == true and
+        .softfold_grid_size == 81 and
+        .softfold_grid_shard.index == $shard and
+        .softfold_grid_shard.count == $shards and
+        ((.scores | keys | sort) == (.softfold_grid_shard.config_ids | sort)) and
+        (.best.config_id as $best | .scores[$best] != null) and
+        .deployment_residency_preflight.packed_low_bit_residency == true and
+        .deployment_residency_preflight.fp_weight_sized_buffers == 0 and
+        .source_sha256.scorer == $scorer and
+        .source_sha256.metric_protocol == $metric and
+        .source_sha256.model_adapter == $adapter and
+        .source_sha256.softfold_fitter == $fitter and
+        .source_sha256[$runtime_key] == $runtime and
+        .cross_model_protocol.protocol_file_sha256 == $protocol
+        ' "$output" >/dev/null
+}
+
 run_calibration_job() {
     local model="$1" label="$2" checkpoint="$3" plan="$4" gpu="$5"
     local directory="$ROOT/calibration/$model"
@@ -174,6 +219,10 @@ run_grid_job() {
     local directory="$ROOT/calibration/$model"
     local python="$OPENPI_PY"
     [[ "$model" == "gr00t" ]] && directory="$directory/$label" && python="$GROOT_PY"
+    if grid_score_complete "$model" "$directory" "$shard"; then
+        echo "[errorfold-v3] reuse complete grid score model=$model label=$label shard=$shard"
+        return
+    fi
     mkdir -p "$directory/grid_shard${shard}"
     local threshold="$PI_MIN_FREE_MIB"
     [[ "$model" == "gr00t" ]] && threshold="$GR_MIN_FREE_MIB"

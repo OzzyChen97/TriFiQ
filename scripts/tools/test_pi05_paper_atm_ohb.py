@@ -165,6 +165,59 @@ class PaperAtmOhbTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "ohb_mode"):
                 enable_pi05_atm_if_configured(model)
 
+    def test_v3_errorfold_uses_static_perhead_fold_without_legacy_ohb_field(self) -> None:
+        model = ToyModel()
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "errorfold_v3.json"
+            artifact.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 3,
+                        "kind": "errorfold_grid_candidate",
+                        "meta": {
+                            "atm_application": "fold_q_weight",
+                            "errorfold_application": "fold_affine_into_weight_dequant_scale_and_bias",
+                            "selector_free": True,
+                            "runtime_branch": False,
+                        },
+                        "layers": {
+                            f"{LAYER}::attention_logits": {
+                                "kind": "attention_logits",
+                                "effective_gain": [1.0, 1.0],
+                                "effective_bias": [0.0, 0.0],
+                            },
+                            f"{LAYER}::attention_head_output": {
+                                "kind": "attention_head_output",
+                                "effective_gain": [1.0] * 8,
+                                "effective_bias": [0.0] * 8,
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            os.environ.update(
+                {
+                    "OPENPI_ATM_ENABLE": "1",
+                    "OPENPI_OHB_ENABLE": "1",
+                    "OPENPI_ATM_ALPHA_PATH": str(artifact),
+                    "OPENPI_ATM_SCOPE": "expert",
+                    "OPENPI_OHB_SCOPE": "expert",
+                    "OPENPI_ATM_STRICT": "1",
+                    "OPENPI_ATM_EXPECT_LAYERS": "1",
+                    "OPENPI_ATM_APPLICATION": "fold_q_weight",
+                    "OPENPI_OHB_APPLICATION": "fold_o_weight_perhead",
+                }
+            )
+            enable_pi05_atm_if_configured(model)
+
+        runtime = model._openpi_atm_runtime
+        self.assertEqual(runtime["matched_layers"], 1)
+        self.assertEqual(runtime["ohb_layers"], 1)
+        self.assertEqual(runtime["ohb_application"], "fold_o_weight_perhead")
+        attention = model.paligemma_with_expert.gemma_expert.model.layers[0].self_attn
+        self.assertTrue(attention._openpi_errorfold_head_affine_folded)
+
     def test_legacy_per_head_runtime_metadata_is_backward_compatible(self) -> None:
         model = ToyModel()
         with tempfile.TemporaryDirectory() as directory:
