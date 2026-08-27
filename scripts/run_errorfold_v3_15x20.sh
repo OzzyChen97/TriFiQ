@@ -19,6 +19,27 @@ LOG="$ROOT/orchestrator.log"
 PID_FILE="$ROOT/orchestrator.pid"
 PHASE_FILE="$ROOT/phase.txt"
 
+# Keep the many model servers and RoboCasa workers from each creating a
+# machine-sized BLAS/OpenMP pool.  On the 128-CPU evaluation host, the default
+# PyTorch setting is 64 intra-op threads per process; eight servers plus forty
+# environment workers otherwise oversubscribe the host and starve the GPUs.
+# This is an execution-scheduling control only: both model adapters inherit the
+# same value and no frozen metric, action, seed, horizon, or deployment artifact
+# is changed.
+CPU_THREADS="${ERRORFOLD_V3_CPU_THREADS:-4}"
+if [[ ! "$CPU_THREADS" =~ ^[1-9][0-9]*$ ]] || (( CPU_THREADS > 16 )); then
+    echo "ERRORFOLD_V3_CPU_THREADS must be an integer in [1,16]" >&2
+    exit 2
+fi
+export OMP_NUM_THREADS="$CPU_THREADS"
+export MKL_NUM_THREADS="$CPU_THREADS"
+export OPENBLAS_NUM_THREADS="$CPU_THREADS"
+export BLIS_NUM_THREADS="$CPU_THREADS"
+export VECLIB_MAXIMUM_THREADS="$CPU_THREADS"
+export NUMEXPR_MAX_THREADS="$CPU_THREADS"
+export OMP_WAIT_POLICY=PASSIVE
+export KMP_BLOCKTIME=0
+
 CALIBRATION_BUFFER="$REPO/runs/pi05_gdsq_gr00t_aligned/calibration/pi05_robocasa365_seed0_n256.npz"
 SELECTION_BUFFER="$REPO/runs/pi05_gdsq_gr00t_aligned/diagnostics/fp16_onpolicy_probe/fp16_onpolicy_target_4tasks_s0-1_r4_n32.npz"
 PACK_ROOT="$REPO/checkpoints/packs/robocasa365"
@@ -613,6 +634,7 @@ run_all() {
     trap cleanup EXIT INT TERM
     cd "$REPO"
     mkdir -p "$ROOT"
+    echo "[errorfold-v3] cpu_threads=$CPU_THREADS omp_wait_policy=$OMP_WAIT_POLICY"
     printf '%s\n' "$$" >"$PID_FILE"
     freeze_manifest
     calibrate_all
