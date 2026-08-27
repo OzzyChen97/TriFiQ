@@ -41,10 +41,14 @@ def build(root: Path, task_set: str) -> dict:
     plan = PACKS / legacy["plan"]
     wrapped = len(json.loads(plan.read_text(encoding="utf-8"))["layers"])
     placements = {
-        "fp16": (0, 22100, 1, 22101),
-        "quantvla_w4a8_paper": (2, 22102, 3, 22103),
-        "errorfold_dfunc": (4, 22104, 5, 22105),
-        "errorfold_dpac_v2": (6, 22106, 7, 22107),
+        # GPU0 has only ~6 GiB free under a long-running external workload.
+        # Keep eight server instances by co-locating one FP16 and one real-W4
+        # instance on the otherwise empty GPU3; the shared-memory preflight
+        # accounts for both server budgets plus its EGL clients.
+        "fp16": (1, 22100, 3, 22101),
+        "quantvla_w4a8_paper": (2, 22102, 4, 22103),
+        "errorfold_dfunc": (5, 22104, 6, 22105),
+        "errorfold_dpac_v2": (7, 22106, 3, 22107),
     }
 
     def placement(config_id: str) -> dict:

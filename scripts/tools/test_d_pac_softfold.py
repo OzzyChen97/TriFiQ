@@ -507,3 +507,30 @@ def test_gr00t_paper_baseline_uses_shared_buffer_a8_artifact(tmp_path: Path) -> 
         tmp_path
         / "calibration/gr00t/atomic_seen/paper_a8_shared_n256.npz"
     )
+    server_gpus = [
+        gpu
+        for row in spec["configs"]
+        for gpu in [row["gpu"], *(replica["gpu"] for replica in row["replicas"])]
+    ]
+    assert 0 not in server_gpus
+    assert server_gpus.count(3) == 2
+    assert len(server_gpus) == 8
+
+
+def test_shared_gpu_preflight_accumulates_both_servers_and_clients() -> None:
+    from run_robocasa_atomic_matrix import egl_pool_memory_requirements
+
+    manifest = {
+        "protocol": {
+            "allow_shared_gpus": True,
+            "egl_device_pool": [3],
+            "shard_egl_devices": {"fp16": [3, 3, 3, 3, 3]},
+        },
+        "configs": [
+            {"gpu": 3, "expected_wrapped": 0},
+            {"gpu": 3, "expected_wrapped": 116},
+        ],
+    }
+    assert egl_pool_memory_requirements(manifest) == {
+        3: 2048.0 + 5 * 2000.0 + 12288.0 + 16384.0
+    }

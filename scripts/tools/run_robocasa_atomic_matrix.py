@@ -23,6 +23,7 @@ checkpoint/task-set pairs used by the official 50-task benchmark.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import fcntl
 import hashlib
 import json
@@ -380,8 +381,10 @@ def gpu_free_memory_mib() -> dict[int, float]:
 def egl_pool_memory_requirements(manifest: dict) -> dict[int, float]:
     """Conservative free-memory gate for shared EGL-client scheduling.
 
-    The observed RoboCasa EGL contexts use roughly 1.5--2.0 GiB each.  Budget
-    2.3 GiB/client, 12/16 GiB for FP16/quantized servers, and a 2 GiB guard.
+    The observed RoboCasa EGL contexts use roughly 1.5--2.0 GiB each.  Shared
+    execution budgets the observed upper bound of 2.0 GiB/client; exclusive
+    execution keeps the older 2.3 GiB allowance.  Both retain 12/16 GiB for
+    FP16/quantized servers and a separate 2 GiB device guard.
     This does not evict existing jobs: the detached chain simply retries while
     a pool device lacks headroom.
     """
@@ -392,8 +395,12 @@ def egl_pool_memory_requirements(manifest: dict) -> dict[int, float]:
     for devices in manifest["protocol"]["shard_egl_devices"].values():
         for gpu in devices:
             client_counts[int(gpu)] = client_counts.get(int(gpu), 0) + 1
+    client_budget = (
+        2000.0 if manifest["protocol"].get("allow_shared_gpus") else 2300.0
+    )
     requirements = {
-        gpu: 2048.0 + count * 2300.0 for gpu, count in client_counts.items()
+        gpu: 2048.0 + count * client_budget
+        for gpu, count in client_counts.items()
     }
     for config in manifest["configs"]:
         server_budget = 16384.0 if int(config["expected_wrapped"]) else 12288.0
@@ -408,11 +415,11 @@ def egl_pool_memory_requirements(manifest: dict) -> dict[int, float]:
 def monitor_gpus(
     stop: threading.Event, path: Path, configs: list[dict], interval: float
 ) -> None:
-    gpu_to_config = {}
+    gpu_to_configs: dict[int, list[str]] = {}
     for config in configs:
-        gpu_to_config[int(config["gpu"])] = config["id"]
+        gpu_to_configs.setdefault(int(config["gpu"]), []).append(config["id"])
         for replica in config.get("replicas", []):
-            gpu_to_config[int(replica["gpu"])] = config["id"]
+            gpu_to_configs.setdefault(int(replica["gpu"]), []).append(config["id"])
     query = [
         "nvidia-smi",
         "--query-gpu=index,memory.used,utilization.gpu,power.draw",
@@ -428,11 +435,11 @@ def monitor_gpus(
                     if len(fields) != 4:
                         continue
                     gpu = int(fields[0])
-                    if gpu not in gpu_to_config:
+                    if gpu not in gpu_to_configs:
                         continue
                     handle.write(json.dumps({
                         "sampled_at": sampled_at,
-                        "config": gpu_to_config[gpu],
+                        "config": ",".join(gpu_to_configs[gpu]),
                         "gpu": gpu,
                         "memory_used_mib": float(fields[1]),
                         "utilization_gpu_pct": float(fields[2]),
@@ -551,8 +558,16 @@ def build_manifest(
     ports = [port for _, _, port in server_placements]
     if any(g not in range(0, 8) for g in gpus):
         raise SystemExit(f"only GPUs 0-7 are authorized, got {gpus}")
-    if len(gpus) != len(set(gpus)):
-        raise SystemExit(f"each model-server instance must have its own GPU: {server_placements}")
+    gpu_counts = Counter(gpus)
+    shared_placements = {gpu: count for gpu, count in gpu_counts.items() if count > 1}
+    if shared_placements and not allow_shared_gpus:
+        raise SystemExit(
+            f"shared model-server GPUs require --allow-shared-gpus: {server_placements}"
+        )
+    if any(count > 2 for count in gpu_counts.values()):
+        raise SystemExit(
+            f"at most two model-server instances may share one GPU: {server_placements}"
+        )
     if len(ports) != len(set(ports)):
         raise SystemExit(f"model-server ports must be unique: {server_placements}")
     if trial_timeout < 1 or trial_batch_size < 1 or seed_shards_per_task < 1:

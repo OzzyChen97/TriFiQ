@@ -446,7 +446,7 @@ run_gr00t_matrix() {
             --seeds "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19" \
             --checkpoint "${GR_CHECKPOINT[$task_set]}" --n-shards 5 \
             --seed-shards-per-task "$SEED_SHARDS_PER_TASK" \
-            --egl-device-pool "0,1,2,3,4,5,6,7" \
+            --egl-device-pool "1,2,4,5,6,3,7" \
             --trial-timeout 7200 --trial-batch-size 5 --action-noise paired \
             --formal-provenance-v2 --allow-shared-gpus; then
             return
