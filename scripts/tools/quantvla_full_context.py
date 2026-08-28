@@ -170,38 +170,124 @@ def score_vectors(score: Mapping[str, Any]) -> dict[str, np.ndarray]:
     return result
 
 
-def _baseline_scale(score: Mapping[str, Any], key: str) -> float:
-    scalar_key = "d_func" if key == "d_func" else "d_pac"
-    value = float(score.get(scalar_key, math.nan))
-    if not math.isfinite(value) or value < 0.0:
-        raise ValueError(f"invalid baseline {scalar_key}: {value}")
-    return max(value, 1e-12)
+def task_group_map() -> dict[str, str]:
+    """Map every registered Table-1 task to its target split."""
+    groups: dict[str, str] = {}
+    for group in ("atomic_seen", "composite_seen", "composite_unseen"):
+        for task in PROTOCOL["table1"]["tasks"][group]:
+            groups[str(task)] = group
+    return groups
+
+
+def task_scalars(score: Mapping[str, Any]) -> dict[tuple[str, str], float]:
+    """Per-(metric, task) scalars from a summarize_pair score document.
+
+    Seeds are aggregated inside each task.  D_func is the macro mean of the
+    task's per-sequence values; D_PAC recomputes the full mean + CVaR form
+    per seed (tail over that seed's replans) and averages over seeds.  This
+    is the single task-macro estimand used by both the numerator and the
+    denominator of the paired objective.
+    """
+    from quantvla_cross_model_protocol import PROTOCOL as CROSS_MODEL_PROTOCOL
+
+    functional = score.get("d_func_summary") or {}
+    pac = score.get("d_pac_summary") or {}
+    d_func_seq = _finite_vector(functional.get("per_sequence"), name="d_func")
+    d_pac_seq = _finite_vector(pac.get("per_sequence"), name="d_pac")
+    sequences = pac.get("sequences") or []
+    if len(sequences) != d_pac_seq.size:
+        raise ValueError("D_PAC sequence/component inventory mismatch")
+    tasks = [str(row["task"]) for row in sequences]
+    seeds = [int(row["seed"]) for row in sequences]
+    alpha = float(CROSS_MODEL_PROTOCOL["metrics"]["d_pac"]["outer_cvar_alpha"])
+    weight = float(CROSS_MODEL_PROTOCOL["metrics"]["d_pac"]["outer_cvar_weight"])
+    result: dict[tuple[str, str], float] = {}
+    for task in sorted(set(tasks)):
+        indices = [index for index, value in enumerate(tasks) if value == task]
+        result[("d_func", task)] = float(d_func_seq[indices].mean())
+        by_seed: dict[int, list[float]] = {}
+        for index in indices:
+            by_seed.setdefault(seeds[index], []).append(float(d_pac_seq[index]))
+        seed_values = []
+        for values in by_seed.values():
+            vector = np.asarray(values, dtype=np.float64)
+            tail_count = max(1, int(math.ceil((1.0 - alpha) * vector.size)))
+            tail = np.sort(vector)[-tail_count:]
+            seed_values.append(float(vector.mean() + weight * tail.mean()))
+        result[("d_pac", task)] = float(np.mean(seed_values))
+    return result
+
+
+def jackknife_task_se(values: np.ndarray) -> float:
+    """Leave-one-task-out jackknife SE of the mean over tasks."""
+    vector = np.asarray(values, dtype=np.float64)
+    if vector.size < 2:
+        return 0.0
+    mean = float(vector.mean())
+    squared = float(np.sum((vector - mean) ** 2))
+    return float(math.sqrt((vector.size - 1) / vector.size * squared))
 
 
 def paired_candidate_summary(
     candidate: Mapping[str, Any], baseline: Mapping[str, Any]
 ) -> dict[str, Any]:
-    candidate_vectors = score_vectors(candidate)
-    baseline_vectors = score_vectors(baseline)
-    if any(
-        candidate_vectors[key].shape != baseline_vectors[key].shape
-        for key in candidate_vectors
-    ):
-        raise ValueError("candidate and baseline sequence inventories differ")
+    """Task-cluster paired minimax summary (v2 statistics).
+
+    Numerator and denominator share one estimand: the per-task scalar of
+    ``task_scalars``.  For every metric and every task cluster (all plus the
+    registered splits), the paired upper bound is the task-level mean delta
+    plus its leave-one-task-out jackknife SE, normalized by the baseline
+    task-macro scalar of the same cluster.  The objective is the worst
+    normalized upper bound across metrics x clusters.
+    """
+    candidate_tasks = task_scalars(candidate)
+    baseline_tasks = task_scalars(baseline)
+    if set(candidate_tasks) != set(baseline_tasks):
+        raise ValueError("candidate and baseline task inventories differ")
+    tasks = sorted({task for _, task in candidate_tasks})
+    groups = task_group_map()
+    clusters: dict[str, list[str]] = {"all": tasks}
+    for task in tasks:
+        group = groups.get(task)
+        if group:
+            clusters.setdefault(group, []).append(task)
     metrics: dict[str, Any] = {}
     for key in ("d_func", "d_pac"):
-        delta = candidate_vectors[key] - baseline_vectors[key]
-        mean = float(delta.mean())
-        se = standard_error(delta)
-        scale = _baseline_scale(baseline, key)
+        entries = []
+        for cluster, cluster_tasks in clusters.items():
+            baseline_scalar = float(
+                np.mean([baseline_tasks[(key, task)] for task in cluster_tasks])
+            )
+            deltas = np.asarray(
+                [
+                    candidate_tasks[(key, task)] - baseline_tasks[(key, task)]
+                    for task in cluster_tasks
+                ],
+                dtype=np.float64,
+            )
+            mean = float(deltas.mean())
+            se = jackknife_task_se(deltas)
+            scale = max(baseline_scalar, 1e-12)
+            entries.append(
+                {
+                    "cluster": cluster,
+                    "n_tasks": int(deltas.size),
+                    "baseline": baseline_scalar,
+                    "delta_mean": mean,
+                    "delta_se": se,
+                    "upper_bound": mean + se,
+                    "normalized_upper_bound": (mean + se) / scale,
+                }
+            )
         metrics[key] = {
-            "delta": delta.tolist(),
-            "mean": mean,
-            "se": se,
-            "upper_bound": mean + se,
-            "baseline_scale": scale,
-            "normalized_upper_bound": (mean + se) / scale,
+            "clusters": entries,
+            "upper_bound": max(entry["upper_bound"] for entry in entries),
+            "normalized_upper_bound": max(
+                entry["normalized_upper_bound"] for entry in entries
+            ),
         }
+    candidate_vectors = score_vectors(candidate)
+    baseline_vectors = score_vectors(baseline)
     components: dict[str, Any] = {}
     for key in PROTOCOL["selection"]["component_constraints"]:
         delta = candidate_vectors[key] - baseline_vectors[key]
@@ -219,6 +305,7 @@ def paired_candidate_summary(
     )
     return {
         "n_sequences": int(candidate_vectors["d_func"].size),
+        "n_tasks": len(tasks),
         "metrics": metrics,
         "components": components,
         "objective": float(objective),
@@ -237,19 +324,43 @@ def conservative_fp16_benefit(
     ``flip`` is always measured against the current complete mask.  When the
     current state is W4, the flip is W4->FP16 and its upper loss bound is
     negated.  When current is FP16, the flip is FP16->W4 and its lower loss
-    bound is the conservative value of retaining FP16.
+    bound is the conservative value of retaining FP16.  Bounds use the same
+    task-cluster scalar estimand as ``paired_candidate_summary``; the most
+    conservative cluster wins.
     """
-    flip_vectors = score_vectors(flip)
-    base_vectors = score_vectors(baseline)
+    flip_tasks = task_scalars(flip)
+    base_tasks = task_scalars(baseline)
+    if set(flip_tasks) != set(base_tasks):
+        raise ValueError("flip and baseline task inventories differ")
+    tasks = sorted({task for _, task in flip_tasks})
+    groups = task_group_map()
+    clusters: dict[str, list[str]] = {"all": tasks}
+    for task in tasks:
+        group = groups.get(task)
+        if group:
+            clusters.setdefault(group, []).append(task)
     result: dict[str, float] = {}
     for key in ("d_func", "d_pac"):
-        delta = flip_vectors[key] - base_vectors[key]
-        mean = float(delta.mean())
-        se = standard_error(delta)
-        scale = _baseline_scale(baseline, key)
-        result[key] = (
-            (mean - se) / scale if current_is_fp16 else -(mean + se) / scale
-        )
+        bounds = []
+        for cluster_tasks in clusters.values():
+            scale = max(
+                float(np.mean([base_tasks[(key, task)] for task in cluster_tasks])),
+                1e-12,
+            )
+            deltas = np.asarray(
+                [
+                    flip_tasks[(key, task)] - base_tasks[(key, task)]
+                    for task in cluster_tasks
+                ],
+                dtype=np.float64,
+            )
+            mean = float(deltas.mean())
+            se = jackknife_task_se(deltas)
+            if current_is_fp16:
+                bounds.append((mean - se) / scale)
+            else:
+                bounds.append(-(mean + se) / scale)
+        result[key] = min(bounds)
     return result
 
 

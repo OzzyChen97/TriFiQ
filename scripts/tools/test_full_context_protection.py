@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 
+import numpy as np
 import pytest
 import torch
 
@@ -201,6 +202,95 @@ def test_static_a8_supports_model_native_ten_flow_steps() -> None:
     assert tuple(scales.shape) == (10, 64)
     assert torch.isfinite(scales).all()
     assert torch.all(scales > 0)
+
+
+def task_score(
+    d_func_by_task: dict[str, list[float]],
+    d_pac_by_task: dict[str, list[float]],
+) -> dict:
+    seq_d_func = []
+    seq_d_pac = []
+    sequences = []
+    for task, values in d_func_by_task.items():
+        for seed_index, value in enumerate(values):
+            seq_d_func.append(value)
+            seq_d_pac.append(d_pac_by_task[task][seed_index])
+            sequences.append(
+                {
+                    "task": task,
+                    "seed": seed_index,
+                    "components": {"pose": 0.1, "stitch": 0.1, "grip": 0.1},
+                }
+            )
+    return {
+        "d_func": sum(seq_d_func) / len(seq_d_func),
+        "d_pac": sum(seq_d_pac) / len(seq_d_pac),
+        "d_func_summary": {"per_sequence": seq_d_func},
+        "d_pac_summary": {"per_sequence": seq_d_pac, "sequences": sequences},
+    }
+
+
+def test_task_cluster_uniform_improvement_passes() -> None:
+    atomic = ["OpenDrawer", "OpenCabinet"]
+    composite = ["LoadDishwasher", "PrepareCoffee"]
+    baseline = task_score(
+        {t: [1.0, 1.0] for t in atomic + composite},
+        {t: [1.0, 1.0] for t in atomic + composite},
+    )
+    candidate = task_score(
+        {t: [0.0, 0.0] for t in atomic + composite},
+        {t: [0.0, 0.0] for t in atomic + composite},
+    )
+    summary = paired_candidate_summary(candidate, baseline)
+    assert summary["objective"] < 0.0
+    assert summary["eligible"] is True
+    assert {"all", "atomic_seen", "composite_seen"} <= {
+        entry["cluster"] for entry in summary["metrics"]["d_func"]["clusters"]
+    }
+
+
+def test_task_cluster_redistribution_is_rejected() -> None:
+    atomic = ["OpenDrawer", "OpenCabinet"]
+    composite = ["LoadDishwasher", "PrepareCoffee"]
+    baseline = task_score(
+        {t: [1.0, 1.0] for t in atomic + composite},
+        {t: [1.0, 1.0] for t in atomic + composite},
+    )
+    candidate = task_score(
+        {t: [0.0, 0.0] for t in atomic} | {t: [1.5, 1.5] for t in composite},
+        {t: [0.0, 0.0] for t in atomic} | {t: [1.5, 1.5] for t in composite},
+    )
+    summary = paired_candidate_summary(candidate, baseline)
+    composite_entry = [
+        entry
+        for entry in summary["metrics"]["d_pac"]["clusters"]
+        if entry["cluster"] == "composite_seen"
+    ][0]
+    assert composite_entry["delta_mean"] > 0.0
+    assert summary["objective"] > 0.0
+    assert summary["eligible"] is False
+
+
+def test_jackknife_task_se_matches_closed_form() -> None:
+    from quantvla_full_context import jackknife_task_se
+
+    assert jackknife_task_se(np.asarray([1.0, 1.0, 1.0, 1.0])) == 0.0
+    assert jackknife_task_se(np.asarray([0.0, 0.0, 2.0, 2.0])) == pytest.approx(
+        (3.0 / 4.0 * 4.0) ** 0.5
+    )
+
+
+def test_task_scalars_aggregate_seeds_within_task() -> None:
+    from quantvla_full_context import task_scalars
+
+    score_doc = task_score(
+        {"CloseFridge": [0.0, 0.0, 0.0, 0.0, 4.0, 4.0, 4.0, 4.0]},
+        {"CloseFridge": [0.0, 0.0, 0.0, 0.0, 4.0, 4.0, 4.0, 4.0]},
+    )
+    scalars = task_scalars(score_doc)
+    # Seed-aggregated mean+CVaR: seed 0 -> 0.0, seed 1 -> 8.0, task scalar 4.0.
+    # The global-form mean+CVaR over all eight sequences would be 6.0.
+    assert scalars[("d_pac", "CloseFridge")] == pytest.approx(4.0)
 
 
 def _synthetic_byte_rows(count: int, fp16_bytes: int, w4_bytes: int) -> dict:
