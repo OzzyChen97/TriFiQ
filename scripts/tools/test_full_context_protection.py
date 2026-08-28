@@ -293,6 +293,29 @@ def test_task_scalars_aggregate_seeds_within_task() -> None:
     assert scalars[("d_pac", "CloseFridge")] == pytest.approx(4.0)
 
 
+def test_component_rule_requires_nonpositive_task_mean() -> None:
+    # Sequence-level mean 0.1 with large within-task variance used to pass
+    # the old mean <= SE rule; the v2 rule mean + SE_task <= 0 rejects it
+    # because the task-level jackknife SE is zero.
+    tasks = ["OpenDrawer", "OpenCabinet", "LoadDishwasher", "PrepareCoffee"]
+    baseline = task_score(
+        {t: [1.0, 1.0] for t in tasks}, {t: [1.0, 1.0] for t in tasks}
+    )
+    candidate = task_score(
+        {t: [0.0, 0.0] for t in tasks}, {t: [0.0, 0.0] for t in tasks}
+    )
+    for row in baseline["d_pac_summary"]["sequences"]:
+        row["components"]["pose"] = 0.0
+    for row, value in zip(candidate["d_pac_summary"]["sequences"], [0.5, -0.3] * 4):
+        row["components"]["pose"] = value
+    summary = paired_candidate_summary(candidate, baseline)
+    assert summary["objective"] < 0.0
+    assert summary["components"]["pose"]["mean"] == pytest.approx(0.1)
+    assert summary["components"]["pose"]["se"] == 0.0
+    assert summary["component_constraints_pass"] is False
+    assert summary["eligible"] is False
+
+
 def _synthetic_byte_rows(count: int, fp16_bytes: int, w4_bytes: int) -> dict:
     return {
         f"l{index}": {

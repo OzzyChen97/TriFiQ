@@ -38,10 +38,21 @@ def sha256_file(path: str | Path) -> str:
     return digest.hexdigest()
 
 
-PROTOCOL = json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
-if PROTOCOL.get("method_id") != "full_context_fp16_protection_v1":
-    raise ValueError("unexpected full-context protocol")
+def load_protocol(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if value.get("method_id") not in (
+        "full_context_fp16_protection_v1",
+        "full_context_fp16_protection_v2",
+    ):
+        raise ValueError(f"unexpected full-context protocol: {value.get('method_id')}")
+    return value
+
+
+PROTOCOL = load_protocol(PROTOCOL_PATH)
 PROTOCOL_SHA256 = canonical_hash(PROTOCOL)
+PROTOCOL_PATH_V2 = REPO_ROOT / "scripts/quantvla_full_context_protocol_v2.json"
+PROTOCOL_V2 = load_protocol(PROTOCOL_PATH_V2)
+PROTOCOL_V2_SHA256 = canonical_hash(PROTOCOL_V2)
 
 
 def protocol_attestation() -> dict[str, Any]:
@@ -288,16 +299,27 @@ def paired_candidate_summary(
         }
     candidate_vectors = score_vectors(candidate)
     baseline_vectors = score_vectors(baseline)
+    sequences = (candidate.get("d_pac_summary") or {}).get("sequences") or []
+    if len(sequences) != candidate_vectors["d_pac"].size:
+        raise ValueError("D_PAC sequence/component inventory mismatch")
+    task_labels = [str(row["task"]) for row in sequences]
     components: dict[str, Any] = {}
     for key in PROTOCOL["selection"]["component_constraints"]:
         delta = candidate_vectors[key] - baseline_vectors[key]
-        mean = float(delta.mean())
-        se = standard_error(delta)
+        per_task: dict[str, list[float]] = {}
+        for index, task in enumerate(task_labels):
+            per_task.setdefault(task, []).append(float(delta[index]))
+        task_deltas = np.asarray(
+            [float(np.mean(values)) for values in per_task.values()],
+            dtype=np.float64,
+        )
+        mean = float(task_deltas.mean())
+        se = jackknife_task_se(task_deltas)
         components[key] = {
             "delta": delta.tolist(),
             "mean": mean,
             "se": se,
-            "passes": bool(mean <= se + 1e-15),
+            "passes": bool(mean + se <= 0.0),
         }
     objective = max(
         metrics["d_func"]["normalized_upper_bound"],
@@ -583,6 +605,18 @@ def selftest() -> None:
     assert PROTOCOL["quick_development"]["seeds"] == list(range(50, 60))
     assert table1_variable_budget("gr00t") == 732_797_337
     assert table1_variable_budget("pi05") == 1_639_513_497
+    assert PROTOCOL_V2["method_id"] == "full_context_fp16_protection_v2"
+    assert PROTOCOL_V2["selection"]["component_rule"] == (
+        "mean(delta_component)+SE_task(delta_component)<=0"
+    )
+    assert PROTOCOL_V2["selection"]["uses_task_ids_for_stratified_statistics"] is True
+    assert (
+        PROTOCOL_V2["selection"]["uses_task_labels_for_routing_or_task_specific_mask"]
+        is False
+    )
+    assert PROTOCOL_V2["byte_budget"]["table1_quantvla_component_bytes"]["gr00t"] == (
+        963_772_416
+    )
     print(f"[full-context] selftest OK {PROTOCOL_SHA256}")
 
 
