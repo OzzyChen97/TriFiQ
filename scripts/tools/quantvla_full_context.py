@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
@@ -462,6 +463,116 @@ def exact_weighted_knapsack(
         key=lambda pair: (-pair[1][0], pair[0], len(pair[1][1]), pair[1][1]),
     )
     return KnapsackResult(best[1], int(best_cost), float(best[0]))
+
+
+_ATTENTION_RE = re.compile(
+    r"^backbone\.eagle_model\.language_model\.model\.layers\.(\d+)\.self_attn\.(?:q|k|v|o)_proj$"
+)
+_MLP_RE = re.compile(
+    r"^backbone\.eagle_model\.language_model\.model\.layers\.(\d+)\.mlp\.(?:gate|up|down)_proj$"
+)
+_FF_PAIR_RE = re.compile(
+    r"^action_head\.model\.transformer_blocks\.(\d+)\.ff\.net\.(?:0\.proj|2)$"
+)
+
+
+def v2_coordinate_candidates(
+    items: Sequence[BudgetItem],
+    *,
+    capacity: int,
+    historical_protected: Sequence[str] | None = None,
+) -> list[tuple[str, tuple[str, ...], float]]:
+    """DP-as-generator candidate list (<= 8 dedup, byte-feasible candidates).
+
+    Emits the best single-layer restore, best two-layer combo, best attention
+    group, best MLP group, best FF pair, half-budget DP, full-budget DP and
+    the historical main-mask control. The DP solver only *generates* masks;
+    the full-network scorer remains the sole decider.
+    """
+    by_name = {item.name: item for item in items}
+    candidates: list[tuple[str, tuple[str, ...], float]] = []
+    seen: set[tuple[str, ...]] = set()
+
+    def add(identifier: str, protected: Iterable[str], utility: float) -> None:
+        mask = tuple(sorted(set(protected)))
+        if not mask or any(name not in by_name for name in mask):
+            return
+        extra = sum(int(by_name[name].extra_bytes) for name in mask)
+        if extra > capacity or mask in seen:
+            return
+        seen.add(mask)
+        candidates.append((identifier, mask, utility))
+
+    def benefit(item: BudgetItem) -> float:
+        return item.benefit_d_pac + item.benefit_d_func
+
+    feasible = sorted(
+        (item for item in items if item.extra_bytes <= capacity),
+        key=benefit,
+        reverse=True,
+    )
+    if feasible:
+        add("single_best", [feasible[0].name], benefit(feasible[0]))
+    top = feasible[:12]
+    best_pair: tuple[str, ...] | None = None
+    best_pair_value = -math.inf
+    for left in range(len(top)):
+        for right in range(left + 1, len(top)):
+            if top[left].extra_bytes + top[right].extra_bytes > capacity:
+                continue
+            value = benefit(top[left]) + benefit(top[right])
+            if value > best_pair_value:
+                best_pair_value = value
+                best_pair = (top[left].name, top[right].name)
+    if best_pair:
+        add("two_best", best_pair, best_pair_value)
+
+    def best_group(regex: Any, family: str) -> None:
+        groups: dict[str, list[BudgetItem]] = {}
+        for item in items:
+            match = regex.match(item.name)
+            if match:
+                groups.setdefault(match.group(1), []).append(item)
+        ranked = sorted(
+            (
+                (sum(benefit(member) for member in members), group, members)
+                for group, members in groups.items()
+            ),
+            key=lambda row: (-row[0], row[1]),
+        )
+        for value, group, members in ranked:
+            extra = sum(member.extra_bytes for member in members)
+            if extra <= capacity:
+                add(f"{family}_{group}", [member.name for member in members], value)
+                break
+
+    best_group(_ATTENTION_RE, "attention")
+    best_group(_MLP_RE, "mlp")
+    best_group(_FF_PAIR_RE, "ff_pair")
+
+    half = exact_weighted_knapsack(
+        items, budget_bytes=max(1, capacity // 2), lambda_d_func=0.5
+    )
+    if half.protected:
+        add("dp_half_budget", half.protected, half.utility)
+    full_best: tuple[float, tuple[str, ...], float] | None = None
+    for lam in PROTOCOL["counterfactual_search"]["scalarization_lambdas"]:
+        result = exact_weighted_knapsack(
+            items, budget_bytes=capacity, lambda_d_func=float(lam)
+        )
+        if not result.protected:
+            continue
+        if full_best is None or result.utility > full_best[2]:
+            full_best = (float(lam), result.protected, result.utility)
+    if full_best:
+        add(
+            f"dp_full_lambda_{str(full_best[0]).replace('.', 'p')}",
+            full_best[1],
+            full_best[2],
+        )
+    if historical_protected:
+        add("historical_main_control", historical_protected, 0.0)
+    return candidates
 
 
 def paired_one_se(

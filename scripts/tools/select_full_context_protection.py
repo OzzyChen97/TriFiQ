@@ -22,11 +22,11 @@ from quantvla_full_context import (
     BudgetItem,
     PROTOCOL,
     conservative_fp16_benefit,
-    exact_weighted_knapsack,
     protocol_attestation as full_context_attestation,
     require_protocol_attestation as require_full_context_attestation,
     select_activation_mode,
     select_frozen_candidate,
+    v2_coordinate_candidates,
 )
 from quantvla_outputimpact import atomic_json
 from quantvla_table1_bytes import (
@@ -229,10 +229,23 @@ def propose(args: argparse.Namespace) -> None:
         )
 
     materialize("context_base", tuple(sorted(current_protected)), 0.0, None)
-    for lam in PROTOCOL["counterfactual_search"]["scalarization_lambdas"]:
-        result = exact_weighted_knapsack(items, budget_bytes=capacity, lambda_d_func=float(lam))
-        identifier = f"lambda_{str(lam).replace('.', 'p')}"
-        materialize(identifier, result.protected, result.utility, float(lam))
+    historical_protected: list[str] = []
+    if getattr(args, "historical_main_plan", None):
+        historical_plan = load_json(args.historical_main_plan)[1]
+        historical_protected = sorted(
+            name
+            for name, row in historical_plan["layers"].items()
+            if bool(row.get("skip", False)) and name in byte_rows
+        )
+    for identifier, protected_tuple, utility in v2_coordinate_candidates(
+        items,
+        capacity=capacity,
+        historical_protected=historical_protected,
+    ):
+        try:
+            materialize(identifier, protected_tuple, utility, None)
+        except ValueError as error:
+            print(f"[propose] skip infeasible candidate {identifier}: {error}", flush=True)
 
     proposal = {
         "schema_version": 1,
@@ -253,6 +266,7 @@ def propose(args: argparse.Namespace) -> None:
         "budget_bytes": manifest["budget_bytes"],
         "all_w4_total_bytes": all_w4,
         "exact_solver": "sparse_pareto_01_dynamic_programming",
+        "candidate_generation": "v2_coordinate_search_dp_as_generator",
         "candidates": candidates,
         "uses_success_labels": False,
         "selection_noise": "A",
@@ -360,6 +374,11 @@ def parse_args() -> argparse.Namespace:
     propose_parser.add_argument("--interventions", required=True)
     propose_parser.add_argument("--scores", required=True)
     propose_parser.add_argument("--out-dir", required=True)
+    propose_parser.add_argument(
+        "--historical-main-plan",
+        default=None,
+        help="optional historical main-mask plan for the common-runtime control candidate",
+    )
     propose_parser.set_defaults(handler=propose)
     freeze_parser = sub.add_parser("freeze")
     freeze_parser.add_argument("--proposals", required=True)
