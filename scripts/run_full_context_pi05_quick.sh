@@ -20,6 +20,9 @@ GDSQ_PORT="${FULL_CONTEXT_PI05_GDSQ_PORT:-19655}"
 CANDIDATE_PORT="${FULL_CONTEXT_PI05_CANDIDATE_PORT:-19656}"
 GDSQ_INSTANCE="full_context_quick_gdsq"
 CANDIDATE_INSTANCE="full_context_quick_candidate"
+# Seed groups per task; the frozen gate uses 50-59.  Expansion waves override
+# this (e.g. "60-64 65-69") and aggregate separately in the combined report.
+SEED_GROUPS="${FULL_CONTEXT_PI05_SEED_GROUPS:-50-54 55-59}"
 # The quick baseline must be the Table-1 runtime-selector main. The legacy
 # ohb-only static path is admissible only with a per-request bitwise
 # equivalence artifact proving it reproduces that main in this quick scope.
@@ -93,7 +96,8 @@ static_total = table1_total_static_bytes(
     "pi05", int(payload.get("total_bytes", static_budget + 1))
 )
 checks["anchor"] = table1_bytes == TABLE1_QUANTVLA_BYTES["pi05"]
-checks["bytes"] = static_total <= static_budgetfailed = [name for name, passed in checks.items() if not passed]
+checks["bytes"] = static_total <= static_budget
+failed = [name for name, passed in checks.items() if not passed]
 if failed:
     raise SystemExit(f"candidate quick preflight failed: {failed}")
 a8_path = Path(sys.argv[3]).resolve()
@@ -211,7 +215,7 @@ run_workers() {
         fi
         for spec in "${tasks[@]}"; do
             IFS=, read -r task_set task <<<"$spec"
-            for seeds in 50-54 55-59; do
+            for seeds in $SEED_GROUPS; do
                 egl="${egl_devices[$((index % ${#egl_devices[@]}))]}"
                 label="${config}_${task}_${seeds}"
                 launch_one "$config" "$port" "$hash" "$task_set" "$task" "$seeds" "$egl" "$label"
@@ -264,7 +268,9 @@ run_all() {
     trap stop_servers EXIT INT TERM HUP
     start_servers
     run_workers
-    aggregate
+    if [[ "$SEED_GROUPS" == "50-54 55-59" ]]; then
+        aggregate
+    fi
     stop_servers
     trap - EXIT INT TERM HUP
 }

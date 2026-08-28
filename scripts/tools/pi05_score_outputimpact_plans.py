@@ -91,7 +91,7 @@ def validate_flow_artifacts(
         captured_steps = int(
             np.asarray(capture["capture_flow_steps"]).item()
             if "capture_flow_steps" in capture
-            else 4
+            else flow_steps
         )
     if captured_steps != flow_steps:
         raise ValueError(

@@ -57,7 +57,7 @@ def prune_main_plan(
         # anchor collapses to the unmodified main mask.
         return copy.deepcopy(main_plan), [], total
     layer_to_flip = {
-        candidate["flip"]["layer"]: candidate["candidate_id"]
+        candidate["flip"]["layer"]: candidate
         for candidate in flip_manifest
         if candidate.get("flip")
     }
@@ -65,18 +65,26 @@ def prune_main_plan(
     if missing:
         raise ValueError(f"no counterfactual score for protected layers: {missing}")
     baseline = flip_scores["context_base"]
-    benefits: list[tuple[float, str]] = []
+    damages: list[tuple[float, str]] = []
     for name in protected:
-        score = flip_scores[layer_to_flip[name]]
-        value = float(paired_candidate_summary(score, baseline)["objective"])
-        benefits.append((value, name))
+        candidate = layer_to_flip[name]
+        score = flip_scores[candidate["candidate_id"]]
+        objective = float(paired_candidate_summary(score, baseline)["objective"])
+        # damage of dropping the FP16 protection:
+        #   flip measured as W4->FP16 restore (gr00t round-1): more negative
+        #   objective = FP16 helps more -> damage = -objective;
+        #   flip measured as FP16->W4 removal (pi0.5 round-main): more
+        #   positive objective = removal hurts more -> damage = objective.
+        damage = (
+            objective
+            if candidate["flip"]["from"] == "fp16"
+            else -objective
+        )
+        damages.append((damage, name))
     plan = copy.deepcopy(main_plan)
     pruned: list[str] = []
-    # More negative objective = restoring FP16 helps more = keep it longer;
-    # prune the least valuable (largest objective) protections first.
-    for _benefit, name in sorted(
-        benefits, key=lambda pair: (-pair[0], pair[1])
-    ):
+    # Prune the least damaging protections first.
+    for _damage, name in sorted(damages, key=lambda pair: (pair[0], pair[1])):
         if total <= budget:
             break
         total -= int(byte_rows[name]["extra_fp16_bytes"])
@@ -95,9 +103,12 @@ def main() -> None:
     parser.add_argument("--byte-rows-json", required=True, help="round-1 interventions manifest")
     parser.add_argument("--flip-scores-json", required=True, help="round-1 merged flip scores")
     parser.add_argument("--out", required=True)
+    parser.add_argument("--model", choices=("gr00t", "pi05"), default="gr00t")
     parser.add_argument("--budget", type=int, default=None)
     args = parser.parse_args()
-    budget = args.budget if args.budget is not None else table1_variable_budget("gr00t")
+    budget = (
+        args.budget if args.budget is not None else table1_variable_budget(args.model)
+    )
     main_plan = load_json(args.main_plan)
     manifest = load_json(args.byte_rows_json)
     byte_rows = manifest["byte_rows"]
@@ -111,18 +122,19 @@ def main() -> None:
         budget=budget,
     )
     all_w4 = sum(row["w4_bytes"] for row in byte_rows.values())
-    static_total = table1_total_static_bytes("gr00t", total)
-    static_budget = table1_total_static_budget("gr00t")
+    static_total = table1_total_static_bytes(args.model, total)
+    static_budget = table1_total_static_budget(args.model)
     if static_total > static_budget:
         raise ValueError("pruned plan still exceeds the Table-1 static ceiling")
+    flow_steps = {"gr00t": 4, "pi05": 10}[args.model]
     meta = dict(plan.get("meta") or {})
     meta.update(
         {
             "kind": "full_context_v2_main_pruned_upper_bound_control",
             "budget_anchor": "table1_quantvla_storage_cell",
             "variable_budget_bytes": budget,
-            "fixed_bytes": fixed_bytes("gr00t"),
-            "flow_steps": 4,
+            "fixed_bytes": fixed_bytes(args.model),
+            "flow_steps": flow_steps,
             "activation_mode": "dynamic_a8",
             "dynamic_a8_protocol": dynamic_a8_protocol_attestation(),
             "pruned_layers": pruned,
@@ -141,14 +153,14 @@ def main() -> None:
             "all_w4_total_bytes": all_w4,
             "fp16_total_bytes": sum(row["fp16_bytes"] for row in byte_rows.values()),
             "total_bytes": total,
-            "fixed_bytes": fixed_bytes("gr00t"),
+            "fixed_bytes": fixed_bytes(args.model),
             "table1_total_static_bytes": static_total,
             "table1_total_static_budget_bytes": static_budget,
             "achieved_target_matrix_compression": float(
                 sum(row["fp16_bytes"] for row in byte_rows.values()) / total
             ),
             "table1_total_static_compression": float(
-                TABLE1_FP16_BYTES["gr00t"] / static_total
+                TABLE1_FP16_BYTES[args.model] / static_total
             ),
             "retained_fp16_layers": len(
                 [n for n, r in plan["layers"].items() if bool(r.get("skip", False))]

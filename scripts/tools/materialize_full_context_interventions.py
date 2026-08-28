@@ -216,7 +216,7 @@ def main() -> None:
         captured_flow_steps = int(
             np.asarray(capture["capture_flow_steps"]).item()
             if "capture_flow_steps" in capture
-            else CROSS_MODEL_PROTOCOL["closed_loop"]["flow_steps"]
+            else flow_steps
         )
     if captured_flow_steps != flow_steps:
         raise ValueError(
