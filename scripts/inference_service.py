@@ -624,7 +624,7 @@ def _runtime_info(policy) -> dict:
         ),
         "protocol": closed_loop_runtime_protocol(),
     }
-    if quant_layers and not quantization_contract.get("static_activation_scales", True):
+    if quant_layers and bool(uniform_value(quant_layers, "act_dynamic")):
         validate_dynamic_a8_runtime(
             quantization_contract, source="GR00T quantization contract"
         )
