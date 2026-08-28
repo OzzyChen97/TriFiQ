@@ -99,11 +99,13 @@ def main() -> None:
         {"path": str(path), "sha256": sha256_file(path)} for path, _value in loaded
     ]
     merged["teacher_latency_mean_s_by_shard"] = [
-        float(value["teacher_latency_mean_s"]) for value in documents
+        value.get("teacher_latency_mean_s") for value in documents
     ]
-    merged["teacher_latency_mean_s"] = sum(
-        merged["teacher_latency_mean_s_by_shard"]
-    ) / len(documents)
+    latency_values = [value for value in merged["teacher_latency_mean_s_by_shard"]
+                      if value is not None]
+    merged["teacher_latency_mean_s"] = (
+        sum(latency_values) / len(latency_values) if latency_values else None
+    )
     if merged["scores"]:
         merged["best_noise_a"] = min(
             merged["scores"], key=lambda key: merged["scores"][key]["d_pac"]

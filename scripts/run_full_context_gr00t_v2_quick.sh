@@ -10,6 +10,7 @@ set -euo pipefail
 
 REPO_ROOT="/home1/gyy/vla/QuantVLA"
 PYTHON="/home1/gyy/probe/miniforge3/envs/groot_test/bin/python"
+export PYTHONPATH="$REPO_ROOT/scripts/tools${PYTHONPATH:+:$PYTHONPATH}"
 RUNNER="$REPO_ROOT/scripts/tools/run_robocasa_atomic_matrix.py"
 AGGREGATOR="$REPO_ROOT/scripts/tools/aggregate_full_context_quick.py"
 SPEC_BUILDER="$REPO_ROOT/scripts/tools/build_v2_quick_execution_specs.py"

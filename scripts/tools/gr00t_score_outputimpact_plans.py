@@ -273,7 +273,9 @@ def main() -> None:
         payload["dynamic_a8_protocol"] = dynamic_a8_protocol_attestation()
     if output.is_file():
         previous = json.loads(output.read_text(encoding="utf-8"))
-        invariant = tuple(key for key in payload if key != "scores")
+        invariant = tuple(
+            key for key in payload if key not in ("scores", "teacher_latency_mean_s")
+        )
         if any(previous.get(key) != payload.get(key) for key in invariant):
             raise ValueError("existing static-mask score provenance drift")
         payload["scores"] = previous.get("scores") or {}
@@ -292,9 +294,13 @@ def main() -> None:
             args.batch_size, return_physical=True,
         )
         scale = physical_action_scale(scale_actions)
+    teacher_t0 = time.time()
     _, teacher_actions = run_rollouts(
         teacher_policy.model, teacher_policy, observations, noises, args.batch_size,
         return_physical=True,
+    )
+    payload["teacher_latency_mean_s"] = float(
+        (time.time() - teacher_t0) / max(1, len(records))
     )
     if args.noise_rule == "A":
         scale = physical_action_scale(teacher_actions)

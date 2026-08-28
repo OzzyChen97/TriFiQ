@@ -76,6 +76,8 @@ def build_spec(
     winner: dict[str, Any],
     winner_path: Path,
     calib_root: Path,
+    main_plan_path: Path,
+    subset_hessian_root: Path,
     task_set: str,
 ) -> dict[str, Any]:
     attribution = attribution_specs[task_set]
@@ -87,10 +89,25 @@ def build_spec(
         raise ValueError(f"{task_set}: attribution spec lacks the h config")
     h.update({"id": "gdsq_main", "source_config_id": "h"})
     h = flatten_artifacts(h)
-    hessian = calib_root / task_set / "hessian_w4.npz"
+    # Inventory-exact W4 artifact: when the winner protects exactly the
+    # historical main mask's FP16 layers, the deployment subset hessian
+    # (100 layers) matches the wrapped inventory; otherwise the 116-layer
+    # parent artifact is required.
+    main_plan = json.loads(main_plan_path.read_text(encoding="utf-8"))
+    main_protected = sorted(
+        name for name, row in main_plan["layers"].items() if bool(row.get("skip", False))
+    )
+    winner_protected = sorted(winner.get("protected_layers") or [])
+    expected_wrapped = int(winner.get("quantized_w4_layers") or 0)
+    if expected_wrapped != len(winner.get("layers") or {}) - len(winner_protected):
+        raise ValueError("winner quantized-layer accounting drift")
+    if winner_protected == main_protected:
+        hessian = subset_hessian_root / task_set / "hessian_w4.npz"
+    else:
+        hessian = calib_root / task_set / "hessian_w4.npz"
     candidate = {
         "id": "full_context_v2",
-        "expected_wrapped": 116,
+        "expected_wrapped": expected_wrapped,
         "plan": str(winner_path),
         "plan_sha256": sha256_file(winner_path),
         "packdir": str(calib_root / task_set / "identity_pack"),
@@ -153,6 +170,14 @@ def main() -> None:
         default="/home1/gyy/vla/QuantVLA/runs/errorfold_v3_15x20/calibration/gr00t",
     )
     parser.add_argument(
+        "--main-plan",
+        default="/home1/gyy/vla/QuantVLA/runs/full_context_v2/gr00t_main_pruned_to_table1_budget.json",
+    )
+    parser.add_argument(
+        "--subset-hessian-root",
+        default="/home1/gyy/vla/QuantVLA/runs/full_context_v2/gr00t_main_hessian",
+    )
+    parser.add_argument(
         "--out-dir",
         default="/home1/gyy/vla/QuantVLA/runs/full_context_v2/quick/specs",
     )
@@ -161,6 +186,8 @@ def main() -> None:
     quick_path = Path(args.quick_spec).expanduser().resolve()
     winner_path = Path(args.frozen_winner).expanduser().resolve()
     calib_root = Path(args.calib_root).expanduser().resolve()
+    main_plan_path = Path(args.main_plan).expanduser().resolve()
+    subset_hessian_root = Path(args.subset_hessian_root).expanduser().resolve()
     quick_spec = json.loads(quick_path.read_text(encoding="utf-8"))
     if quick_spec.get("kind") != "full_context_v2_quick_spec":
         raise ValueError(f"{quick_path}: wrong spec kind")
@@ -183,6 +210,8 @@ def main() -> None:
             winner,
             winner_path,
             calib_root,
+            main_plan_path,
+            subset_hessian_root,
             task_set,
         )
         atomic_json(out_dir / f"{task_set}.json", spec)

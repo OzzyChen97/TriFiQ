@@ -327,6 +327,16 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--keep-servers", action="store_true")
     p.add_argument(
+        "--candidate-state-archive-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional capture directory: every client shard additionally writes a "
+            "candidate-state observation archive (per-replan images/states/noise) "
+            "for the Top-3 J_final adjudication. Requires paired action noise."
+        ),
+    )
+    p.add_argument(
         "--formal-provenance-v2",
         action="store_true",
         help=(
@@ -1243,6 +1253,7 @@ def start_clients(
     config_ids: set[str] | None = None,
     shard_indices: set[int] | None = None,
     instance_mode: str = "all",
+    candidate_state_archive_dir: Path | None = None,
 ) -> list[tuple[subprocess.Popen, Any, str]]:
     """Start incomplete client shards, rebalancing them over active instances.
 
@@ -1314,6 +1325,12 @@ def start_clients(
             ]
             if manifest["protocol"]["paired_action_noise"]:
                 cmd.append("--paired-action-noise")
+            if candidate_state_archive_dir is not None:
+                candidate_state_archive_dir.mkdir(parents=True, exist_ok=True)
+                cmd.append(
+                    "--candidate-state-archive",
+                    str(candidate_state_archive_dir / f"{config['id']}_s{shard_index}.npz"),
+                )
             if config.get("meta", {}).get("formal_failure_on_crash") is True:
                 cmd.append("--terminal-crash-as-failure")
             log_handle = open(
@@ -1514,7 +1531,10 @@ def main() -> None:
             print(f"[matrix] verified {runtime_key}: {runtime[runtime_key]}")
         (run_dir / "runtime_info.json").write_text(json.dumps(runtime, indent=2) + "\n")
 
-        clients = start_clients(manifest, manifest_sha, run_dir)
+        clients = start_clients(
+            manifest, manifest_sha, run_dir,
+            candidate_state_archive_dir=args.candidate_state_archive_dir,
+        )
         failures = []
         for proc, handle, label in clients:
             rc = proc.wait()
