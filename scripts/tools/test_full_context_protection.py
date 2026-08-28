@@ -25,6 +25,16 @@ from quantvla_full_context import (  # noqa: E402
 )
 from aggregate_full_context_table1 import exact_mcnemar, holm_adjust  # noqa: E402
 from quantvla_hessian_w4 import a8_scale_table  # noqa: E402
+from quantvla_table1_bytes import (  # noqa: E402
+    CANDIDATE_FP16_BYTES,
+    TABLE1_FP16_BYTES,
+    TABLE1_QUANTVLA_BYTES,
+    fixed_bytes,
+    table1_display_gib,
+    table1_total_static_budget,
+    table1_variable_budget,
+)
+from select_full_context_protection import finalize_candidate_plan  # noqa: E402
 
 
 def score(d_func: list[float], d_pac: list[float], *, component: float = 0.1) -> dict:
@@ -191,3 +201,116 @@ def test_static_a8_supports_model_native_ten_flow_steps() -> None:
     assert tuple(scales.shape) == (10, 64)
     assert torch.isfinite(scales).all()
     assert torch.all(scales > 0)
+
+
+def _synthetic_byte_rows(count: int, fp16_bytes: int, w4_bytes: int) -> dict:
+    return {
+        f"l{index}": {
+            "fp16_bytes": fp16_bytes,
+            "w4_bytes": w4_bytes,
+            "extra_fp16_bytes": fp16_bytes - w4_bytes,
+        }
+        for index in range(count)
+    }
+
+
+def _synthetic_plan(count: int) -> dict:
+    return {
+        "layers": {
+            f"l{index}": {"bits": 4, "group": 64, "skip": False}
+            for index in range(count)
+        },
+        "meta": {},
+    }
+
+
+def test_table1_byte_anchors_reproduce_table_display_cells() -> None:
+    assert table1_display_gib(TABLE1_FP16_BYTES["gr00t"]) == "1.993"
+    assert table1_display_gib(TABLE1_QUANTVLA_BYTES["gr00t"]) == "0.898"
+    assert table1_display_gib(TABLE1_FP16_BYTES["pi05"]) == "4.113"
+    assert table1_display_gib(TABLE1_QUANTVLA_BYTES["pi05"]) == "1.388"
+
+
+def test_table1_variable_budget_exact_values() -> None:
+    assert fixed_bytes("gr00t") == 327_352_320
+    assert fixed_bytes("pi05") == 0
+    assert table1_total_static_budget("gr00t") == 1_060_149_657
+    assert table1_variable_budget("gr00t") == 732_797_337
+    assert table1_variable_budget("pi05") == 1_639_513_497
+
+
+def test_table1_anchors_match_frozen_official_artifacts() -> None:
+    repo = Path(__file__).resolve().parents[2]
+    registry = json.loads(
+        (repo / "docs/gdsq_vla_cvpr2026/experiment_registry.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    gr_summary = json.loads(
+        (
+            repo / registry["experiments"]["gr00t_static_official50"]["summary"]["path"]
+        ).read_text(encoding="utf-8")
+    )
+    assert int(
+        gr_summary["configs"]["fp16"]["paper_style_memory"][
+            "task_weighted_mean_component_bytes"
+        ]
+    ) == TABLE1_FP16_BYTES["gr00t"]
+    assert int(
+        gr_summary["configs"]["w4a8_atmohb"]["paper_style_memory"][
+            "task_weighted_mean_component_bytes"
+        ]
+    ) == TABLE1_QUANTVLA_BYTES["gr00t"]
+    prereg = json.loads(
+        (repo / "runs/gdsq_week1_preregistered_v1/preregistration.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert int(prereg["models"]["gr00t"]["fp16_bytes"]) == CANDIDATE_FP16_BYTES["gr00t"]
+    assert int(prereg["models"]["pi05"]["fp16_bytes"]) == TABLE1_FP16_BYTES["pi05"]
+    assert TABLE1_FP16_BYTES["pi05"] == CANDIDATE_FP16_BYTES["pi05"]
+    pi05_doc = (repo / "docs/pi05_gdsq_formal_evaluation.md").read_text(encoding="utf-8")
+    assert f"{TABLE1_QUANTVLA_BYTES['pi05']:,}" in pi05_doc
+
+
+def test_finalize_candidate_plan_emits_table1_fields_and_enforces_static_ceiling() -> None:
+    rows = _synthetic_byte_rows(4, fp16_bytes=250_000_000, w4_bytes=125_000_000)
+    plan = _synthetic_plan(4)
+    finalized = finalize_candidate_plan(
+        plan,
+        identifier="unit",
+        model="gr00t",
+        activation_mode="static_a8",
+        round_index=1,
+        protected={"l0"},
+        byte_rows=rows,
+        manifest_sha="0" * 64,
+        flow_steps=4,
+    )
+    assert finalized["budget_bytes"] == table1_variable_budget("gr00t")
+    assert finalized["fixed_bytes"] == fixed_bytes("gr00t")
+    assert finalized["table1_total_static_budget_bytes"] == table1_total_static_budget(
+        "gr00t"
+    )
+    assert finalized["table1_total_static_bytes"] == (
+        fixed_bytes("gr00t") + finalized["total_bytes"]
+    )
+    assert finalized["achieved_target_matrix_compression"] == pytest.approx(
+        finalized["fp16_total_bytes"] / finalized["total_bytes"]
+    )
+    assert finalized["table1_total_static_compression"] == pytest.approx(
+        TABLE1_FP16_BYTES["gr00t"] / finalized["table1_total_static_bytes"]
+    )
+    over_plan = _synthetic_plan(4)
+    with pytest.raises(ValueError, match="Table-1 total-static byte ceiling"):
+        finalize_candidate_plan(
+            over_plan,
+            identifier="unit-over",
+            model="gr00t",
+            activation_mode="static_a8",
+            round_index=1,
+            protected={"l0", "l1", "l2"},
+            byte_rows=rows,
+            manifest_sha="0" * 64,
+            flow_steps=4,
+        )

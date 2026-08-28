@@ -26,7 +26,7 @@ CANDIDATE_PLAN="${FULL_CONTEXT_PI05_CANDIDATE_PLAN:-$REPO_ROOT/runs/full_context
 CANDIDATE_HESSIAN="${FULL_CONTEXT_PI05_CANDIDATE_HESSIAN:-$REPO_ROOT/runs/full_context_v1/pi05/deployment/hessian_w4.npz}"
 GDSQ_FLOW10_A8="$REPO_ROOT/runs/full_context_v1/pi05/gdsq_main_flow10/a8_scales.npz"
 GDSQ_PLAN="$REPO_ROOT/runs/pi05_gdsq_gr00t_aligned/plans/pi05_gdsq_cscka_16to1_d4.final_plan.json"
-QUANTVLA_BYTES=1242169344
+QUANTVLA_TABLE1_BYTES=1490466816
 
 usage() {
     echo "usage: $0 run | preflight | status | aggregate | stop" >&2
@@ -38,7 +38,7 @@ preflight_candidate() {
         return 1
     }
     PYTHONPATH="$REPO_ROOT/scripts/tools${PYTHONPATH:+:$PYTHONPATH}" \
-        "$ROBOCASA_PY" - "$CANDIDATE_PLAN" "$QUANTVLA_BYTES" \
+        "$ROBOCASA_PY" - "$CANDIDATE_PLAN" "$QUANTVLA_TABLE1_BYTES" \
         "$GDSQ_FLOW10_A8" "$GDSQ_PLAN" "$CANDIDATE_HESSIAN" <<'PY'
 import hashlib
 import json
@@ -68,12 +68,18 @@ checks = {
     "no_correction": meta.get("runtime_correction") is False,
     "w4_present": int(payload.get("quantized_w4_layers", 0)) > 0,
 }
-limit = int(
-    float(PROTOCOL["byte_budget"]["maximum_quantvla_byte_multiplier"])
-    * int(sys.argv[2])
+from quantvla_table1_bytes import (
+    TABLE1_QUANTVLA_BYTES,
+    table1_total_static_budget,
+    table1_total_static_bytes,
 )
-checks["bytes"] = int(payload.get("total_bytes", limit + 1)) <= limit
-failed = [name for name, passed in checks.items() if not passed]
+table1_bytes = int(sys.argv[2])
+static_budget = table1_total_static_budget("pi05")
+static_total = table1_total_static_bytes(
+    "pi05", int(payload.get("total_bytes", static_budget + 1))
+)
+checks["anchor"] = table1_bytes == TABLE1_QUANTVLA_BYTES["pi05"]
+checks["bytes"] = static_total <= static_budgetfailed = [name for name, passed in checks.items() if not passed]
 if failed:
     raise SystemExit(f"candidate quick preflight failed: {failed}")
 a8_path = Path(sys.argv[3]).resolve()
@@ -232,7 +238,7 @@ aggregate() {
         --main-config "$GDSQ_CONFIG" \
         --candidate-config "$CANDIDATE_CONFIG" \
         --candidate-plan "$CANDIDATE_PLAN" \
-        --quantvla-bytes "$QUANTVLA_BYTES" \
+        --quantvla-table1-bytes "$QUANTVLA_TABLE1_BYTES" \
         --out "$QUICK_ROOT/aggregate.json"
 }
 

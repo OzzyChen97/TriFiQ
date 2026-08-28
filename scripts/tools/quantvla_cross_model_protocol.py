@@ -210,7 +210,8 @@ def validate_quant_plan(
         or meta.get("target_compression")
     )
     achieved_compression = (
-        value.get("achieved_compression")
+        value.get("achieved_target_matrix_compression")
+        or value.get("achieved_compression")
         or value.get("achieved_candidate_compression")
     )
     return {

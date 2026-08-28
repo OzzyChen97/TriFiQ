@@ -379,8 +379,11 @@ def select_frozen_candidate(
     def tie_key(identifier: str) -> tuple[Any, ...]:
         row = plan_rows[identifier]
         protected = tuple(sorted(str(value) for value in row.get("protected_layers", ())))
+        static_bytes = row.get("table1_total_static_bytes")
+        if static_bytes is None:
+            static_bytes = row["total_bytes"]
         return (
-            int(row["total_bytes"]),
+            int(static_bytes),
             int(row["retained_fp16_layers"]),
             protected,
             identifier,
@@ -461,8 +464,14 @@ def quick_advancement(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def selftest() -> None:
+    from quantvla_table1_bytes import selftest as table1_selftest
+    from quantvla_table1_bytes import table1_variable_budget
+
+    table1_selftest()
     assert PROTOCOL["byte_budget"]["maximum_quantvla_byte_multiplier"] == 1.1
     assert PROTOCOL["quick_development"]["seeds"] == list(range(50, 60))
+    assert table1_variable_budget("gr00t") == 732_797_337
+    assert table1_variable_budget("pi05") == 1_639_513_497
     print(f"[full-context] selftest OK {PROTOCOL_SHA256}")
 
 

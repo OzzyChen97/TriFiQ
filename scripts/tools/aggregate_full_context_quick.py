@@ -16,6 +16,13 @@ from quantvla_full_context import (
     require_protocol_attestation,
 )
 from quantvla_outputimpact import atomic_json
+from quantvla_table1_bytes import (
+    TABLE1_QUANTVLA_BYTES,
+    fixed_bytes,
+    table1_total_static_budget,
+    table1_total_static_bytes,
+    table1_variable_budget,
+)
 
 
 def load_rows(root: Path, config: str | None) -> dict[tuple[str, int], dict[str, Any]]:
@@ -46,7 +53,7 @@ def main() -> None:
     parser.add_argument("--main-config")
     parser.add_argument("--candidate-config")
     parser.add_argument("--candidate-plan", required=True)
-    parser.add_argument("--quantvla-bytes", type=int, required=True)
+    parser.add_argument("--quantvla-table1-bytes", type=int, required=True)
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
@@ -55,11 +62,11 @@ def main() -> None:
     plan_path = Path(args.candidate_plan).expanduser().resolve()
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     require_protocol_attestation(plan.get("meta") or {}, source=str(plan_path))
-    byte_limit = int(
-        PROTOCOL["byte_budget"]["maximum_quantvla_byte_multiplier"]
-        * args.quantvla_bytes
-    )
-    bytes_pass = int(plan["total_bytes"]) <= byte_limit
+    if args.quantvla_table1_bytes != TABLE1_QUANTVLA_BYTES[args.model]:
+        raise ValueError("quantvla-table1-bytes drift against the frozen Table-1 anchor")
+    static_budget = table1_total_static_budget(args.model)
+    static_total = table1_total_static_bytes(args.model, int(plan["total_bytes"]))
+    bytes_pass = static_total <= static_budget
     main_rows = load_rows(main_dir, args.main_config)
     candidate_rows = load_rows(candidate_dir, args.candidate_config)
     if set(main_rows) != set(candidate_rows):
@@ -83,8 +90,11 @@ def main() -> None:
         "candidate_dir": str(candidate_dir),
         "candidate_plan": str(plan_path),
         "candidate_plan_sha256": sha256_file(plan_path),
-        "quantvla_bytes": args.quantvla_bytes,
-        "maximum_candidate_bytes": byte_limit,
+        "quantvla_table1_bytes": args.quantvla_table1_bytes,
+        "fixed_bytes": fixed_bytes(args.model),
+        "table1_total_static_budget_bytes": static_budget,
+        "table1_total_static_bytes": static_total,
+        "maximum_candidate_bytes": table1_variable_budget(args.model),
         "candidate_bytes": int(plan["total_bytes"]),
         "bytes_pass": bytes_pass,
         "paired_rows": paired,

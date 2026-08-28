@@ -29,6 +29,13 @@ from quantvla_full_context import (
     select_frozen_candidate,
 )
 from quantvla_outputimpact import atomic_json
+from quantvla_table1_bytes import (
+    TABLE1_FP16_BYTES,
+    fixed_bytes,
+    table1_total_static_budget,
+    table1_total_static_bytes,
+    table1_variable_budget,
+)
 
 
 def load_json(path: str | Path) -> tuple[Path, dict[str, Any]]:
@@ -80,9 +87,12 @@ def finalize_candidate_plan(
     all_w4 = sum(row["w4_bytes"] for row in byte_rows.values())
     fp16_total = sum(row["fp16_bytes"] for row in byte_rows.values())
     total = all_w4 + sum(byte_rows[name]["extra_fp16_bytes"] for name in protected)
-    budget = int(PROTOCOL["byte_budget"]["maximum_quantvla_byte_multiplier"] * all_w4)
-    if total > budget:
-        raise ValueError(f"{identifier}: exact byte budget exceeded")
+    budget = table1_variable_budget(model)
+    static_budget = table1_total_static_budget(model)
+    fixed = fixed_bytes(model)
+    static_total = table1_total_static_bytes(model, total)
+    if static_total > static_budget:
+        raise ValueError(f"{identifier}: Table-1 total-static byte ceiling exceeded")
     meta = dict(plan.get("meta") or {})
     for forbidden in ("errorfold", "atm", "ohb", "blocksoftfold", "runtime_selector"):
         meta.pop(forbidden, None)
@@ -105,6 +115,9 @@ def finalize_candidate_plan(
             "counterfactual_manifest_sha256": manifest_sha,
             "target_compression_scope": "candidate",
             "target_compression": float(fp16_total / budget),
+            "budget_anchor": "table1_quantvla_storage_cell",
+            "fixed_bytes": fixed,
+            "table1_total_static_budget_bytes": static_budget,
             "runtime_selector": False,
             "runtime_correction": False,
             "uses_cka": False,
@@ -123,8 +136,13 @@ def finalize_candidate_plan(
             "all_w4_total_bytes": all_w4,
             "fp16_total_bytes": fp16_total,
             "total_bytes": total,
-            "achieved_candidate_compression": float(fp16_total / total),
-            "achieved_compression": float(fp16_total / total),
+            "fixed_bytes": fixed,
+            "table1_total_static_bytes": static_total,
+            "table1_total_static_budget_bytes": static_budget,
+            "achieved_target_matrix_compression": float(fp16_total / total),
+            "table1_total_static_compression": float(
+                TABLE1_FP16_BYTES[model] / static_total
+            ),
             "quantized_w4_layers": len(byte_rows) - len(protected),
             "retained_fp16_layers": len(protected),
             "protected_layers": sorted(protected),
@@ -203,6 +221,7 @@ def propose(args: argparse.Namespace) -> None:
                 "lambda_d_func": lam,
                 "predicted_utility": utility,
                 "total_bytes": plan["total_bytes"],
+                "table1_total_static_bytes": plan["table1_total_static_bytes"],
                 "retained_fp16_layers": plan["retained_fp16_layers"],
                 "protected_layers": plan["protected_layers"],
             }

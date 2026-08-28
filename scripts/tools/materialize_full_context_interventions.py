@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import math
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +26,13 @@ from quantvla_full_context import (
     protocol_attestation as full_context_attestation,
 )
 from quantvla_outputimpact import atomic_json
+from quantvla_table1_bytes import (
+    TABLE1_FP16_BYTES,
+    fixed_bytes,
+    table1_total_static_budget,
+    table1_total_static_bytes,
+    table1_variable_budget,
+)
 
 
 def byte_rows(fp16_capture: Path, hessian_w4: Path) -> dict[str, dict[str, int]]:
@@ -89,10 +95,10 @@ def finalize_plan(
     total = plan_bytes(plan, rows)
     fp16_total = sum(row["fp16_bytes"] for row in rows.values())
     all_w4_total = sum(row["w4_bytes"] for row in rows.values())
-    budget = int(math.floor(
-        float(PROTOCOL["byte_budget"]["maximum_quantvla_byte_multiplier"])
-        * all_w4_total
-    ))
+    budget = table1_variable_budget(model)
+    static_budget = table1_total_static_budget(model)
+    fixed = fixed_bytes(model)
+    static_total = table1_total_static_bytes(model, total)
     protected = sorted(name for name, entry in plan["layers"].items() if not is_w4(entry))
     meta = dict(plan.get("meta") or {})
     for forbidden in ("errorfold", "atm", "ohb", "blocksoftfold", "runtime_selector"):
@@ -117,6 +123,9 @@ def finalize_plan(
             "current_plan_sha256": current_sha,
             "target_compression_scope": "candidate",
             "target_compression": float(fp16_total / budget),
+            "budget_anchor": "table1_quantvla_storage_cell",
+            "fixed_bytes": fixed,
+            "table1_total_static_budget_bytes": static_budget,
             "uses_cka": False,
             "uses_cs": False,
             "uses_task_labels": False,
@@ -135,18 +144,23 @@ def finalize_plan(
             "fp16_total_bytes": fp16_total,
             "all_w4_total_bytes": all_w4_total,
             "total_bytes": total,
-            "achieved_candidate_compression": float(fp16_total / total),
-            "achieved_compression": float(fp16_total / total),
+            "fixed_bytes": fixed,
+            "table1_total_static_bytes": static_total,
+            "table1_total_static_budget_bytes": static_budget,
+            "achieved_target_matrix_compression": float(fp16_total / total),
+            "table1_total_static_compression": float(
+                TABLE1_FP16_BYTES[model] / static_total
+            ),
             "quantized_w4_layers": len(rows) - len(protected),
             "retained_fp16_layers": len(protected),
             "protected_layers": protected,
         }
     )
-    if total > budget:
+    if static_total > static_budget:
         # Single flips are allowed to exceed the final deployment budget only
         # when probing a currently over-budget input plan.  Such plans cannot
         # enter proposal generation and the manifest records the violation.
-        plan["probe_only_budget_excess_bytes"] = total - budget
+        plan["probe_only_budget_excess_bytes"] = static_total - static_budget
     else:
         plan.pop("probe_only_budget_excess_bytes", None)
     validate_quant_plan(plan, model=model, source=candidate_id)
@@ -276,10 +290,9 @@ def main() -> None:
         "byte_rows": rows,
         "all_w4_total_bytes": sum(row["w4_bytes"] for row in rows.values()),
         "fp16_total_bytes": sum(row["fp16_bytes"] for row in rows.values()),
-        "budget_bytes": int(math.floor(
-            PROTOCOL["byte_budget"]["maximum_quantvla_byte_multiplier"]
-            * sum(row["w4_bytes"] for row in rows.values())
-        )),
+        "budget_bytes": table1_variable_budget(args.model),
+        "fixed_bytes": fixed_bytes(args.model),
+        "table1_total_static_budget_bytes": table1_total_static_budget(args.model),
         "selection_noise": "A",
         "uses_success_labels": False,
         "candidates": candidates,

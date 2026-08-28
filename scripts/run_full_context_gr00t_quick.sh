@@ -21,7 +21,7 @@ EGL_POOL="${FULL_CONTEXT_GR00T_EGL_POOL:-4,7}"
 SEED_SHARDS="${FULL_CONTEXT_GR00T_SEED_SHARDS:-5}"
 SEEDS="50,51,52,53,54,55,56,57,58,59"
 CANDIDATE_PLAN="$REPO_ROOT/runs/full_context_v1/gr00t/round1/gr00t_full_context_round1_frozen.json"
-QUANTVLA_BYTES=509607936
+QUANTVLA_TABLE1_BYTES=963772416
 
 usage() {
     echo "usage: $0 run | preflight | status | aggregate" >&2
@@ -29,20 +29,26 @@ usage() {
 
 preflight_candidate() {
     PYTHONPATH="$REPO_ROOT/scripts/tools${PYTHONPATH:+:$PYTHONPATH}" \
-        "$PYTHON" - "$CANDIDATE_PLAN" "$QUANTVLA_BYTES" <<'PY'
+        "$PYTHON" - "$CANDIDATE_PLAN" "$QUANTVLA_TABLE1_BYTES" <<'PY'
 import json
 from pathlib import Path
 import sys
 
-from quantvla_full_context import PROTOCOL, require_protocol_attestation
+from quantvla_full_context import require_protocol_attestation
+from quantvla_table1_bytes import (
+    TABLE1_QUANTVLA_BYTES,
+    table1_total_static_budget,
+    table1_total_static_bytes,
+)
 
 path = Path(sys.argv[1]).resolve()
 payload = json.loads(path.read_text(encoding="utf-8"))
 meta = payload.get("meta") or {}
 require_protocol_attestation(meta, source=str(path))
-limit = int(
-    float(PROTOCOL["byte_budget"]["maximum_quantvla_byte_multiplier"])
-    * int(sys.argv[2])
+table1_bytes = int(sys.argv[2])
+static_budget = table1_total_static_budget("gr00t")
+static_total = table1_total_static_bytes(
+    "gr00t", int(payload.get("total_bytes", static_budget + 1))
 )
 checks = {
     "frozen": meta.get("frozen") is True,
@@ -50,7 +56,8 @@ checks = {
     "noise_a": meta.get("selection_noise") == "A",
     "no_selector": meta.get("runtime_selector") is False,
     "no_correction": meta.get("runtime_correction") is False,
-    "bytes": int(payload.get("total_bytes", limit + 1)) <= limit,
+    "anchor": table1_bytes == TABLE1_QUANTVLA_BYTES["gr00t"],
+    "bytes": static_total <= static_budget,
 }
 failed = [name for name, passed in checks.items() if not passed]
 if failed:
@@ -215,7 +222,7 @@ aggregate() {
         --main-config gdsq_main \
         --candidate-config full_context_v1 \
         --candidate-plan "$CANDIDATE_PLAN" \
-        --quantvla-bytes "$QUANTVLA_BYTES" \
+        --quantvla-table1-bytes "$QUANTVLA_TABLE1_BYTES" \
         --out "$QUICK_ROOT/aggregate.json"
 }
 
