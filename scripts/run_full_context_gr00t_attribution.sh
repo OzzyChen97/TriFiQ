@@ -18,23 +18,24 @@ EGL_POOL="${FULL_CONTEXT_GR00T_EGL_POOL:-4,7}"
 SEED_SHARDS="${FULL_CONTEXT_GR00T_SEED_SHARDS:-5}"
 SEEDS="50,51,52,53,54,55,56,57,58,59"
 H_GPU="${FULL_CONTEXT_GR00T_H_GPU:-4}"
-M_GPU="${FULL_CONTEXT_GR00T_M_GPU:-5}"
-C_GPU="${FULL_CONTEXT_GR00T_C_GPU:-6}"
+M_GPU="${FULL_CONTEXT_GR00T_M_GPU:-6}"
+C_GPU="${FULL_CONTEXT_GR00T_C_GPU:-4}"
 C16_GPU="${FULL_CONTEXT_GR00T_C16_GPU:-7}"
+ATTR_CONFIGS="${FULL_CONTEXT_GR00T_ATTR_CONFIGS:-h,m,c,c16}"
 
 usage() {
     echo "usage: $0 build | preflight | run | status | interpret" >&2
 }
 
 rewrite_execution_placement() {
-    local source="$1" target="$2"
-    "$PYTHON" - "$source" "$target" "$H_GPU" "$M_GPU" "$C_GPU" "$C16_GPU" <<'PY'
+    local source="$1" target="$2" subset="$3"
+    "$PYTHON" - "$source" "$target" "$subset" "$H_GPU" "$M_GPU" "$C_GPU" "$C16_GPU" <<'PY'
 import json
 import os
 import sys
 import tempfile
 
-source, target, h_gpu, m_gpu, c_gpu, c16_gpu = sys.argv[1:]
+source, target, subset, h_gpu, m_gpu, c_gpu, c16_gpu = sys.argv[1:]
 payload = json.load(open(source, encoding="utf-8"))
 placements = {
     "h": (int(h_gpu), 19555),
@@ -42,8 +43,11 @@ placements = {
     "c": (int(c_gpu), 19557),
     "c16": (int(c16_gpu), 19558),
 }
+wanted = {item.strip() for item in subset.split(",") if item.strip()}
+payload["configs"] = [row for row in payload["configs"] if row["id"] in wanted]
 for row in payload["configs"]:
     row["gpu"], row["port"] = placements[row["id"]]
+payload["config_subset"] = sorted(wanted)
 directory = os.path.dirname(target)
 os.makedirs(directory, exist_ok=True)
 fd, temporary = tempfile.mkstemp(prefix=".execution.", suffix=".json", dir=directory)
@@ -124,9 +128,11 @@ PY
 run_wave() {
     local task_set="$1" tasks="$2" checkpoint="$3"
     local frozen_spec="$SPEC_ROOT/$task_set.json"
-    local execution_spec="$ATTR_ROOT/specs/.execution-$task_set.json"
-    local run_dir="$ATTR_ROOT/$task_set"
-    rewrite_execution_placement "$frozen_spec" "$execution_spec"
+    local subset_tag
+    subset_tag="$(echo "$ATTR_CONFIGS" | tr ',' '_')"
+    local execution_spec="$ATTR_ROOT/specs/.execution-${task_set}_${subset_tag}.json"
+    local run_dir="$ATTR_ROOT/${task_set}_${subset_tag}"
+    rewrite_execution_placement "$frozen_spec" "$execution_spec" "$ATTR_CONFIGS"
     "$PYTHON" "$RUNNER" \
         --spec "$execution_spec" \
         --run-dir "$run_dir" \
