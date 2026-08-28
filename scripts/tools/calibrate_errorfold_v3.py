@@ -41,6 +41,10 @@ from quantvla_cross_model_protocol import (  # noqa: E402
     validate_quant_plan,
 )
 from quantvla_model_adapters import load_model_records  # noqa: E402
+from quantvla_full_context import (  # noqa: E402
+    PROTOCOL as FULL_CONTEXT_PROTOCOL,
+    protocol_attestation as full_context_attestation,
+)
 from quantvla_v3_capture import (  # noqa: E402
     AttentionCapture,
     LayerCapture,
@@ -135,6 +139,7 @@ def _validate_fp16_stage(
     checkpoint_sha256: str,
     plan_sha256: str,
     buffer_sha256: str,
+    flow_steps: int,
 ) -> None:
     """Validate the immutable FP16/A8/Hessian stage before crash-resume."""
     with np.load(paths["fp16"], allow_pickle=False) as archive:
@@ -157,6 +162,15 @@ def _validate_fp16_stage(
             actual = np.asarray(archive[key]).item()
             if actual != value:
                 raise ValueError(f"FP16 stage {key} drift: {actual} != {value}")
+        captured_flow_steps = int(
+            np.asarray(archive["capture_flow_steps"]).item()
+            if "capture_flow_steps" in archive
+            else PROTOCOL["closed_loop"]["flow_steps"]
+        )
+        if captured_flow_steps != int(flow_steps):
+            raise ValueError(
+                f"FP16 stage flow-step drift: {captured_flow_steps} != {flow_steps}"
+            )
         row_counts = np.asarray(archive["capture_input_rows"])
         minimum_rows = int(capture["minimum_prefix_rows_per_layer"])
         if row_counts.size == 0 or int(row_counts.min()) < minimum_rows:
@@ -170,10 +184,10 @@ def _validate_fp16_stage(
             if step_key in archive:
                 per_step = np.asarray(archive[step_key])
                 required = int(capture["minimum_rows_per_flow_step_per_layer"])
-                if per_step.shape[0] != 4 or per_step.shape[1] < required:
+                if per_step.shape[0] != flow_steps or per_step.shape[1] < required:
                     raise ValueError(
                         f"{name}: flow-step capture coverage {per_step.shape} "
-                        f"< (4,{required},C)"
+                        f"< ({flow_steps},{required},C)"
                     )
     capture_sha256 = sha256_file(paths["fp16"])
     a8_sidecar = Path(
@@ -213,6 +227,7 @@ def _capture_gr00t(
     batch_size: int,
     quantized: bool,
     activation_mode: str = "static_a8",
+    flow_steps: int = 4,
 ) -> tuple[dict[str, np.ndarray], AttentionCapture, dict[str, Any]]:
     from gr00t.atm import (
         clear_atm_capture,
@@ -260,7 +275,7 @@ def _capture_gr00t(
     policy = load_policy(
         str(checkpoint),
         data_config="examples.RoboCasa365.custom_data_config:RoboCasa365DataConfig",
-        denoising_steps=4,
+        denoising_steps=flow_steps,
         device=device,
     )
     model = policy.model
@@ -289,7 +304,9 @@ def _capture_gr00t(
         elif not all(bool(module.cfg.act_dynamic) for _, module in wrapped):
             raise RuntimeError("GR00T dynamic ErrorFold capture did not enable DyRange-A8")
     ensure_dit_attention_patch(model, scope="dit")
-    linear = LayerCapture(names, step_getter=get_current_dit_step)
+    linear = LayerCapture(
+        names, step_getter=get_current_dit_step, flow_steps=flow_steps
+    )
     attention = AttentionCapture()
     linear.install(model)
     register_atm_logits_capture(model, attention.record_logits, scope="dit")
@@ -316,6 +333,7 @@ def _pi05_run_batches(
     *,
     device: str,
     batch_size: int,
+    flow_steps: int,
 ) -> None:
     import jax
     from openpi.models import model as model_api
@@ -341,7 +359,7 @@ def _pi05_run_batches(
                 device,
                 observation,
                 noise=noise,
-                num_steps=4,
+                num_steps=flow_steps,
             )
 
 
@@ -355,6 +373,7 @@ def _configure_pi05_quant(
     buffer_hash: str,
     expected_wrapped: int,
     activation_mode: str = "static_a8",
+    flow_steps: int = 4,
 ) -> None:
     for key in list(os.environ):
         if key.startswith(("OPENPI_DUQUANT_", "OPENPI_ATM_", "OPENPI_OHB_")):
@@ -380,7 +399,7 @@ def _configure_pi05_quant(
             "OPENPI_DUQUANT_ROW_ROT": "0",
             "OPENPI_DUQUANT_ACT_PCT": "99.9",
             "OPENPI_DUQUANT_CALIB_STEPS": "32",
-            "OPENPI_DUQUANT_DENOISING_STEPS": "4",
+            "OPENPI_DUQUANT_DENOISING_STEPS": str(flow_steps),
             "OPENPI_DUQUANT_PACKDIR": str(pack_dir),
             "OPENPI_DUQUANT_ACT_DYNAMIC": (
                 "1" if activation_mode == "dynamic_a8" else "0"
@@ -417,6 +436,7 @@ def _capture_pi05(
     batch_size: int,
     quantized: bool,
     activation_mode: str = "static_a8",
+    flow_steps: int = 4,
 ) -> tuple[dict[str, np.ndarray], AttentionCapture, dict[str, Any]]:
     from openpi.policies import policy_config
     from openpi.quant import enable_duquant_if_configured
@@ -446,6 +466,7 @@ def _capture_pi05(
             buffer_hash=buffer_hash,
             expected_wrapped=len(_quantized_plan_names(plan_payload)),
             activation_mode=activation_mode,
+            flow_steps=flow_steps,
         )
     else:
         os.environ.update(
@@ -476,14 +497,22 @@ def _capture_pi05(
         if activation_mode == "dynamic_a8" and not runtime.get("act_dynamic"):
             raise RuntimeError("pi0.5 dynamic ErrorFold capture did not enable DyRange-A8")
     ensure_pi05_attention_patch(model, scope="expert")
-    linear = LayerCapture(names, step_getter=get_current_dit_step)
+    linear = LayerCapture(
+        names, step_getter=get_current_dit_step, flow_steps=flow_steps
+    )
     attention = AttentionCapture()
     linear.install(model)
     register_atm_logits_capture(model, attention.record_logits, scope="expert")
     register_errorfold_head_capture(
         model, attention.record_head_output, scope="expert"
     )
-    _pi05_run_batches(policy, records, device=device, batch_size=batch_size)
+    _pi05_run_batches(
+        policy,
+        records,
+        device=device,
+        batch_size=batch_size,
+        flow_steps=flow_steps,
+    )
     linear.remove()
     clear_atm_capture(model)
     arrays = linear.arrays(
@@ -511,6 +540,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--hessian-device", default=None)
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--flow-steps", type=int)
+    parser.add_argument(
+        "--fp16-stage-only",
+        action="store_true",
+        help="Build only FP16 capture, static A8, and Hessian W4; do not fit ErrorFold.",
+    )
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
@@ -518,6 +553,13 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     model_name = args.model
+    flow_steps = int(
+        args.flow_steps
+        if args.flow_steps is not None
+        else FULL_CONTEXT_PROTOCOL["model_hyperparameters"][model_name]["table1_flow_steps"]
+    )
+    if flow_steps < 1:
+        raise ValueError("--flow-steps must be positive")
     checkpoint = Path(args.checkpoint or DEFAULTS[model_name]["checkpoint"]).resolve()
     plan = Path(args.plan or DEFAULTS[model_name]["plan"]).resolve()
     buffer = Path(args.buffer).resolve()
@@ -553,6 +595,7 @@ def main() -> None:
         "packed_weights_source": "hessian_w4.npz",
         "permutation": False,
         "row_rotation": "identity",
+        "flow_steps": flow_steps,
     }
     identity_pack_path = pack_dir / "manifest.json"
     identity_pack_rendered = (
@@ -598,7 +641,7 @@ def main() -> None:
         paths["paired"],
         paths["raw"],
     ]
-    required = fp16_stage + quant_stage
+    required = fp16_stage if args.fp16_stage_only else fp16_stage + quant_stage
     if any(path.exists() for path in fp16_stage) and not all(
         path.exists() for path in fp16_stage
     ):
@@ -613,6 +656,7 @@ def main() -> None:
                 checkpoint_sha256=checkpoint_hash,
                 plan_sha256=plan_hash,
                 buffer_sha256=buffer_hash,
+                flow_steps=flow_steps,
             )
             runtimes["fp16"] = {"crash_resume_reused": True}
         else:
@@ -630,10 +674,13 @@ def main() -> None:
                 batch_size=args.batch_size,
                 quantized=False,
                 activation_mode="static_a8",
+                flow_steps=flow_steps,
             )
             save_npz(paths["fp16"], fp16_arrays)
             _save_attention(paths["fp16_attention"], fp16_attention)
-            build_a8(paths["fp16"], paths["a8"], model_name)
+            build_a8(
+                paths["fp16"], paths["a8"], model_name, flow_steps=flow_steps
+            )
             build_hessian(
                 paths["fp16"],
                 paths["hessian"],
@@ -646,48 +693,58 @@ def main() -> None:
                 checkpoint_sha256=checkpoint_hash,
                 plan_sha256=plan_hash,
                 buffer_sha256=buffer_hash,
+                flow_steps=flow_steps,
             )
         # The quantized stage is atomic as a group.  Preserve the expensive,
         # validated FP16/Hessian stage, but rebuild any interrupted downstream
         # outputs and all derived identity packs.
-        for path in quant_stage:
-            path.unlink(missing_ok=True)
-        for path in pack_dir.glob("*.npz"):
-            path.unlink()
-        quant_arrays, quant_attention, runtimes["complete_quant"] = capture(
-            checkpoint=checkpoint,
-            plan=plan,
-            pack_dir=pack_dir,
-            a8=paths["a8"],
-            hessian=paths["hessian"],
-            records=records,
-            checkpoint_hash=checkpoint_hash,
-            buffer_hash=buffer_hash,
-            plan_hash=plan_hash,
-            device=args.device,
-            batch_size=args.batch_size,
-            quantized=True,
-            activation_mode="static_a8",
-        )
-        save_npz(paths["quant"], quant_arrays)
-        _save_attention(paths["quant_attention"], quant_attention)
-        merge_errorfold_with_attention(
-            paths["fp16"],
-            paths["quant"],
-            _load_attention(paths["fp16_attention"]),
-            _load_attention(paths["quant_attention"]),
-            paths["paired"],
-        )
-        build_errorfold(paths["paired"], paths["raw"], model_name)
+        if not args.fp16_stage_only:
+            for path in quant_stage:
+                path.unlink(missing_ok=True)
+            for path in pack_dir.glob("*.npz"):
+                path.unlink()
+            quant_arrays, quant_attention, runtimes["complete_quant"] = capture(
+                checkpoint=checkpoint,
+                plan=plan,
+                pack_dir=pack_dir,
+                a8=paths["a8"],
+                hessian=paths["hessian"],
+                records=records,
+                checkpoint_hash=checkpoint_hash,
+                buffer_hash=buffer_hash,
+                plan_hash=plan_hash,
+                device=args.device,
+                batch_size=args.batch_size,
+                quantized=True,
+                activation_mode="static_a8",
+                flow_steps=flow_steps,
+            )
+            save_npz(paths["quant"], quant_arrays)
+            _save_attention(paths["quant_attention"], quant_attention)
+            merge_errorfold_with_attention(
+                paths["fp16"],
+                paths["quant"],
+                _load_attention(paths["fp16_attention"]),
+                _load_attention(paths["quant_attention"]),
+                paths["paired"],
+            )
+            build_errorfold(paths["paired"], paths["raw"], model_name)
     manifest = {
         "schema_version": 3,
-        "kind": "errorfold_v3_calibration",
+        "kind": (
+            "full_context_fp16_hessian_a8_calibration"
+            if args.fp16_stage_only
+            else "errorfold_v3_calibration"
+        ),
         "cross_model_protocol": protocol_attestation(),
+        "full_context_protocol": full_context_attestation(),
         "model_adapter": model_name,
         "checkpoint": str(checkpoint),
         "checkpoint_sha256": checkpoint_hash,
         "plan": str(plan),
         "plan_sha256": plan_hash,
+        "flow_steps": flow_steps,
+        "fp16_stage_only": bool(args.fp16_stage_only),
         "calibration_buffer": buffer_provenance,
         "gradient_updates": False,
         "fp16_weight_updates": False,

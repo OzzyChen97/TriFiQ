@@ -26,6 +26,12 @@ V5_ROOT="${PI05_V5_ROOT:-$REPO_ROOT/runs/errorfold_v4_iter/calibration/pi05_full
 V5_PACK_DIR="${PI05_V5_PACK_DIR:-$V5_ROOT/identity_pack}"
 V5_HESSIAN_W4="${PI05_V5_HESSIAN_W4:-$V5_ROOT/hessian_w4.npz}"
 V5_ERRORFOLD="${PI05_V5_ERRORFOLD:-}"
+FULL_CONTEXT_ROOT="${PI05_FULL_CONTEXT_ROOT:-$REPO_ROOT/runs/full_context_v1/pi05}"
+FULL_CONTEXT_PLAN="${PI05_FULL_CONTEXT_PLAN:-$FULL_CONTEXT_ROOT/round1/pi05_full_context_round1_frozen.json}"
+FULL_CONTEXT_PACK_DIR="${PI05_FULL_CONTEXT_PACK_DIR:-$FULL_CONTEXT_ROOT/calibration_flow10/identity_pack}"
+FULL_CONTEXT_HESSIAN_W4="${PI05_FULL_CONTEXT_HESSIAN_W4:-$FULL_CONTEXT_ROOT/deployment/hessian_w4.npz}"
+FULL_CONTEXT_BUFFER="${PI05_FULL_CONTEXT_BUFFER:-$REPO_ROOT/runs/pi05_gdsq_gr00t_aligned/calibration/pi05_robocasa365_seed0_n256.npz}"
+FLOW_STEPS="${PI05_FLOW_STEPS:-4}"
 RUNTIME_SELECTOR="${PI05_RUNTIME_SELECTOR:-$REPO_ROOT/runs/atmohb_dynamic_selector_v8/selector.json}"
 OMEGA_ROOT="${PI05_OMEGA_ROOT:-$REPO_ROOT/external/Omega-QVLA}"
 OMEGA_PACK="${PI05_OMEGA_PACK:-}"
@@ -37,7 +43,7 @@ CONTROL_DIR="$(mkdir -p "$CONTROL_DIR" && cd "$CONTROL_DIR" && pwd)"
 
 usage() {
     echo "usage: $0 start CONFIG GPU PORT INSTANCE | stop INSTANCE | status" >&2
-    echo "CONFIG: fp16 | omega_qvla_w4a4 | quantvla_w4a8_paper | quantvla_w4a8_dynamic | quantvla_w4a8_dynamic_profile | quantvla_w4a8_dynamic_profile_errorfold | errorfold_dfunc | errorfold_dpac_v2 | legacy configs" >&2
+    echo "CONFIG: fp16 | omega_qvla_w4a4 | quantvla_w4a8_paper | quantvla_w4a8_dynamic | quantvla_w4a8_dynamic_profile | full_context_w4a8_dynamic_profile | quantvla_w4a8_dynamic_profile_errorfold | errorfold_dfunc | errorfold_dpac_v2 | legacy configs" >&2
 }
 
 sha256_file() {
@@ -111,6 +117,7 @@ configure_quant() {
     local pack_dir="${4:-$PACK_DIR}"
     local row_rotation="${5:-restore}"
     local activation_mode="${6:-static_a8}"
+    local calibration_buffer="${7:-$BUFFER}"
     export OPENPI_DUQUANT_PLAN="$plan"
     export OPENPI_DUQUANT_PLAN_STRICT=1
     export OPENPI_DUQUANT_WBITS_DEFAULT=4
@@ -124,7 +131,7 @@ configure_quant() {
     export OPENPI_DUQUANT_ROW_ROT="$row_rotation"
     export OPENPI_DUQUANT_ACT_PCT=99.9
     export OPENPI_DUQUANT_CALIB_STEPS=32
-    export OPENPI_DUQUANT_DENOISING_STEPS=4
+    export OPENPI_DUQUANT_DENOISING_STEPS="$FLOW_STEPS"
     export OPENPI_DUQUANT_PACKDIR="$pack_dir"
     if [[ "$activation_mode" == "dynamic_a8" ]]; then
         unset OPENPI_DUQUANT_ACT_SCALE_PATH
@@ -136,7 +143,7 @@ configure_quant() {
         export OPENPI_DUQUANT_REQUIRE_ACT_SCALE=1
     fi
     export OPENPI_DUQUANT_CALIB_BUFFER_SHA256
-    OPENPI_DUQUANT_CALIB_BUFFER_SHA256="$(sha256_file "$BUFFER")"
+    OPENPI_DUQUANT_CALIB_BUFFER_SHA256="$(sha256_file "$calibration_buffer")"
     export OPENPI_DUQUANT_STRICT_ARTIFACTS=1
     export OPENPI_DUQUANT_PRECACHE_WEIGHTS=1
     export OPENPI_DUQUANT_TRITON=1
@@ -263,6 +270,16 @@ start_server() {
             fi
             gdsq_wrapped="$(wrapped_layers "$FULL_PLAN")"
             ;;
+        full_context_w4a8_dynamic_profile)
+            for artifact in "$FULL_CONTEXT_PLAN" "$FULL_CONTEXT_HESSIAN_W4" "$FULL_CONTEXT_HESSIAN_W4.json" "$FULL_CONTEXT_BUFFER"; do
+                require_file "$artifact"
+            done
+            if [[ ! -d "$FULL_CONTEXT_PACK_DIR" ]]; then
+                echo "missing full-context identity pack directory: $FULL_CONTEXT_PACK_DIR" >&2
+                exit 1
+            fi
+            gdsq_wrapped="$(wrapped_layers "$FULL_CONTEXT_PLAN")"
+            ;;
         quantvla_w4a8_dynamic_profile_errorfold)
             for artifact in "$FULL_PLAN" "$V5_HESSIAN_W4" "$V5_HESSIAN_W4.json" "$V5_ERRORFOLD"; do
                 require_file "$artifact"
@@ -304,8 +321,20 @@ start_server() {
         export OPENPI_MODEL_DTYPE=float16
         export OPENPI_CHECKPOINT_SHA256="$CHECKPOINT_SHA256"
         export OPENPI_FORMAL_MODE=1
+        export OPENPI_FORMAL_FLOW_STEPS="$FLOW_STEPS"
+        if [[ "$FLOW_STEPS" == 10 ]]; then
+            export OPENPI_FULL_CONTEXT_PROTOCOL=1
+        fi
         export OPENPI_CONFIG_ID="$config"
         export OPENPI_RUNTIME_INFO_PATH="$runtime_file"
+        # Every DuQuant formal row, including the historical GDSQ baseline,
+        # must use the same packed-W4 deployment path.  The formal runtime
+        # validator already requires packed residency and zero FP-sized W4
+        # buffers; setting this once prevents a fake-quant baseline.
+        case "$config" in
+            fp16|omega_qvla_w4a4) ;;
+            *) export QUANTVLA_ADAPTER_ONLY=1 ;;
+        esac
         case "$config" in
             fp16) ;;
             omega_qvla_w4a4)
@@ -349,6 +378,13 @@ start_server() {
                 export QUANTVLA_ADAPTER_ONLY=1
                 export OPENPI_DUQUANT_HESSIAN_W4_PATH="$V5_HESSIAN_W4"
                 configure_quant "$FULL_PLAN" "" "$gdsq_wrapped" "$V5_PACK_DIR" 0 dynamic_a8
+                ;;
+            full_context_w4a8_dynamic_profile)
+                export OPENPI_FORMAL_EXPECT_WRAPPED="$gdsq_wrapped"
+                export QUANTVLA_ADAPTER_ONLY=1
+                export OPENPI_DUQUANT_HESSIAN_W4_PATH="$FULL_CONTEXT_HESSIAN_W4"
+                configure_quant "$FULL_CONTEXT_PLAN" "" "$gdsq_wrapped" \
+                    "$FULL_CONTEXT_PACK_DIR" 0 dynamic_a8 "$FULL_CONTEXT_BUFFER"
                 ;;
             quantvla_w4a8_dynamic_profile_errorfold)
                 export OPENPI_FORMAL_EXPECT_WRAPPED="$gdsq_wrapped"
@@ -405,7 +441,7 @@ start_server() {
         exec nohup setsid "$OPENPI_PY" scripts/serve_pi05_quant_policy.py \
             --env ROBOCASA \
             --port "$port" \
-            --denoising-steps 4 \
+            --denoising-steps "$FLOW_STEPS" \
             policy:checkpoint \
             --policy.config pi05_pretrain_human300 \
             --policy.dir "$CHECKPOINT"

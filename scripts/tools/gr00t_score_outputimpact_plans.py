@@ -17,6 +17,7 @@ from pathlib import Path
 import sys
 import time
 
+import numpy as np
 import torch
 
 
@@ -53,6 +54,12 @@ from quantvla_dynamic_a8_protocol import (  # noqa: E402
     require_protocol_attestation as require_dynamic_a8_protocol_attestation,
 )
 from quantvla_metric_protocol import physical_action_scale, summarize_pair  # noqa: E402
+from quantvla_full_context import (  # noqa: E402
+    PROTOCOL as FULL_CONTEXT_PROTOCOL,
+    candidate_plan_mapping,
+    protocol_attestation as full_context_protocol_attestation,
+    shard_candidate_mapping,
+)
 from quantvla_model_adapters import (  # noqa: E402
     gr00t_rollout_inputs,
     load_model_records,
@@ -68,6 +75,33 @@ def parse_named_plan(value: str) -> tuple[str, Path]:
     if not separator or not identifier or not raw_path:
         raise argparse.ArgumentTypeError("candidate plan must be ID=/absolute/or/relative/path.json")
     return identifier, Path(raw_path).expanduser().resolve()
+
+
+def validate_flow_artifacts(
+    *, hessian_path: Path, a8_path: Path, activation_mode: str, flow_steps: int
+) -> None:
+    hessian_meta = json.loads(
+        Path(str(hessian_path) + ".json").read_text(encoding="utf-8")
+    )
+    capture_path = Path(hessian_meta["capture_path"]).expanduser().resolve()
+    if sha256_file(capture_path) != hessian_meta.get("capture_sha256"):
+        raise ValueError("GR00T Hessian/FP16 capture lineage drift")
+    with np.load(capture_path, allow_pickle=False) as capture:
+        captured_steps = int(
+            capture["capture_flow_steps"].item()
+            if "capture_flow_steps" in capture
+            else 4
+        )
+    if captured_steps != flow_steps:
+        raise ValueError(f"GR00T Hessian flow-step drift: {captured_steps} != {flow_steps}")
+    if activation_mode == "static_a8":
+        sidecar = Path(str(a8_path) + ".meta.json")
+        metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+        if (
+            int(metadata.get("denoising_steps", -1)) != flow_steps
+            or int(metadata.get("dit_flow_step_tables", -1)) != flow_steps
+        ):
+            raise ValueError("GR00T static A8 table/native flow-step drift")
 
 
 def parse_args() -> argparse.Namespace:
@@ -89,8 +123,20 @@ def parse_args() -> argparse.Namespace:
         "--artifact-calibration-buffer",
         default=str(protocol_artifact("calibration_buffer", verify=False)),
     )
-    parser.add_argument("--candidate-plan", action="append", type=parse_named_plan, required=True)
+    parser.add_argument("--candidate-plan", action="append", type=parse_named_plan)
+    parser.add_argument("--candidate-manifest")
+    parser.add_argument("--candidate-shard-index", type=int, default=0)
+    parser.add_argument("--candidate-shard-count", type=int, default=1)
     parser.add_argument("--n-obs", type=int, default=32)
+    parser.add_argument(
+        "--noise-rule", choices=("A", "B"), default="A",
+        help="Noise B is a frozen single-candidate audit; its D_PAC scale remains fixed from teacher noise A.",
+    )
+    parser.add_argument(
+        "--flow-steps",
+        type=int,
+        default=int(FULL_CONTEXT_PROTOCOL["model_hyperparameters"]["gr00t"]["table1_flow_steps"]),
+    )
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--out", required=True)
@@ -109,9 +155,22 @@ def main() -> None:
     buffer_path = Path(args.buffer).expanduser().resolve()
     artifact_buffer = Path(args.artifact_calibration_buffer).expanduser().resolve()
     output = Path(args.out).expanduser().resolve()
-    candidates = dict(args.candidate_plan)
-    if len(candidates) != len(args.candidate_plan):
-        raise ValueError("candidate plan ids must be unique")
+    validate_flow_artifacts(
+        hessian_path=hessian_path,
+        a8_path=a8_path,
+        activation_mode=args.activation_mode,
+        flow_steps=args.flow_steps,
+    )
+    all_candidates, candidate_manifest = candidate_plan_mapping(
+        named=args.candidate_plan, manifest_path=args.candidate_manifest
+    )
+    candidates = shard_candidate_mapping(
+        all_candidates,
+        shard_index=args.candidate_shard_index,
+        shard_count=args.candidate_shard_count,
+    )
+    if args.noise_rule == "B" and len(candidates) != 1:
+        raise ValueError("noise-B audit requires exactly one frozen candidate")
     base_plan = json.loads(base_plan_path.read_text(encoding="utf-8"))
     validate_quant_plan(base_plan, model="gr00t", source=str(base_plan_path))
     full_names = {
@@ -124,6 +183,8 @@ def main() -> None:
     for identifier, path in candidates.items():
         document = json.loads(path.read_text(encoding="utf-8"))
         validate_quant_plan(document, model="gr00t", source=str(path))
+        if int((document.get("meta") or {}).get("flow_steps", -1)) != args.flow_steps:
+            raise ValueError(f"{identifier}: candidate flow-step hyperparameter drift")
         if args.activation_mode == "dynamic_a8":
             require_dynamic_a8_protocol_attestation(
                 document.get("meta") or {}, source=str(path)
@@ -141,7 +202,8 @@ def main() -> None:
         quantized_names[identifier] = names
 
     records, buffer_provenance = load_model_records(buffer_path, args.n_obs, model="gr00t")
-    observations, noises = gr00t_rollout_inputs(records, noise_index=0)
+    noise_index = 0 if args.noise_rule == "A" else 1
+    observations, noises = gr00t_rollout_inputs(records, noise_index=noise_index)
     details = record_metadata(records)
     artifact_buffer_sha = sha256_file(artifact_buffer)
     if args.activation_mode == "static_a8":
@@ -152,9 +214,31 @@ def main() -> None:
         "schema_version": 4,
         "kind": "outputimpact_static_mask_scores",
         "cross_model_protocol": protocol_attestation(),
+        "full_context_protocol": full_context_protocol_attestation(),
         "model_adapter": "gr00t",
         "teacher": "original_fp16",
         "selection_metric": "d_pac_v2",
+        "selection_noise": args.noise_rule,
+        "selection_role": (
+            "noise_a_selection" if args.noise_rule == "A"
+            else "frozen_noise_b_generalization_audit"
+        ),
+        "noise_b_used_for_selection": False,
+        "candidate_manifest": (
+            {
+                "path": str(Path(args.candidate_manifest).expanduser().resolve()),
+                "sha256": sha256_file(Path(args.candidate_manifest).expanduser().resolve()),
+                "kind": candidate_manifest.get("kind"),
+            }
+            if candidate_manifest is not None
+            else None
+        ),
+        "candidate_shard": {
+            "index": args.candidate_shard_index,
+            "count": args.candidate_shard_count,
+            "unsharded_candidate_count": len(all_candidates),
+            "candidate_ids": list(candidates),
+        },
         "base_full_w4_plan_sha256": sha256_file(base_plan_path),
         "hessian_w4_sha256": sha256_file(hessian_path),
         "activation_mode": args.activation_mode,
@@ -165,6 +249,7 @@ def main() -> None:
         "calibration_buffer_sha256": artifact_buffer_sha,
         "checkpoint_sha256": checkpoint_sha256(checkpoint),
         "n_obs": args.n_obs,
+        "flow_steps": args.flow_steps,
         "uses_cka": False,
         "uses_cs": False,
         "uses_success_labels": False,
@@ -176,6 +261,9 @@ def main() -> None:
         "source_sha256": {
             "scorer": sha256_file(Path(__file__)),
             "metric": sha256_file(REPO_ROOT / "scripts/tools/quantvla_metric_protocol.py"),
+            "selection_core": sha256_file(
+                REPO_ROOT / "scripts/tools/quantvla_full_context.py"
+            ),
             "quant_runtime": sha256_file(REPO_ROOT / "code/gr00t/quantization/duquant_layers.py"),
             "w4_kernel": sha256_file(REPO_ROOT / "code/gr00t/quantization/duquant_fused.py"),
         },
@@ -195,13 +283,21 @@ def main() -> None:
     torch.manual_seed(0)
     teacher_policy = load_policy(
         str(checkpoint), data_config=args.data_config,
-        denoising_steps=int(PROTOCOL["closed_loop"]["flow_steps"]), device=args.device,
+        denoising_steps=args.flow_steps, device=args.device,
     )
+    if args.noise_rule == "B":
+        scale_observations, scale_noises = gr00t_rollout_inputs(records, noise_index=0)
+        _, scale_actions = run_rollouts(
+            teacher_policy.model, teacher_policy, scale_observations, scale_noises,
+            args.batch_size, return_physical=True,
+        )
+        scale = physical_action_scale(scale_actions)
     _, teacher_actions = run_rollouts(
         teacher_policy.model, teacher_policy, observations, noises, args.batch_size,
         return_physical=True,
     )
-    scale = physical_action_scale(teacher_actions)
+    if args.noise_rule == "A":
+        scale = physical_action_scale(teacher_actions)
     del teacher_policy
     gc.collect()
     torch.cuda.empty_cache()
@@ -231,7 +327,7 @@ def main() -> None:
         os.environ["GR00T_DUQUANT_ABITS"] = "0"
     policy = load_policy(
         str(checkpoint), data_config=args.data_config,
-        denoising_steps=int(PROTOCOL["closed_loop"]["flow_steps"]), device=args.device,
+        denoising_steps=args.flow_steps, device=args.device,
     )
     if args.activation_mode == "static_a8":
         warm_records, _ = load_model_records(

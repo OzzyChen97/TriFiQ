@@ -52,6 +52,10 @@ from quantvla_dynamic_a8_protocol import (  # noqa: E402
     require_protocol_attestation as require_dynamic_a8_protocol_attestation,
     validate_runtime as validate_dynamic_a8_runtime,
 )
+from quantvla_full_context import (  # noqa: E402
+    PROTOCOL as FULL_CONTEXT_PROTOCOL,
+    protocol_attestation as full_context_protocol_attestation,
+)
 
 
 def _sha256_file(path: Path) -> str:
@@ -405,6 +409,21 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
         "pi05", native_action_horizon=int(model.config.action_horizon)
     )
     runtime["protocol"] = closed_loop_runtime_protocol()
+    if os.environ.get("OPENPI_FULL_CONTEXT_PROTOCOL", "0") not in (
+        "0", "false", "False", "",
+    ):
+        expected_steps = int(
+            FULL_CONTEXT_PROTOCOL["model_hyperparameters"]["pi05"][
+                "table1_flow_steps"
+            ]
+        )
+        if int(denoising_steps) != expected_steps:
+            raise RuntimeError(
+                "full-context pi0.5 runtime requires the frozen native "
+                f"{expected_steps}-step solver, got {denoising_steps}"
+            )
+        runtime["protocol"]["flow_steps"] = int(denoising_steps)
+        runtime["full_context_protocol"] = full_context_protocol_attestation()
     if duquant_runtime.get("enabled") and duquant_runtime.get("act_dynamic"):
         validate_dynamic_a8_runtime(
             quantization_contract, source="pi0.5 quantization contract"
@@ -449,7 +468,9 @@ def _validate_formal_runtime(runtime: dict) -> None:
         return
 
     config_id = runtime["config_id"]
+    formal_flow_steps = int(os.environ.get("OPENPI_FORMAL_FLOW_STEPS", "4"))
     required_protocol = closed_loop_runtime_protocol()
+    required_protocol["flow_steps"] = formal_flow_steps
     protocol = runtime.get("protocol") or {}
     mismatches = {
         key: (protocol.get(key), value)
@@ -476,7 +497,7 @@ def _validate_formal_runtime(runtime: dict) -> None:
             "pack_records": expected_wrapped,
             "weight_bits": 4,
             "activation_bits": 4,
-            "denoising_steps": 4,
+            "denoising_steps": formal_flow_steps,
             "execute_steps": 16,
             "test_results_used_for_calibration": False,
             "missing_policy": "error",
@@ -592,6 +613,14 @@ def _validate_formal_runtime(runtime: dict) -> None:
             "dynamic_a8": True,
             "allow_retained_fp16_targets": True,
         },
+        "full_context_w4a8_dynamic_profile": {
+            "wrapped": gdsq_wrapped,
+            "enabled": False,
+            "atm": False,
+            "ohb": False,
+            "dynamic_a8": True,
+            "allow_retained_fp16_targets": True,
+        },
         "quantvla_w4a8_dynamic_profile_errorfold": {
             "wrapped": gdsq_wrapped,
             "enabled": True,
@@ -651,7 +680,7 @@ def _validate_formal_runtime(runtime: dict) -> None:
             "act_bits": 8,
             "weight_bits": 4,
             "calib_batches": 32,
-            "denoising_steps": 4,
+            "denoising_steps": formal_flow_steps,
             "packed_low_bit_residency": True,
             "fp_weight_sized_buffers": 0,
         }
@@ -686,7 +715,11 @@ def _validate_formal_runtime(runtime: dict) -> None:
                 )
         if int(duquant.get("packed_weight_bytes", 0)) <= 0:
             raise RuntimeError(f"{config_id}: packed W4 bytes were not materialized")
-        if config_id.startswith("quantvla_") or config_id.startswith("errorfold_"):
+        if (
+            config_id.startswith("quantvla_")
+            or config_id.startswith("errorfold_")
+            or config_id.startswith("full_context_")
+        ):
             selection = runtime.get("quantization_selection") or {}
             target_layers = int(selection.get("target_layers", -1))
             expected_retained = (

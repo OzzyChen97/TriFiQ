@@ -35,6 +35,10 @@ from quantvla_dynamic_a8_protocol import (  # noqa: E402
     require_protocol_attestation as require_dynamic_a8_protocol_attestation,
     validate_runtime as validate_dynamic_a8_runtime,
 )
+from quantvla_full_context import (  # noqa: E402
+    PROTOCOL as FULL_CONTEXT_PROTOCOL,
+    require_protocol_attestation as require_full_context_protocol_attestation,
+)
 from openpi_client.websocket_client_policy import WebsocketClientPolicy
 
 
@@ -87,6 +91,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trial-seeds", default="0-49")
     parser.add_argument("--split", default=FORMAL_SPLIT)
     parser.add_argument("--replan-steps", type=int, default=FORMAL_N_ACTION_STEPS)
+    parser.add_argument("--flow-steps", type=int, default=FORMAL_FLOW_STEPS)
     parser.add_argument(
         "--action-noise-mode",
         choices=("paired", "native"),
@@ -393,7 +398,7 @@ def run_trial(
             ),
             "environment_seed_protocol": ENVIRONMENT_SEED_PROTOCOL,
             "fresh_environment": True,
-            **closed_loop_row_protocol(),
+            **{**closed_loop_row_protocol(), "flow_steps": int(flow_steps)},
             "render_enabled": True,
             "termination": termination,
             "egl_device": egl_device,
@@ -463,6 +468,7 @@ def main() -> None:
         raise SystemExit("pi0.5 server adapter attestation is missing")
     server_protocol = server_runtime.get("protocol") or {}
     expected_protocol = closed_loop_runtime_protocol()
+    expected_protocol["flow_steps"] = int(args.flow_steps)
     protocol_mismatches = {
         key: (server_protocol.get(key), value)
         for key, value in expected_protocol.items()
@@ -470,6 +476,19 @@ def main() -> None:
     }
     if protocol_mismatches:
         raise SystemExit(f"server cross-model protocol mismatch: {protocol_mismatches}")
+    if int(args.flow_steps) != FORMAL_FLOW_STEPS:
+        expected_steps = int(
+            FULL_CONTEXT_PROTOCOL["model_hyperparameters"]["pi05"][
+                "table1_flow_steps"
+            ]
+        )
+        if int(args.flow_steps) != expected_steps:
+            raise SystemExit(
+                f"unsupported pi0.5 full-context flow steps: {args.flow_steps}"
+            )
+        require_full_context_protocol_attestation(
+            server_runtime, source="pi0.5 full-context runtime"
+        )
     runtime_selector_metadata = ((server_metadata.get("openpi_runtime") or {}).get("runtime_selector") or {})
     if args.expect_runtime_selector and not runtime_selector_metadata.get("enabled"):
         raise SystemExit(f"server runtime selector is not enabled: {runtime_selector_metadata}")
@@ -508,7 +527,7 @@ def main() -> None:
                 max_steps_override=args.max_steps,
                 server_metadata_sha256=metadata_hash,
                 action_noise_mode=args.action_noise_mode,
-                flow_steps=FORMAL_FLOW_STEPS,
+                flow_steps=int(args.flow_steps),
                 expect_runtime_selector=args.expect_runtime_selector,
             )
             committed[key] = row

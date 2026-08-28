@@ -92,6 +92,7 @@ class LayerCapture:
         rank2_rows_per_call: int = 8,
         max_rows_per_layer: int = 4096,
         step_getter: Callable[[], int | None] | None = None,
+        flow_steps: int = 4,
     ) -> None:
         self.names = tuple(names)
         if int(rows_per_sample) < 1:
@@ -102,6 +103,9 @@ class LayerCapture:
         self.rank2_rows_per_call = int(rank2_rows_per_call)
         self.max_rows_per_layer = int(max_rows_per_layer)
         self.step_getter = step_getter or (lambda: None)
+        if int(flow_steps) < 1:
+            raise ValueError("flow_steps must be positive")
+        self.flow_steps = int(flow_steps)
         self.inputs: dict[str, list[torch.Tensor]] = defaultdict(list)
         self.outputs: dict[str, list[torch.Tensor]] = defaultdict(list)
         self.inputs_by_step: dict[str, dict[int, list[torch.Tensor]]] = defaultdict(
@@ -178,6 +182,7 @@ class LayerCapture:
             "capture_rows_per_observation": np.asarray(self.rows_per_sample),
             "capture_rank2_rows_per_call": np.asarray(self.rank2_rows_per_call),
             "capture_calls": np.asarray([self.calls[name] for name in self.names]),
+            "capture_flow_steps": np.asarray(self.flow_steps),
             "capture_input_rows": np.asarray(
                 [sum(chunk.shape[0] for chunk in self.inputs[name]) for name in self.names]
             ),
@@ -195,10 +200,14 @@ class LayerCapture:
                 arrays[f"weight_{index:04d}"] = weight.detach().to(torch.float32).cpu().numpy()
             step_banks = self.inputs_by_step.get(name) or {}
             if step_banks:
-                if set(step_banks) != {0, 1, 2, 3}:
+                expected_steps = set(range(self.flow_steps))
+                if set(step_banks) != expected_steps:
                     raise ValueError(f"{name}: incomplete flow-step calls {sorted(step_banks)}")
                 arrays[f"step_inputs_{index:04d}"] = np.stack(
-                    [self._cat(step_banks[step], f"{name}/step{step}").numpy() for step in range(4)]
+                    [
+                        self._cat(step_banks[step], f"{name}/step{step}").numpy()
+                        for step in range(self.flow_steps)
+                    ]
                 )
         return arrays
 

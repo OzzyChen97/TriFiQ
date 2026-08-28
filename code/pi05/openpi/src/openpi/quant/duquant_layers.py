@@ -347,10 +347,13 @@ class DuQuantLinear(nn.Module):
 
     def set_act_scale(self, scale: torch.Tensor) -> None:
         expected = self.in_features
-        if tuple(scale.shape) not in ((expected,), (4, expected)):
+        valid = tuple(scale.shape) == (expected,) or (
+            scale.ndim == 2 and scale.shape[0] >= 1 and scale.shape[1] == expected
+        )
+        if not valid:
             raise ValueError(
                 f"{self.name}: activation scale shape {tuple(scale.shape)} "
-                f"must be ({expected},) or (4,{expected})"
+                f"must be ({expected},) or (native_flow_steps,{expected})"
             )
         value = scale.detach().to(device=self._weight.device, dtype=self._weight.dtype).clone()
         if not torch.isfinite(value).all() or torch.any(value <= 0):
@@ -546,9 +549,11 @@ class DuQuantLinear(nn.Module):
 
             step = get_current_dit_step()
             total = get_total_dit_steps()
-            if step is None or total != 4 or not 0 <= int(step) < 4:
+            table_steps = int(self._act_scale.shape[0])
+            if step is None or total != table_steps or not 0 <= int(step) < table_steps:
                 raise RuntimeError(
-                    f"{self.name}: four-row DiT A8 table requires deterministic step context"
+                    f"{self.name}: {table_steps}-row DiT A8 table requires matching "
+                    "deterministic step context"
                 )
             return self._act_scale[int(step)]
 

@@ -28,7 +28,6 @@ sys.path.insert(0, str(REPO_ROOT / "scripts" / "tools"))
 
 from openpi.quant import enable_duquant_if_configured, iter_duquant_layers  # noqa: E402
 from openpi.quant.duquant_layers import DuQuantLinear  # noqa: E402
-from pi05_probe_outputimpact import DEFAULT_CALIBRATION, DEFAULT_PLAN  # noqa: E402
 from pi05_score_configs_against_fp16 import (  # noqa: E402
     CHECKPOINT_SHA256,
     DEFAULT_CHECKPOINT,
@@ -36,7 +35,7 @@ from pi05_score_configs_against_fp16 import (  # noqa: E402
     configure_quant,
     load_policy,
 )
-from pi05_sensitivity_probe import run_records  # noqa: E402
+from pi05_full_context_adapter import run_records  # noqa: E402
 from quantvla_cross_model_protocol import (  # noqa: E402
     protocol_artifact,
     protocol_attestation,
@@ -48,6 +47,12 @@ from quantvla_dynamic_a8_protocol import (  # noqa: E402
     require_protocol_attestation as require_dynamic_a8_protocol_attestation,
 )
 from quantvla_metric_protocol import physical_action_scale, summarize_pair  # noqa: E402
+from quantvla_full_context import (  # noqa: E402
+    PROTOCOL as FULL_CONTEXT_PROTOCOL,
+    candidate_plan_mapping,
+    protocol_attestation as full_context_protocol_attestation,
+    shard_candidate_mapping,
+)
 from quantvla_model_adapters import (  # noqa: E402
     canonical_physical_chunk,
     load_model_records,
@@ -57,6 +62,13 @@ from quantvla_model_adapters import (  # noqa: E402
 from quantvla_outputimpact import atomic_json, identity_check, install_fp16_bypass  # noqa: E402
 
 
+DEFAULT_PLAN = (
+    REPO_ROOT
+    / "runs/pi05_gdsq_gr00t_aligned/plans/pi05_quantvla_uniform_w4a8_d4.plan.json"
+)
+DEFAULT_CALIBRATION = REPO_ROOT / "runs/errorfold_v4_iter/calibration/pi05_full_w4"
+
+
 def named_plan(value: str) -> tuple[str, Path]:
     identifier, separator, raw_path = value.partition("=")
     if not separator or not identifier or not raw_path:
@@ -64,6 +76,36 @@ def named_plan(value: str) -> tuple[str, Path]:
     if any(not (char.isalnum() or char in "_.-") for char in identifier):
         raise argparse.ArgumentTypeError(f"invalid candidate id: {identifier!r}")
     return identifier, Path(raw_path).expanduser().resolve()
+
+
+def validate_flow_artifacts(
+    *, hessian_path: Path, a8_path: Path, activation_mode: str, flow_steps: int
+) -> None:
+    hessian_meta = json.loads(
+        Path(str(hessian_path) + ".json").read_text(encoding="utf-8")
+    )
+    capture_path = Path(hessian_meta["capture_path"]).expanduser().resolve()
+    if sha256_file(capture_path) != hessian_meta.get("capture_sha256"):
+        raise ValueError("pi0.5 Hessian/FP16 capture lineage drift")
+    with np.load(capture_path, allow_pickle=False) as capture:
+        captured_steps = int(
+            np.asarray(capture["capture_flow_steps"]).item()
+            if "capture_flow_steps" in capture
+            else 4
+        )
+    if captured_steps != flow_steps:
+        raise ValueError(
+            f"pi0.5 Hessian flow-step drift: {captured_steps} != {flow_steps}"
+        )
+    if activation_mode == "static_a8":
+        sidecar = Path(str(a8_path) + ".json")
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        metadata = payload.get("metadata") or payload
+        if (
+            int(metadata.get("denoising_steps", -1)) != flow_steps
+            or int(metadata.get("dit_flow_step_tables", -1)) != flow_steps
+        ):
+            raise ValueError("pi0.5 static A8 table/native flow-step drift")
 
 
 def parse_args() -> argparse.Namespace:
@@ -85,8 +127,20 @@ def parse_args() -> argparse.Namespace:
         "--artifact-calibration-buffer",
         default=str(protocol_artifact("calibration_buffer", verify=False)),
     )
-    parser.add_argument("--candidate-plan", action="append", type=named_plan, required=True)
+    parser.add_argument("--candidate-plan", action="append", type=named_plan)
+    parser.add_argument("--candidate-manifest")
+    parser.add_argument("--candidate-shard-index", type=int, default=0)
+    parser.add_argument("--candidate-shard-count", type=int, default=1)
     parser.add_argument("--n-obs", type=int, default=32)
+    parser.add_argument(
+        "--noise-rule", choices=("A", "B"), default="A",
+        help="Noise B is a frozen single-candidate audit; its D_PAC scale remains fixed from teacher noise A.",
+    )
+    parser.add_argument(
+        "--flow-steps",
+        type=int,
+        default=int(FULL_CONTEXT_PROTOCOL["model_hyperparameters"]["pi05"]["table1_flow_steps"]),
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--out", required=True)
     return parser.parse_args()
@@ -96,9 +150,16 @@ def main() -> None:
     args = parse_args()
     if args.n_obs < 4 or args.n_obs % 4:
         raise ValueError("joint mask scoring requires complete four-replan sequences")
-    candidates = dict(args.candidate_plan)
-    if len(candidates) != len(args.candidate_plan):
-        raise ValueError("candidate plan ids must be unique")
+    all_candidates, candidate_manifest = candidate_plan_mapping(
+        named=args.candidate_plan, manifest_path=args.candidate_manifest
+    )
+    candidates = shard_candidate_mapping(
+        all_candidates,
+        shard_index=args.candidate_shard_index,
+        shard_count=args.candidate_shard_count,
+    )
+    if args.noise_rule == "B" and len(candidates) != 1:
+        raise ValueError("noise-B audit requires exactly one frozen candidate")
 
     checkpoint = Path(args.checkpoint_dir).expanduser().resolve()
     base_plan_path = Path(args.base_full_w4_plan).expanduser().resolve()
@@ -120,6 +181,12 @@ def main() -> None:
             raise FileNotFoundError(path)
     if not pack_dir.is_dir():
         raise FileNotFoundError(pack_dir)
+    validate_flow_artifacts(
+        hessian_path=hessian_path,
+        a8_path=a8_path,
+        activation_mode=args.activation_mode,
+        flow_steps=args.flow_steps,
+    )
     if sha256_file(checkpoint / "model.safetensors") != CHECKPOINT_SHA256:
         raise ValueError("pi0.5 checkpoint drift")
 
@@ -138,6 +205,8 @@ def main() -> None:
     for identifier, path in candidates.items():
         document = json.loads(path.read_text(encoding="utf-8"))
         selection = validate_quant_plan(document, model="pi05", source=str(path))
+        if int((document.get("meta") or {}).get("flow_steps", -1)) != args.flow_steps:
+            raise ValueError(f"{identifier}: candidate flow-step hyperparameter drift")
         if args.activation_mode == "dynamic_a8":
             require_dynamic_a8_protocol_attestation(document.get("meta") or {}, source=str(path))
         if set(document.get("layers") or {}) != set(base_plan["layers"]):
@@ -166,10 +235,31 @@ def main() -> None:
         "schema_version": 1,
         "kind": "outputimpact_joint_mask_scores",
         "cross_model_protocol": protocol_attestation(),
+        "full_context_protocol": full_context_protocol_attestation(),
         "model_adapter": "pi05",
         "teacher": "original_fp16",
         "selection_metric": "d_pac_v2",
-        "selection_noise": "A",
+        "selection_noise": args.noise_rule,
+        "selection_role": (
+            "noise_a_selection" if args.noise_rule == "A"
+            else "frozen_noise_b_generalization_audit"
+        ),
+        "noise_b_used_for_selection": False,
+        "candidate_manifest": (
+            {
+                "path": str(Path(args.candidate_manifest).expanduser().resolve()),
+                "sha256": sha256_file(Path(args.candidate_manifest).expanduser().resolve()),
+                "kind": candidate_manifest.get("kind"),
+            }
+            if candidate_manifest is not None
+            else None
+        ),
+        "candidate_shard": {
+            "index": args.candidate_shard_index,
+            "count": args.candidate_shard_count,
+            "unsharded_candidate_count": len(all_candidates),
+            "candidate_ids": list(candidates),
+        },
         "base_full_w4_plan_sha256": sha256_file(base_plan_path),
         "hessian_w4_sha256": sha256_file(hessian_path),
         "activation_mode": args.activation_mode,
@@ -178,6 +268,7 @@ def main() -> None:
         "calibration_buffer_sha256": artifact_buffer_sha,
         "checkpoint_sha256": CHECKPOINT_SHA256,
         "n_obs": args.n_obs,
+        "flow_steps": args.flow_steps,
         "uses_cka": False,
         "uses_cs": False,
         "uses_task_success": False,
@@ -194,6 +285,9 @@ def main() -> None:
             "scorer": sha256_file(Path(__file__)),
             "single_layer_probe": sha256_file(REPO_ROOT / "scripts/tools/pi05_probe_outputimpact.py"),
             "metric": sha256_file(REPO_ROOT / "scripts/tools/quantvla_metric_protocol.py"),
+            "selection_core": sha256_file(
+                REPO_ROOT / "scripts/tools/quantvla_full_context.py"
+            ),
             "quant_runtime": sha256_file(
                 REPO_ROOT / "code/pi05/openpi/src/openpi/quant/duquant_layers.py"
             ),
@@ -215,11 +309,22 @@ def main() -> None:
     configure_base()
     torch.manual_seed(0)
     teacher_policy = load_policy(checkpoint, args.device)
+    noise_index = 0 if args.noise_rule == "A" else 1
+    if args.noise_rule == "B":
+        _, scale_native, _ = run_records(
+            teacher_policy, records, args.device, noise_index=0,
+            flow_steps=args.flow_steps,
+        )
+        scale = physical_action_scale(
+            canonical_physical_chunk(scale_native, model="pi05")
+        )
     _, teacher_native, teacher_timings = run_records(
-        teacher_policy, records, args.device, noise_index=0
+        teacher_policy, records, args.device, noise_index=noise_index,
+        flow_steps=args.flow_steps,
     )
     teacher_actions = canonical_physical_chunk(teacher_native, model="pi05")
-    scale = physical_action_scale(teacher_actions)
+    if args.noise_rule == "A":
+        scale = physical_action_scale(teacher_actions)
     payload["teacher_latency_mean_s"] = float(np.mean(teacher_timings))
     del teacher_policy, teacher_native
     gc.collect()
@@ -238,6 +343,7 @@ def main() -> None:
         artifact_buffer_hash=artifact_buffer_sha,
         strict_artifacts=True,
         activation_mode=args.activation_mode,
+        flow_steps=args.flow_steps,
     )
     policy = load_policy(checkpoint, args.device)
     runtime = enable_duquant_if_configured(policy._model)
@@ -246,9 +352,10 @@ def main() -> None:
     if (
         int(runtime.get("wrapped_layers", 0)) != len(full_names)
         or len(quant_layers) != len(full_names)
-        or not all(
-            module._hessian_w4_loaded and module._fused_ready and module.act_scale_ready
-            for _, module in quant_layers
+        or not all(module._hessian_w4_loaded and module._fused_ready for _, module in quant_layers)
+        or (
+            args.activation_mode != "fp16"
+            and not all(module.act_scale_ready for _, module in quant_layers)
         )
     ):
         raise RuntimeError("joint scorer lacks the complete live Hessian-W4A8 network")
@@ -258,7 +365,9 @@ def main() -> None:
 
     for module in layers.values():
         module._outputimpact_fp16 = True
-    _, bypass_native, _ = run_records(policy, records, args.device, noise_index=0)
+    _, bypass_native, _ = run_records(
+        policy, records, args.device, noise_index=noise_index, flow_steps=args.flow_steps
+    )
     bypass_actions = canonical_physical_chunk(bypass_native, model="pi05")
     payload["fp16_bypass_check"] = identity_check(teacher_actions, bypass_actions)
     payload["fp16_bypass_check"]["d_pac"] = float(
@@ -276,7 +385,7 @@ def main() -> None:
             module._outputimpact_fp16 = name not in active
         started = time.time()
         _, candidate_native, timings = run_records(
-            policy, records, args.device, noise_index=0
+            policy, records, args.device, noise_index=noise_index, flow_steps=args.flow_steps
         )
         actions = canonical_physical_chunk(candidate_native, model="pi05")
         pair = summarize_pair(teacher_actions, actions, details, scale=scale)
@@ -306,15 +415,19 @@ def main() -> None:
     for module in layers.values():
         module._outputimpact_fp16 = True
     payload["complete"] = set(payload["scores"]) == set(candidates)
-    payload["best_noise_a"] = min(
-        payload["scores"], key=lambda key: payload["scores"][key]["d_pac"]
-    )
+    if args.noise_rule == "A":
+        payload["best_noise_a"] = min(
+            payload["scores"], key=lambda key: payload["scores"][key]["d_pac"]
+        )
+    else:
+        payload["frozen_noise_b_candidate"] = next(iter(payload["scores"]))
     atomic_json(output, payload)
     print(
         json.dumps(
             {
                 "out": str(output),
-                "best_noise_a": payload["best_noise_a"],
+                "best_noise_a": payload.get("best_noise_a"),
+                "frozen_noise_b_candidate": payload.get("frozen_noise_b_candidate"),
                 "scores": {
                     key: row["d_pac"] for key, row in payload["scores"].items()
                 },

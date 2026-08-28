@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build one-prefix/four-flow-step static A8 tables from the v3 FP16 capture."""
+"""Build one-prefix/native-flow-step static A8 tables from an FP16 capture."""
 
 from __future__ import annotations
 
@@ -24,12 +24,28 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build(capture_path: str | Path, output_path: str | Path, model: str) -> dict:
+def build(
+    capture_path: str | Path,
+    output_path: str | Path,
+    model: str,
+    *,
+    flow_steps: int | None = None,
+) -> dict:
     capture = Path(capture_path).expanduser().resolve()
     output = Path(output_path).expanduser().resolve()
     arrays: dict[str, np.ndarray] = {}
     table_rows: dict[str, int] = {}
     with np.load(capture, allow_pickle=False) as source:
+        captured_flow_steps = int(
+            np.asarray(source["capture_flow_steps"]).item()
+            if "capture_flow_steps" in source
+            else PROTOCOL["closed_loop"]["flow_steps"]
+        )
+        flow_steps = captured_flow_steps if flow_steps is None else int(flow_steps)
+        if flow_steps != captured_flow_steps:
+            raise ValueError(
+                f"A8 flow-step request {flow_steps} != capture {captured_flow_steps}"
+            )
         names = [str(value) for value in source["layer_names"].tolist()]
         if model == "pi05":
             arrays["layer_names"] = np.asarray(names)
@@ -37,7 +53,7 @@ def build(capture_path: str | Path, output_path: str | Path, model: str) -> dict
             step_key = f"step_inputs_{index:04d}"
             if step_key in source:
                 scale = a8_scale_table(
-                    torch.from_numpy(np.asarray(source[step_key])), flow_steps=4
+                    torch.from_numpy(np.asarray(source[step_key])), flow_steps=flow_steps
                 )
             else:
                 scale = a8_scale_table(
@@ -70,10 +86,10 @@ def build(capture_path: str | Path, output_path: str | Path, model: str) -> dict
         ).hexdigest(),
         "act_percentile": PROTOCOL["deployment"]["activation_percentile"],
         "calib_batches": PROTOCOL["deployment"]["calibration_batches"],
-        "denoising_steps": PROTOCOL["closed_loop"]["flow_steps"],
+        "denoising_steps": flow_steps,
         "table_rows": table_rows,
         "prefix_llm_tables": 1,
-        "dit_flow_step_tables": 4,
+        "dit_flow_step_tables": flow_steps,
         "capture_path": str(capture),
         "capture_sha256": sha256_file(capture),
     }

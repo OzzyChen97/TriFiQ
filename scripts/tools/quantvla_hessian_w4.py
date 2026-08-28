@@ -175,7 +175,7 @@ def a8_scale_table(
     flow_steps: int | None = None,
     percentile: float | None = None,
 ) -> torch.Tensor:
-    """One prefix/LLM table or four deterministic DiT flow-step tables."""
+    """One prefix/LLM table or one deterministic table per native flow step."""
     value = torch.as_tensor(activations).detach().to(torch.float32).abs()
     percentile = (
         float(PROTOCOL["deployment"]["activation_percentile"])
@@ -186,8 +186,8 @@ def a8_scale_table(
     if flow_steps is None:
         flat = value.reshape(-1, value.shape[-1])
         return (torch.quantile(flat, quantile, dim=0) / 127.0).clamp_min(1e-6)
-    if int(flow_steps) != int(PROTOCOL["closed_loop"]["flow_steps"]):
-        raise ValueError("v3 DiT A8 requires exactly four flow-step tables")
+    if int(flow_steps) < 1:
+        raise ValueError("flow_steps must be positive")
     if value.shape[0] != flow_steps:
         raise ValueError(f"step activation axis {value.shape[0]} != {flow_steps}")
     return torch.stack(

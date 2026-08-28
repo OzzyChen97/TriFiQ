@@ -940,7 +940,23 @@ def load_hessian_w4(
     metadata = json.loads(sidecar.read_text(encoding="utf-8"))
     if metadata.get("schema_version") != 3 or metadata.get("group_size") != 64:
         raise ValueError("unsupported Hessian W4 artifact schema/group")
-    if metadata.get("protocol_id") != "quantvla-gr00t-pi05-errorfold-v4":
+    # The frozen task-set captures were produced under the v3 manifest and the
+    # later all-W4 control under v4.  The Hessian/W4 recipe is byte-for-byte
+    # identical across those two manifests; v4 only changed the downstream
+    # ErrorFold experiment contract.  Accept only the two fully pinned
+    # protocol-id/hash pairs so the task-set artifacts can be deployed without
+    # relabelling immutable data or weakening provenance checks.
+    supported_protocols = {
+        "quantvla-gr00t-pi05-errorfold-v3":
+            "f43aa056b5633b555acfecc48af2f2b5eec81ca7e2cf83c8b86f12fde91498e2",
+        "quantvla-gr00t-pi05-errorfold-v4":
+            "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+    }
+    protocol_id = metadata.get("protocol_id")
+    if (
+        protocol_id not in supported_protocols
+        or metadata.get("protocol_sha256") != supported_protocols[protocol_id]
+    ):
         raise ValueError("Hessian W4 artifact protocol drift")
     actual_hash = hashlib.sha256(artifact.read_bytes()).hexdigest()
     if metadata.get("npz_sha256") != actual_hash:

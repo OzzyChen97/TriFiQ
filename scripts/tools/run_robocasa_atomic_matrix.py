@@ -1048,15 +1048,12 @@ def start_server(
             env.pop("GR00T_DUQUANT_ACT_SCALE_PATH", None)
         if config.get("hessian_w4"):
             env["GR00T_DUQUANT_HESSIAN_W4_PATH"] = config["hessian_w4"]["path"]
-            # Hessian W4 artifacts are deployment-ready packed codes.  Make
-            # real-quant finalization an explicit property of the immutable
-            # matrix config instead of accidentally inheriting it from the
-            # caller's shell.  Without this flag the service exposes the
-            # requested Hessian path but retains one FP weight-sized buffer
-            # per wrapped layer, so the residency preflight can never pass.
-            env["QUANTVLA_ADAPTER_ONLY"] = "1"
-        else:
-            env.pop("QUANTVLA_ADAPTER_ONLY", None)
+        # Every quantized matrix row is evaluated through the same deployed
+        # packed-W4 residency path.  Previously the non-Hessian GDSQ baseline
+        # explicitly removed this flag and remained fake-quant while the
+        # candidate was real-quant, despite the runtime verifier requiring
+        # packed weights for both.
+        env["QUANTVLA_ADAPTER_ONLY"] = "1"
         if config.get("errorfold"):
             env["GR00T_ERRORFOLD_PATH"] = config["errorfold"]["path"]
         cmd = ["bash", str(QUANT_SERVER)]

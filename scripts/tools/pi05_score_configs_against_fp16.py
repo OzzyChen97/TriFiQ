@@ -39,7 +39,7 @@ from openpi.quant import (  # noqa: E402
 )
 from openpi.quant import sha256_file  # noqa: E402
 from openpi.training import config  # noqa: E402
-from pi05_sensitivity_probe import run_records  # noqa: E402
+from pi05_full_context_adapter import run_records  # noqa: E402
 from fit_softfold_compensation import materialize_grid  # noqa: E402
 from quantvla_cross_model_protocol import (  # noqa: E402
     PROTOCOL,
@@ -155,6 +155,9 @@ def parse_args() -> argparse.Namespace:
         help="Shared activation policy; dynamic_a8 uses per-forward per-channel amax.",
     )
     parser.add_argument("--n-obs", type=int, default=16)
+    parser.add_argument(
+        "--flow-steps", type=int, default=int(PROTOCOL["closed_loop"]["flow_steps"])
+    )
     parser.add_argument(
         "--noise-rule",
         choices=("A", "B"),
@@ -312,6 +315,7 @@ def configure_quant(
     artifact_buffer_hash: str,
     strict_artifacts: bool,
     activation_mode: str = "static_a8",
+    flow_steps: int = 4,
 ) -> None:
     configure_base()
     plan = Path(spec["plan"]).expanduser().resolve()
@@ -331,7 +335,7 @@ def configure_quant(
             "OPENPI_DUQUANT_ROW_ROT": "0" if spec.get("hessian_w4") else "restore",
             "OPENPI_DUQUANT_ACT_PCT": "99.9",
             "OPENPI_DUQUANT_CALIB_STEPS": "32",
-            "OPENPI_DUQUANT_DENOISING_STEPS": "4",
+            "OPENPI_DUQUANT_DENOISING_STEPS": str(int(flow_steps)),
             "OPENPI_DUQUANT_PACKDIR": str(pack_dir),
             "OPENPI_DUQUANT_ACT_DYNAMIC": "1" if activation_mode == "dynamic_a8" else "0",
             "OPENPI_DUQUANT_REQUIRE_ACT_SCALE": "1" if activation_mode == "static_a8" else "0",
@@ -752,7 +756,11 @@ def main() -> None:
     started = time.time()
     fp16 = load_policy(checkpoint_dir, args.device)
     reference, reference_actions, timings = run_records(
-        fp16, records, args.device, noise_index=0 if args.noise_rule == "A" else 1
+        fp16,
+        records,
+        args.device,
+        noise_index=0 if args.noise_rule == "A" else 1,
+        flow_steps=args.flow_steps,
     )
     payload["fp16"] = {
         "latency_mean_s": float(np.mean(timings)),
@@ -778,6 +786,7 @@ def main() -> None:
             artifact_buffer_hash=artifact_buffer_hash,
             strict_artifacts=args.strict_artifacts,
             activation_mode=args.activation_mode,
+            flow_steps=args.flow_steps,
         )
         policy = load_policy(checkpoint_dir, args.device)
         runtime = enable_duquant_if_configured(policy._model)
@@ -848,6 +857,7 @@ def main() -> None:
                 artifact_buffer_hash=artifact_buffer_hash,
                 strict_artifacts=args.strict_artifacts,
                 activation_mode=args.activation_mode,
+                flow_steps=args.flow_steps,
             )
             policy = load_policy(checkpoint_dir, args.device)
             runtime = enable_duquant_if_configured(policy._model)
@@ -867,6 +877,7 @@ def main() -> None:
             records,
             args.device,
             noise_index=0 if args.noise_rule == "A" else 1,
+            flow_steps=args.flow_steps,
         )
         pair = summarize_pair(
             canonical_physical_chunk(reference_actions, model="pi05"),
