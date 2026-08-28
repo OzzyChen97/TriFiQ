@@ -21,8 +21,8 @@ FROZEN_WINNER="$REPO_ROOT/runs/full_context_v2/p2/gr00t_full_context_v2_frozen.j
 ACTIVATION="$REPO_ROOT/runs/full_context_v2/p2/activation_attribution.json"
 QUICK_REPORT="$REPO_ROOT/runs/full_context_v2/quick/aggregate.json"
 CANDIDATE_GPU="${FULL_CONTEXT_GR00T_TABLE1_GPU:-5}"
-EGL_POOL="${FULL_CONTEXT_GR00T_TABLE1_EGL_POOL:-1,4,5,6,7}"
-SEED_SHARDS="${FULL_CONTEXT_GR00T_TABLE1_SEED_SHARDS:-5}"
+EGL_POOL="${FULL_CONTEXT_GR00T_TABLE1_EGL_POOL:-1,4,7}"
+SEED_SHARDS="${FULL_CONTEXT_GR00T_TABLE1_SEED_SHARDS:-1}"
 SEEDS="$(seq -s, 0 49)"
 SPLIT_DIRS=(atomic composite_seen composite_unseen)
 SPLIT_SETS=(atomic_seen composite_seen composite_unseen)
@@ -32,14 +32,14 @@ usage() {
 }
 
 rewrite_placement() {
-    local source="$1" target="$2"
-    "$PYTHON" - "$source" "$target" <<'PY'
+    local source="$1" target="$2" subset="$3"
+    "$PYTHON" - "$source" "$target" "$subset" <<'PY'
 import json
 import os
 import sys
 import tempfile
 
-source, target = sys.argv[1:]
+source, target, subset = sys.argv[1:]
 payload = json.load(open(source, encoding="utf-8"))
 placements = {
     "fp16": (5, 19570),
@@ -47,8 +47,11 @@ placements = {
     "gdsq_vla_main": (6, 19572),
     "full_context_v2": (6, 19573),
 }
+wanted = {item.strip() for item in subset.split(",") if item.strip()}
+payload["configs"] = [row for row in payload["configs"] if row["id"] in wanted]
 for row in payload["configs"]:
     row["gpu"], row["port"] = placements[row["id"]]
+payload["config_subset"] = sorted(wanted)
 directory = os.path.dirname(target)
 os.makedirs(directory, exist_ok=True)
 fd, temporary = tempfile.mkstemp(prefix=".execution.", suffix=".json", dir=directory)
@@ -98,6 +101,9 @@ for split in ("atomic_seen", "composite_seen", "composite_unseen"):
         {
             "id": "quantvla_w4a8",
             "activation_mode": "static_a8",
+            "act_scale": str(
+                repo / "runs/full_context_v2/table1/a8" / f"quantvla_{split}.npz"
+            ),
             "meta": {"role": "table1_quantvla_baseline"},
         }
     )
@@ -114,11 +120,7 @@ for split in ("atomic_seen", "composite_seen", "composite_unseen"):
         "expected_wrapped": expected_wrapped,
         "plan": str(winner_path),
         "packdir": str(calib / split / "identity_pack"),
-        "hessian_w4": {
-            "path": str(hessian),
-            "sha256": sha256_file(hessian),
-            "bytes": hessian.stat().st_size,
-        },
+        "hessian_w4": str(hessian),
         "act_scale": None,
         "errorfold": None,
         "omega_pack": None,
@@ -192,11 +194,13 @@ assemble_baselines() {
 }
 
 run_split() {
-    local split="$1" tasks="$2"
+    local split="$1" tasks="$2" subset="$3"
+    local tag
+    tag="$(echo "$subset" | tr ',' '_')"
     local frozen_spec="$SPEC_ROOT/$split.json"
-    local execution_spec="$SPEC_ROOT/.execution-$split.json"
-    local run_dir="$RESULTS/matrix/$split"
-    rewrite_placement "$frozen_spec" "$execution_spec"
+    local execution_spec="$SPEC_ROOT/.execution-${split}_${tag}.json"
+    local run_dir="$RESULTS/matrix/${split}_${tag}"
+    rewrite_placement "$frozen_spec" "$execution_spec" "$subset"
     "$PYTHON" "$RUNNER" \
         --spec "$execution_spec" \
         --run-dir "$run_dir" \
@@ -206,7 +210,7 @@ run_split() {
         --task-set "$split" \
         --tasks "$tasks" \
         --n-shards "$(awk -F, '{print NF}' <<<"$tasks")" \
-        --seed-shards-per-task "$SEED_SHARDS" \
+        --seed-shards-per-task 1 \
         --egl-device-pool "$EGL_POOL" \
         --trial-batch-size 5 \
         --action-noise paired \
@@ -215,9 +219,11 @@ run_split() {
 }
 
 collect_split() {
-    local split="$1"
-    local run_dir="$RESULTS/matrix/$split"
-    for config in fp16 quantvla_w4a8 gdsq_vla_main full_context_v2; do
+    local split="$1" subset="$2"
+    local tag
+    tag="$(echo "$subset" | tr ',' '_')"
+    local run_dir="$RESULTS/matrix/${split}_${tag}"
+    for config in ${subset//,/ }; do
         mkdir -p "$RESULTS/$config/$split"
         cp -n "$run_dir"/"${config}"_s*.jsonl "$RESULTS/$config/$split/" || true
     done
@@ -236,8 +242,13 @@ for split in ("atomic_seen", "composite_seen", "composite_unseen"):
 PY
     while read -r split tasks; do
         [[ -n "$split" ]] || continue
-        run_split "$split" "$tasks"
-        collect_split "$split"
+        # Two waves per split: the paper-critical pair first, then the
+        # reference baselines.  Each wave runs two model servers (GPU 5/6)
+        # with its EGL clients spread over the server-free pool devices.
+        run_split "$split" "$tasks" "full_context_v2,gdsq_vla_main"
+        collect_split "$split" "full_context_v2,gdsq_vla_main"
+        run_split "$split" "$tasks" "quantvla_w4a8,fp16"
+        collect_split "$split" "quantvla_w4a8,fp16"
     done < "$tasks_file"
     aggregate
 }
