@@ -20,7 +20,11 @@ GDSQ_PORT="${FULL_CONTEXT_PI05_GDSQ_PORT:-19655}"
 CANDIDATE_PORT="${FULL_CONTEXT_PI05_CANDIDATE_PORT:-19656}"
 GDSQ_INSTANCE="full_context_quick_gdsq"
 CANDIDATE_INSTANCE="full_context_quick_candidate"
-GDSQ_CONFIG="gdsq_vla_ohb_only"
+# The quick baseline must be the Table-1 runtime-selector main. The legacy
+# ohb-only static path is admissible only with a per-request bitwise
+# equivalence artifact proving it reproduces that main in this quick scope.
+GDSQ_CONFIG="${FULL_CONTEXT_PI05_GDSQ_CONFIG:-gdsq_vla_runtime_selector}"
+GDSQ_EQUIVALENCE_ARTIFACT="${FULL_CONTEXT_PI05_GDSQ_EQUIVALENCE_ARTIFACT:-}"
 CANDIDATE_CONFIG="full_context_w4a8_dynamic_profile"
 CANDIDATE_PLAN="${FULL_CONTEXT_PI05_CANDIDATE_PLAN:-$REPO_ROOT/runs/full_context_v1/pi05/round1/pi05_full_context_round1_frozen.json}"
 CANDIDATE_HESSIAN="${FULL_CONTEXT_PI05_CANDIDATE_HESSIAN:-$REPO_ROOT/runs/full_context_v1/pi05/deployment/hessian_w4.npz}"
@@ -30,6 +34,16 @@ QUANTVLA_TABLE1_BYTES=1490466816
 
 usage() {
     echo "usage: $0 run | preflight | status | aggregate | stop" >&2
+}
+
+preflight_baseline_requirement() {
+    if [[ "$GDSQ_CONFIG" == "gdsq_vla_ohb_only" && -z "$GDSQ_EQUIVALENCE_ARTIFACT" ]]; then
+        echo "pi0.5 quick baseline requirement violated: gdsq_vla_ohb_only needs" >&2
+        echo "a bitwise equivalence artifact (FULL_CONTEXT_PI05_GDSQ_EQUIVALENCE_ARTIFACT)" >&2
+        echo "or the Table-1 runtime-selector main (default gdsq_vla_runtime_selector)." >&2
+        return 1
+    fi
+    return 0
 }
 
 preflight_candidate() {
@@ -257,7 +271,7 @@ run_all() {
 
 case "${1:-}" in
     run) run_all ;;
-    preflight) preflight_candidate ;;
+    preflight) preflight_baseline_requirement; preflight_candidate ;;
     status) status ;;
     aggregate) aggregate ;;
     stop) stop_servers ;;
