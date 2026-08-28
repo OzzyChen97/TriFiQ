@@ -165,7 +165,14 @@ run_all() {
         composite_unseen \
         MakeIceLemonade \
         "$REPO_ROOT/checkpoints/robocasa365/gr00t_n1-5/foundation_model_learning/target_posttraining/composite_unseen/checkpoint-60000"
-    interpret
+    # The four-config interpretation needs all of H/M/C/C16; phased subset
+    # runs (h,m then c,c16) only collect episodes and are interpreted once
+    # by the caller after the last phase completes.
+    local wanted
+    wanted="$(echo "$ATTR_CONFIGS" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')"
+    if [ "$wanted" = "c,c16,h,m" ]; then
+        interpret
+    fi
 }
 
 status() {

@@ -42,6 +42,11 @@ def load_rows(run_dir: str | Path, config_id: str) -> dict[tuple[str, int], bool
     """Load completed episode rows for one config from a run directory."""
     rows: dict[tuple[str, int], bool] = {}
     for path in sorted(Path(run_dir).glob("**/*.jsonl")):
+        # Retired run dirs are moved aside with a dot-prefix (".aborted_*");
+        # their rows share (task, seed) keys with the live run and must not
+        # enter the paired comparison.
+        if any(part.startswith(".") for part in path.relative_to(run_dir).parts):
+            continue
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue

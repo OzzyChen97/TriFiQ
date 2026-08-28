@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -117,3 +118,28 @@ def test_missing_config_rows_raises() -> None:
 
 def test_config_ids_are_the_four_expected() -> None:
     assert CONFIG_IDS == ("h", "m", "c", "c16")
+
+
+def test_load_rows_skips_aborted_dot_dirs(tmp_path: Path) -> None:
+    from interpret_four_config_attribution import load_rows
+
+    live = tmp_path / "atomic_seen_h_m"
+    live.mkdir()
+    (live / "h_s0.jsonl").write_text(
+        json.dumps(
+            {"config": "h", "status": "complete", "task": "t0", "seed": 0, "success": True}
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    aborted = tmp_path / ".aborted_atomic_seen_h_m.123"
+    aborted.mkdir()
+    (aborted / "h_s0.jsonl").write_text(
+        json.dumps(
+            {"config": "h", "status": "complete", "task": "t0", "seed": 0, "success": False}
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    rows = load_rows(tmp_path, "h")
+    assert rows == {("t0", 0): True}
