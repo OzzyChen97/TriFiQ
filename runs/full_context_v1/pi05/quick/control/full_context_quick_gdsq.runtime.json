@@ -1,0 +1,589 @@
+{
+  "openpi_runtime": {
+    "atm_ohb": {
+      "artifact_path": "/home1/gyy/vla/QuantVLA/runs/pi05_gdsq_gr00t_aligned/atm_ohb/pi05_gdsq_cscka_16to1_d4_static_perhead.json",
+      "artifact_sha256": "3acbff891018dfaa9efabd21c42e19fb41e934bd4a1d8ff0347ff8b2df2f1f17",
+      "atm_application": "runtime_query",
+      "atm_enabled": false,
+      "enabled": true,
+      "matched_layers": 0,
+      "metadata": {
+        "a8_scale": "/home1/gyy/vla/QuantVLA/runs/pi05_gdsq_gr00t_aligned/a8/pi05_gdsq_cscka_16to1_d4_p999_b32x8.npz",
+        "a8_scale_sha256": "a4822c3ca4cdc4ad5391f1ecea8b085c9b763db3d69a455a9d9d8b431cc188ab",
+        "alpha_max": 1.4,
+        "alpha_min": 0.7,
+        "alpha_neutral": 0.02,
+        "atm_application": "runtime_query",
+        "attention_layers": 18,
+        "batch_size": 8,
+        "beta_log_clamp": 0.3,
+        "beta_neutral": 0.03,
+        "calibration_buffer": "/home1/gyy/vla/QuantVLA/runs/pi05_gdsq_gr00t_aligned/calibration/pi05_robocasa365_seed0_n256.npz",
+        "calibration_buffer_sha256": "c4de41b304d33b15240538a45006f1cf560fb050d0641610a9d38ede91d1999c",
+        "calibration_seed": 0,
+        "checkpoint_sha256": "4174133479c6a51d79cac90d6a1739f32f928624eb529bf791cd5be942afdf1c",
+        "cv_stats": {
+          "cv_threshold": 0.05,
+          "head_fraction_required": 0.95,
+          "n_heads_alpha": 144,
+          "n_heads_alpha_below": 144,
+          "n_heads_beta": 144,
+          "n_heads_beta_below": 96,
+          "static_sufficient": false
+        },
+        "elapsed_s": 103.29693937301636,
+        "enable_permute": false,
+        "evaluation_noise_protocol": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+        "flow_steps": 4,
+        "formula_authority": "scripts/tools/calibrate_atm_perstep_gr00t.py",
+        "frames": 16,
+        "noise_protocol": "torch-cpu-sequential-seed0-f32-v1",
+        "ohb_application": "runtime_output",
+        "ohb_capture_point": "pre_head_concat",
+        "ohb_mode": "per_head_pre_projection",
+        "pack_manifest": "/home1/gyy/vla/QuantVLA/runs/pi05_gdsq_port/packs/pi05_robocasa_block64_w4a8_ls015/manifest.json",
+        "pack_manifest_sha256": "53df14c6db4875a5515ff11bf9c40350b4d08c0f11e2e5b9cfde1a8e13bd6138",
+        "plan": "/home1/gyy/vla/QuantVLA/runs/pi05_gdsq_gr00t_aligned/plans/pi05_gdsq_cscka_16to1_d4.final_plan.json",
+        "plan_marks": {
+          "paligemma_with_expert.gemma_expert.model.layers.0.self_attn": {
+            "forced_neutral": true,
+            "fp16_block": true
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.1.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.10.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.11.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.12.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.13.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.14.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.15.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.16.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.17.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.2.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.3.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.4.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.5.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.6.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.7.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.8.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          },
+          "paligemma_with_expert.gemma_expert.model.layers.9.self_attn": {
+            "forced_neutral": false,
+            "fp16_block": true,
+            "note": "correction retained because upstream quantization causes drift"
+          }
+        },
+        "plan_sha256": "772048897bd116ae2806b1dcf0c9dbd0e271bb5918615d3a0c091dfb1d524c45",
+        "pooling": "mean of four per-denoising-step correction ratios",
+        "quant_stats": {
+          "batch_size": 8,
+          "batches": 2,
+          "capture_counts": {
+            "paligemma_with_expert.gemma_expert.model.layers.0.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.1.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.10.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.11.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.12.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.13.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.14.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.15.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.16.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.17.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.2.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.3.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.4.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.5.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.6.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.7.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.8.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.9.self_attn": 8
+          },
+          "frames": 16,
+          "latency_mean_s": 1.2074290327727795,
+          "latency_p95_s": 1.506295097619295,
+          "per_step_capture_counts": {
+            "paligemma_with_expert.gemma_expert.model.layers.0.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.1.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.10.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.11.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.12.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.13.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.14.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.15.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.16.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.17.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.2.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.3.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.4.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.5.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.6.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.7.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.8.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.9.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            }
+          }
+        },
+        "scope": "expert",
+        "teacher_stats": {
+          "batch_size": 8,
+          "batches": 2,
+          "capture_counts": {
+            "paligemma_with_expert.gemma_expert.model.layers.0.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.1.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.10.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.11.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.12.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.13.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.14.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.15.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.16.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.17.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.2.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.3.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.4.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.5.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.6.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.7.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.8.self_attn": 8,
+            "paligemma_with_expert.gemma_expert.model.layers.9.self_attn": 8
+          },
+          "frames": 16,
+          "latency_mean_s": 1.0221945084631443,
+          "latency_p95_s": 1.338917133398354,
+          "per_step_capture_counts": {
+            "paligemma_with_expert.gemma_expert.model.layers.0.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.1.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.10.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.11.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.12.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.13.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.14.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.15.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.16.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.17.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.2.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.3.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.4.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.5.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.6.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.7.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.8.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            },
+            "paligemma_with_expert.gemma_expert.model.layers.9.self_attn": {
+              "0": 2,
+              "1": 2,
+              "2": 2,
+              "3": 2
+            }
+          }
+        },
+        "wrapped_layers": 80
+      },
+      "ohb_application": "runtime_output",
+      "ohb_enabled": true,
+      "ohb_layers": 18,
+      "ohb_mode": "per_head_pre_projection",
+      "scope": "expert",
+      "total_heads": 0
+    },
+    "checkpoint_dir": "/home1/gyy/vla/QuantVLA/checkpoints/robocasa/pi05_pretrain_human300_pytorch",
+    "checkpoint_sha256": "4174133479c6a51d79cac90d6a1739f32f928624eb529bf791cd5be942afdf1c",
+    "config_id": "gdsq_vla_ohb_only",
+    "cross_model_protocol": {
+      "only_allowed_model_difference": "model_adapter",
+      "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_cross_model_protocol.json",
+      "protocol_file_sha256": "7bf9c89d2925a506d5dcd32a5ae8066e93651e8c46b6b6becf30c27d3c1498a6",
+      "protocol_id": "quantvla-gr00t-pi05-errorfold-v4",
+      "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea"
+    },
+    "cross_model_quantization_contract": {
+      "activation_bits": 8,
+      "activation_percentile": 99.9,
+      "activation_quantizer": "signed_symmetric_per_input_channel",
+      "activation_scale_bytes": 768000,
+      "activation_scales_ready": true,
+      "atm_application": "runtime_query",
+      "auxiliary_static_bytes": 2119680,
+      "bias_bytes": 0,
+      "block_in": 64,
+      "block_out": 64,
+      "calibration_batch_size": 8,
+      "calibration_batches": 32,
+      "calibration_policy": "offline_static_per_channel_percentile",
+      "calibration_samples": 256,
+      "correction_application": "static_configuration",
+      "denoising_steps": 10,
+      "dequant_scale_bytes": 1351680,
+      "execution_backend": "triton_w4_nibble_dequant_fp16_gemm",
+      "fp_weight_sized_buffers": 0,
+      "input_gain_bytes": 0,
+      "integer_gemm": false,
+      "lambda_smooth": 0.15,
+      "layer_selection_policy": "shared_static_compression_profile_over_model_adapter_bound_layers",
+      "logical_profile": "quantvla_adapter_only_w4a8",
+      "n_action_steps": 16,
+      "ohb_application": "runtime_output",
+      "packed_low_bit_residency": true,
+      "packed_weight_bytes": 894435328,
+      "paired_noise": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+      "permutation": false,
+      "quantization_method": "real_quant_packed_w4_dequant_fp16_gemm",
+      "replan_steps": 16,
+      "row_rotation": "restore",
+      "selector_loads_atm_and_ohb_superset": false,
+      "static_activation_scales": true,
+      "weight_bits": 4,
+      "weight_quantizer": "signed_symmetric_per_output_channel"
+    },
+    "cross_model_quantization_contract_sha256": "a836942585c901ada9d212b1d5b9b61caa37e0a051e742e49530da7149e233ac",
+    "duquant": {
+      "act_bits": 8,
+      "act_dynamic": false,
+      "act_percentile": 99.9,
+      "act_scale_path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/gdsq_main_flow10/a8_scales.npz",
+      "act_scale_sha256": "423af93c1c37684ba2a9d620d057b952c49f4da094cad7314c18390a1937689a",
+      "act_scales_ready": true,
+      "activation_scale_bytes": 768000,
+      "auxiliary_static_bytes": 2119680,
+      "bias_bytes": 0,
+      "block_in": 64,
+      "block_out": 64,
+      "calib_batches": 32,
+      "candidate_inventory_sha256": "3390bda52ad443a1b89776d9245ab2f9f9545890c631760638f2f4b55419cae4",
+      "candidate_layers": 180,
+      "denoising_steps": 10,
+      "dequant_scale_bytes": 1351680,
+      "enabled": true,
+      "execution_backend": "triton_w4_nibble_dequant_fp16_gemm",
+      "fp_weight_sized_buffers": 0,
+      "input_gain_bytes": 0,
+      "integer_gemm": false,
+      "packed_low_bit_residency": true,
+      "packed_weight_bytes": 894435328,
+      "plan_path": "/home1/gyy/vla/QuantVLA/runs/pi05_gdsq_gr00t_aligned/plans/pi05_gdsq_cscka_16to1_d4.final_plan.json",
+      "plan_sha256": "772048897bd116ae2806b1dcf0c9dbd0e271bb5918615d3a0c091dfb1d524c45",
+      "weight_bits": 4,
+      "wrapped_layers": 80
+    },
+    "errorfold": {
+      "artifact_path": null,
+      "enabled": false,
+      "errorfold_application": "fold_affine_into_weight_dequant_scale_and_bias",
+      "selector_free": true
+    },
+    "full_context_protocol": {
+      "formal_statistics_sha256": "7dba6c94398c1c9702f6a5b38309a598c5226e022f9cb7622edb0bd6d806eb40",
+      "method_id": "full_context_fp16_protection_v1",
+      "metric_core_sha256": "deb69b98a63ebda8f08b13f710e76565c3c40831f4a8c756a07a0d882638d2be",
+      "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_full_context_protocol.json",
+      "protocol_file_sha256": "0da2356fca7883d64ff60c20425f9198d09c4b5b9345cb2bd44375ff713f2e00",
+      "protocol_sha256": "71319d8076317f4027649961e87973909e5863c68bd37c27fda5d60194254635",
+      "quick_statistics_sha256": "43bde08e09126bc931dc774510e032ab7de65776269922c58838a9cdaf490f61",
+      "selection_core_sha256": "8500a0f6f9eed9b21499edccda4c3c759a533a98559dbd4715e495c99a880541"
+    },
+    "gpu_memory_bytes": {
+      "allocated": 4844382208,
+      "peak_allocated": 11854354432,
+      "peak_reserved": 13254000640,
+      "reserved": 5200936960
+    },
+    "model_adapter": {
+      "allowed_fields": [
+        "checkpoint_and_native_model_loader",
+        "observation_preprocessing",
+        "native_action_horizon",
+        "native_final_chunk_inverse_normalization",
+        "native_physical_action_to_canonical_action",
+        "module_name_and_hook_location",
+        "quantized_module_binding",
+        "native_real_quant_kernel_binding"
+      ],
+      "boundary": "model_adapter",
+      "canonical_action_dimension": 12,
+      "canonical_action_horizon": 16,
+      "model": "pi05",
+      "native_action_horizon": 50
+    },
+    "model_dtype": {
+      "linear_layers_by_weight_dtype": {
+        "float16": 458
+      },
+      "matmul_allow_tf32": true,
+      "parameter_elements_by_dtype": {
+        "float16": 3616681744,
+        "float32": 75776
+      },
+      "requested": "float16",
+      "resolved": "float16"
+    },
+    "omega_qvla": {
+      "enabled": false,
+      "wrapped_layers": 0
+    },
+    "protocol": {
+      "action_horizon": 16,
+      "cross_model_protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+      "flow_steps": 10,
+      "fresh_environment_per_episode": true,
+      "n_action_steps": 16,
+      "official_task_horizon": true,
+      "paired_noise": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+      "render": true,
+      "replan_steps": 16,
+      "split": "target"
+    },
+    "pytorch_compile_mode": "max-autotune",
+    "pytorch_device": "cuda",
+    "quantization_selection": {
+      "achieved_compression": null,
+      "budget_reference": "model_native_candidate_scope_static_weight_bytes",
+      "model": "pi05",
+      "profile": "target_compression",
+      "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+      "quantized_w4_layers": 80,
+      "retained_fp16_target_layers": 100,
+      "rule": "shared_static_compression_profile_over_model_adapter_bound_layers",
+      "target_compression": null,
+      "target_compression_scope": null,
+      "target_layers": 180
+    },
+    "runtime_selector": {
+      "enabled": false
+    }
+  }
+}

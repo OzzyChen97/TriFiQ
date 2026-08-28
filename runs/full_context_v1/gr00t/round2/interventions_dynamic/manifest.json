@@ -1,0 +1,2489 @@
+{
+  "activation_mode": "dynamic_a8",
+  "all_w4_total_bytes": 509607936,
+  "base_full_w4_plan": "/home1/gyy/vla/QuantVLA/checkpoints/packs/robocasa365/quantvla_v1_uniform_w4a8.json",
+  "base_full_w4_plan_sha256": "cc8fd13ec6d6800abf4651b15ad1f19274b9bcdc146a4c83ecb7200c2af646c3",
+  "budget_bytes": 560568729,
+  "byte_rows": {
+    "action_head.model.transformer_blocks.0.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.0.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.1.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.1.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.10.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.10.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.11.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.11.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.12.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.12.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.13.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.13.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.14.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.14.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.15.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.15.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.2.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.2.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.3.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.3.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.4.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.4.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.5.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.5.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.6.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.6.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.7.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.7.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.8.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.8.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.9.ff.net.0.proj": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "action_head.model.transformer_blocks.9.ff.net.2": {
+      "extra_fp16_bytes": 13565952,
+      "fp16_bytes": 18874368,
+      "w4_bytes": 5308416
+    },
+    "backbone.eagle_model.language_model.model.layers.0.mlp.down_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.0.mlp.gate_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.0.mlp.up_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.0.self_attn.k_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.0.self_attn.o_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.0.self_attn.q_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.0.self_attn.v_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.1.mlp.down_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.1.mlp.gate_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.1.mlp.up_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.1.self_attn.k_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.1.self_attn.o_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.1.self_attn.q_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.1.self_attn.v_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.10.mlp.down_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.10.mlp.gate_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.10.mlp.up_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.10.self_attn.k_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.10.self_attn.o_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.10.self_attn.q_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.10.self_attn.v_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.11.mlp.down_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.11.mlp.gate_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.11.mlp.up_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.11.self_attn.k_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.11.self_attn.o_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.11.self_attn.q_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.11.self_attn.v_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.2.mlp.down_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.2.mlp.gate_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.2.mlp.up_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.2.self_attn.k_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.2.self_attn.o_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.2.self_attn.q_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.2.self_attn.v_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.3.mlp.down_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.3.mlp.gate_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.3.mlp.up_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.3.self_attn.k_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.3.self_attn.o_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.3.self_attn.q_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.3.self_attn.v_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.4.mlp.down_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.4.mlp.gate_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.4.mlp.up_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.4.self_attn.k_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.4.self_attn.o_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.4.self_attn.q_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.4.self_attn.v_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.5.mlp.down_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.5.mlp.gate_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.5.mlp.up_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.5.self_attn.k_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.5.self_attn.o_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.5.self_attn.q_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.5.self_attn.v_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.6.mlp.down_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.6.mlp.gate_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.6.mlp.up_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.6.self_attn.k_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.6.self_attn.o_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.6.self_attn.q_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.6.self_attn.v_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.7.mlp.down_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.7.mlp.gate_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.7.mlp.up_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.7.self_attn.k_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.7.self_attn.o_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.7.self_attn.q_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.7.self_attn.v_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.8.mlp.down_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.8.mlp.gate_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.8.mlp.up_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.8.self_attn.k_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.8.self_attn.o_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.8.self_attn.q_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.8.self_attn.v_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.9.mlp.down_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.9.mlp.gate_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.9.mlp.up_proj": {
+      "extra_fp16_bytes": 18087936,
+      "fp16_bytes": 25165824,
+      "w4_bytes": 7077888
+    },
+    "backbone.eagle_model.language_model.model.layers.9.self_attn.k_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    },
+    "backbone.eagle_model.language_model.model.layers.9.self_attn.o_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.9.self_attn.q_proj": {
+      "extra_fp16_bytes": 6029312,
+      "fp16_bytes": 8388608,
+      "w4_bytes": 2359296
+    },
+    "backbone.eagle_model.language_model.model.layers.9.self_attn.v_proj": {
+      "extra_fp16_bytes": 3014656,
+      "fp16_bytes": 4194304,
+      "w4_bytes": 1179648
+    }
+  },
+  "candidates": [
+    {
+      "candidate_id": "context_base",
+      "flip": null,
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/context_base.json",
+      "protected_layers": [],
+      "retained_fp16_layers": 0,
+      "sha256": "9524ac627784c77f1fa3f9e4eb75e7a6fd7bd37d408360f9995cfc1384f04b68",
+      "total_bytes": 509607936,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0000",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.0.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0000.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.0.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "bb2cfc246a2b8d508123334d9889bcb449a69aa1d952408a3373a38a1ad45e62",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0001",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.0.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0001.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.0.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "84987c9c885936171694c3dd5b8bf7dd3625be5552523b2862fab58ebd24cf2d",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0002",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.1.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0002.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.1.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "e501a191cb7061918f3250c8cf9291a8ef620c8254bfd377117d4115dcbefe4d",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0003",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.1.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0003.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.1.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "f3612189c047eec4a57df0df052f4c21deb56ef57865dae376455dd9398ca04a",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0004",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.10.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0004.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.10.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "ed74ba06adbf5de5c08432354b4107e73a9dccc022acdf4fa5cda0b03443ff82",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0005",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.10.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0005.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.10.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "ecd05a8df595ee7e6dc321a69c0bc5b1c365af5acaaa57c85acf1850892e0c56",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0006",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.11.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0006.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.11.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "a430a4bcb89fce83c7e1737dfa9303f8917ef36999835e66d643f7679cb7d052",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0007",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.11.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0007.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.11.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "b5a6127f27c910102b0a06424f1596cc7a4d6ef6f298826763248adbf6da7991",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0008",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.12.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0008.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.12.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "0d0e84bd6d12ee8d19a3bf593d9471176661b5d8f50218d6a9519fbc973c6152",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0009",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.12.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0009.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.12.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "5997a7d427361c7c570d47e02a03f17870f4a1422a8a91b7ba7ddf2230c63d86",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0010",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.13.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0010.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.13.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "5e5cf377f0a9bb9ba300905b885cdf3ec69834273fcb83c962bc01f7b3852a57",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0011",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.13.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0011.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.13.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "c3e138466d6cd7b98ceadc6e528c0f7f5c9a48023ca0f42e83965198b14e02c8",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0012",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.14.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0012.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.14.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "b545337c1cfd705a1875c1017482270d97e58660cd5235bfd853655ef7bbab59",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0013",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.14.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0013.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.14.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "ef323a09795f7d60824a3814d53aa2380423dac36713d62307a3ee0dbe4d7e6c",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0014",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.15.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0014.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.15.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "2102e306b87fa6153351dd1adf4ad1102428d41a90f24037cdeae7a736ba2896",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0015",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.15.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0015.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.15.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "7f36efcdc16b7a2d947407fb2d03241027e445e546eaa5d4aa3fbde2e83b7837",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0016",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.2.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0016.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.2.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "2272abdb1fc8424e151e57a10f872940b9703ba373d2bb3fdce726c9bfcf7909",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0017",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.2.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0017.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.2.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "828337b62330ae07019fb20f397698a3810ba6b93569df8c2b05633c1708344a",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0018",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.3.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0018.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.3.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "6cc3c807e99268ff79e8ce34c2382028f5b037295ce79619f8c67052eb67c1f6",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0019",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.3.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0019.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.3.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "4be1465906b4b133fc947cd3176b132c65aaf9403a61608abceec09721d66056",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0020",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.4.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0020.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.4.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "89ddd8e926a30ca448bc294829ceaa09fd1d0e474d4054247e4ce17e2c1ef121",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0021",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.4.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0021.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.4.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "dace89dcb928f40d5ac8f7a825f3ebbc3dfa9c5a27ee7b94b7970dde1269b8ca",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0022",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.5.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0022.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.5.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "a209d64a470725c2c837b78f8f755e96813810128184f98a95b82cb30f7214ad",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0023",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.5.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0023.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.5.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "9213e1371c5d181b888adfb193da5c2f6c86012deb7dcabbf49c89c2c2f3f8e0",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0024",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.6.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0024.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.6.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "966c5693fa163511de28b744aeeec1d2a0c1f3a5454d6b333d41262116257c60",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0025",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.6.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0025.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.6.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "c78881e2bb6783fa8efde4bec99078a73bf5a5ff5054f5ae2dd630e233f177be",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0026",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.7.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0026.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.7.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "63acf753be380e0fbb5e7e752eee5968e02d754da1187c1f101c639f3219232b",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0027",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.7.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0027.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.7.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "33cc912d60b939e52e4b37b49b73183abbc0a406a523cd19225c0a65a46a8fb1",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0028",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.8.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0028.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.8.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "e33bde43accd2c821b978c60c3e2fa541fa99cad16f6fd728f5dc54d864a6f06",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0029",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.8.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0029.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.8.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "00a0d76c2c6a178aed0242bd7fd94392c2dad8e817a6fee17545bcf2031bc68f",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0030",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.9.ff.net.0.proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0030.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.9.ff.net.0.proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "ad2a597616d744f989d9ddaab01a618f274d2b700846e5600a1c02634ec9ba59",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0031",
+      "flip": {
+        "from": "w4",
+        "layer": "action_head.model.transformer_blocks.9.ff.net.2",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0031.json",
+      "protected_layers": [
+        "action_head.model.transformer_blocks.9.ff.net.2"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "8967647bb2c6a1395370c253ebab11f168b46a3b57cae10bbbca1e0156e99030",
+      "total_bytes": 523173888,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0032",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.0.mlp.down_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0032.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.0.mlp.down_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "f46bc2b955282c6dd53ef8c5824e4f8cb58c026e091319a19bce22ed1fe269c2",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0033",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.0.mlp.gate_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0033.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.0.mlp.gate_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "e4662a61dc64550aea9a54aa90540fab9b735ca7d543778ef3e8a3a36f799e10",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0034",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.0.mlp.up_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0034.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.0.mlp.up_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "edddce20a1ceea4dace38381ed5dcfc8e6b84bdc5fcbfc1cc2040c86adfb1c30",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0035",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.0.self_attn.k_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0035.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.0.self_attn.k_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "14f11c7e4d3e6a5790ffa6ff27e1fe1fce52f4359e7eafef320c2acc14434a23",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0036",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.0.self_attn.o_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0036.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.0.self_attn.o_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "2a7a67baeb113b8d1e93ca3a1e17c1b5f2f8da6bcaa25768d282526e8639a469",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0037",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.0.self_attn.q_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0037.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.0.self_attn.q_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "5a254a5e07539817630dccce45600a24b62e80e2b461e5fc4ecc7239bef25605",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0038",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.0.self_attn.v_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0038.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.0.self_attn.v_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "f5dd345cc7ff2e6c005e697a37d30adbd8cc157a5543e41c8e24118b5869d2d1",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0039",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.1.mlp.down_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0039.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.1.mlp.down_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "5e42d600ea1367aed9de5e65e8b822657a673c612043768dc2f87bc06d8a8625",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0040",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.1.mlp.gate_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0040.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.1.mlp.gate_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "507d296a0086f6596b49d19cb6227646d974781c6092f3898309d3b286a9d98b",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0041",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.1.mlp.up_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0041.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.1.mlp.up_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "2442613edf2120a86f14a8f87624d039a79c3c33f1bea3da142225ab00d2dda1",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0042",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.1.self_attn.k_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0042.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.1.self_attn.k_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "30f1b5e637c8207f5c837bfa2e9bd039fa08f123a6a65270f8b7fc7a86e3d1d2",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0043",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.1.self_attn.o_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0043.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.1.self_attn.o_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "7649615ccbb4f7f2fb2d608e11bcba569bfc781e8e5014c2d04561d311a5bba9",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0044",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.1.self_attn.q_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0044.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.1.self_attn.q_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "ef0efb87ebf9ff2070dca31529af767a344502df1be605b222b6eeb0036079e3",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0045",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.1.self_attn.v_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0045.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.1.self_attn.v_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "f89326d252edfddade84fd926a5c422236b76616e861ef8ced579de9da31c260",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0046",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.10.mlp.down_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0046.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.10.mlp.down_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "9f559be29c019bbde32189ee07c752b05a04f03a1b4df40539957bb91aea5df7",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0047",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.10.mlp.gate_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0047.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.10.mlp.gate_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "88f3a80e57d81e537743a8d8a65b2da62c7ae0065ac3673d0bdaa633abb6ad58",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0048",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.10.mlp.up_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0048.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.10.mlp.up_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "6408860dabaa69825a56fd85b9ca7af3e6be2ae9b3884e2d9dbbb7cc93f61f00",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0049",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.10.self_attn.k_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0049.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.10.self_attn.k_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "6f2a3ab11d98ba577db36eb3463d9388a2f484514fc97e31b07c358b5f16235e",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0050",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.10.self_attn.o_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0050.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.10.self_attn.o_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "cda68159a5fbf42493e815abacf2071293dff0323667e34e30ec4935be455336",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0051",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.10.self_attn.q_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0051.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.10.self_attn.q_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "127c39abf84e50aded6e9e0d4c94a85af0ecb738c9dfdc91b673ee8a51440310",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0052",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.10.self_attn.v_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0052.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.10.self_attn.v_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "d66b680efeeee755486b1c8f38a525ce8c02510f8ff15a7d2be56afab936fc3b",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0053",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.11.mlp.down_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0053.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.11.mlp.down_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "daeb60935aabf2927e667bac30fad531e00c4448ef1b70e8a50addeba2b34a6b",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0054",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.11.mlp.gate_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0054.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.11.mlp.gate_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "da729726950ed8c086b415180bdb1a4d6329b3b162b7cc627e3af479cd7028fc",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0055",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.11.mlp.up_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0055.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.11.mlp.up_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "ba2091c63b7741bacb628d932516f705011954fbd820874e8ed3541c81a9e65f",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0056",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.11.self_attn.k_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0056.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.11.self_attn.k_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "d3bc1a2743197fedc4ab05106d2c3ec17fdc49d14e0d72f6e34f414549fbf69d",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0057",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.11.self_attn.o_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0057.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.11.self_attn.o_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "2ea75236494ee6c306bc9976e40dc98c8160d6745144e78f8d5c3f43af93788f",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0058",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.11.self_attn.q_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0058.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.11.self_attn.q_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "61c86c7225858d9a3de2ca21b6095a2858225b0ef7f32e798f989120bc2f55dc",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0059",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.11.self_attn.v_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0059.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.11.self_attn.v_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "f11889b0a2c55908efe497ef2ed34075bdb11aab1bda9ad5d9b112a3eb9b3816",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0060",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.2.mlp.down_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0060.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.2.mlp.down_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "4880fc5fc65311f6435e9f629f5de218e8b3b4a6fe6b351587e18af208628d9f",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0061",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.2.mlp.gate_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0061.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.2.mlp.gate_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "60ae2ce78a8a86d1171ba76fce102942a75ffc8662c58c685b0ca61f08b47ccd",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0062",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.2.mlp.up_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0062.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.2.mlp.up_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "4fc67f2286467827f37d9ae144e179c66b02676966c77db31978c5bf6df26679",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0063",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.2.self_attn.k_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0063.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.2.self_attn.k_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "9e81e4dcce27fcc472f1f9e2690af622a12f47447c3fa221489d060a290fd6c0",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0064",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.2.self_attn.o_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0064.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.2.self_attn.o_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "4f02433490d70c5e7e5fbe8f466c908b8bf449113951f06c9669ee591322bf16",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0065",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.2.self_attn.q_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0065.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.2.self_attn.q_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "0bea3f433329fb890ea7b309b0e8febf623134ec1a5f3a7f2d84e0eeb728657e",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0066",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.2.self_attn.v_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0066.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.2.self_attn.v_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "ab1b4073497b66a67aae77edda1a4d88f1a6486ef684aa82f3e5a4ff64ce54a2",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0067",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.3.mlp.down_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0067.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.3.mlp.down_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "51617e62863fe3afff964c7e003bf5c45be0e50ce2ed31139a1e580bc2f316a7",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0068",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.3.mlp.gate_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0068.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.3.mlp.gate_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "674849b92c57b4b4a7a7b97addd8da3f2a418e5a4d328df7bb4dc14373b52a68",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0069",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.3.mlp.up_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0069.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.3.mlp.up_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "3313320675b85a551a1d16e2d159e9eb327566404695e7e0d05bac46014b4ce9",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0070",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.3.self_attn.k_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0070.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.3.self_attn.k_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "1a20166bb8a4b0d539e46ae0ab5fe217117feb37be88c6dc761e01f9bf987dcf",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0071",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.3.self_attn.o_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0071.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.3.self_attn.o_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "27d5655d4b0b5cd6f6146193ae032dcc22eb3102c619447c3c27b3aebb9b4d1a",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0072",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.3.self_attn.q_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0072.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.3.self_attn.q_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "e186809032443f1c6de4eaeab14ee59e1ec14ca208bed1d58e651a3df4a21564",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0073",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.3.self_attn.v_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0073.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.3.self_attn.v_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "7c4e8f09a87b426c67a6554d6aab7a38658204eee0046a6fb5003f3e541a5ba1",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0074",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.4.mlp.down_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0074.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.4.mlp.down_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "43fd45baf8e97ce81bf8110a7f2897a78be1a5bcd928654da57dffd2e8ff46ef",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0075",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.4.mlp.gate_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0075.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.4.mlp.gate_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "8eb1ade50c44f2584ea3661ba7630cb7949f4161850ce16a4c9401261e6e55ea",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0076",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.4.mlp.up_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0076.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.4.mlp.up_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "71d361130ca738328ab48d35fb022f6d9a984310936ecd87d1be72d3bf9193b1",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0077",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.4.self_attn.k_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0077.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.4.self_attn.k_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "3fe29d788b7a2f2100445abd65239a71313985b688366da2760d58cb2e1f1a56",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0078",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.4.self_attn.o_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0078.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.4.self_attn.o_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "870caa5c22207f5bb6766868a0260303a891c0492914335e49d68a9d5732f2e0",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0079",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.4.self_attn.q_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0079.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.4.self_attn.q_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "ebbe65c8bf70e3a33efd79fbfb17571f8610a73e8271f7331cfe9b8a8ee1070b",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0080",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.4.self_attn.v_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0080.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.4.self_attn.v_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "070f79e1df1d09d0a33b23c251bfa77dfda39ad4c99aef7811a8c56296cd9931",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0081",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.5.mlp.down_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0081.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.5.mlp.down_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "3dca245703d9f4ea4ae364c9a7024d4ff4525b5684b665936804145e90860538",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0082",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.5.mlp.gate_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0082.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.5.mlp.gate_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "55c26b192884feef2cdbfb443e5e464f7f7941e7288c80a9a9c78a17db79c85b",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0083",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.5.mlp.up_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0083.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.5.mlp.up_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "673a7cb62b2f8df41828f3f1c9c88e2600bf0f6c3845b5f769233b1d4776f1dc",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0084",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.5.self_attn.k_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0084.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.5.self_attn.k_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "88bcb3419880c541e48fab939b02cc5d0b2d811f2977ad3606c72247f7d6aa2d",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0085",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.5.self_attn.o_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0085.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.5.self_attn.o_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "1e109915519cf5c431ff3c631026fed2c7e8042d1469bb99aa91c3d1bd448c00",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0086",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.5.self_attn.q_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0086.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.5.self_attn.q_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "9cd19d26434dbf53e5c09b743eacaf42a44fe8c41226087b972cc6e8baaa9725",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0087",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.5.self_attn.v_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0087.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.5.self_attn.v_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "0066f578884a7b48d19bcf7439c8c4c31851bb0ed5aa4d9540166e8bc3bdf1e5",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0088",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.6.mlp.down_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0088.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.6.mlp.down_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "d7cb78ccda55ddbb071e6cde4e940b7fa5c1f3ed4d03fd97120e4f6e60efe52e",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0089",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.6.mlp.gate_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0089.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.6.mlp.gate_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "f7691b38f7f8540524182f7e1c06d3cc866e46bf9ee699f94f3a24dfbdcadd08",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0090",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.6.mlp.up_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0090.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.6.mlp.up_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "e22c1d4e664139f6de4a8ccf0e1c9c55046266e385b0a87930adbbe2adbef818",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0091",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.6.self_attn.k_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0091.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.6.self_attn.k_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "b223aee8de50dd571314157fa5d0f6533931fb6fc422740d069cb2127e7665fb",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0092",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.6.self_attn.o_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0092.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.6.self_attn.o_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "2dade8ee39a7ef9c89c044cf5d448f3d34e70b55b6aa33193f2f01be59f1a038",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0093",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.6.self_attn.q_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0093.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.6.self_attn.q_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "9cbf2b64a455e45f46a3b947fc64a67137f6cd5913b4409c71e863999d7728c7",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0094",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.6.self_attn.v_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0094.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.6.self_attn.v_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "dd6bf2188e03b0599d0c597b23ada1cbbf312fab4ef45c755abae27b94647f8d",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0095",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.7.mlp.down_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0095.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.7.mlp.down_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "507a3edc9945817792f8d4e2c4e2fe875aefb4f32e2ec04a7ee8aa9b54310d72",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0096",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.7.mlp.gate_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0096.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.7.mlp.gate_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "71838cd737fe06c6a6f0305763bf6c760cc9e22b952fda529efc47f942ce4ada",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0097",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.7.mlp.up_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0097.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.7.mlp.up_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "e1b1252c2807740d1ee21a98e94eae0ed8a04a1cde2056559936c64167320cfb",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0098",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.7.self_attn.k_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0098.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.7.self_attn.k_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "11047e1bd1a8906a9870309bd2cf2613214fcd5c585541459304c5ca0df5156f",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0099",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.7.self_attn.o_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0099.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.7.self_attn.o_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "d88b03514376b9d6f558a2116878522881c52f49b68b7d1398d98c04d057b505",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0100",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.7.self_attn.q_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0100.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.7.self_attn.q_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "016e41e4b9f0863121529fdfe8e2c0b7ecf77c2271cc157cd1bc7e88d77fb7a2",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0101",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.7.self_attn.v_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0101.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.7.self_attn.v_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "7ee1aa0c40a7d10aa86e2f6bbba9b46bc6ee36d66e8e0d8862380f2884fa72bf",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0102",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.8.mlp.down_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0102.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.8.mlp.down_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "5970a82edcf94b7e1b4d250ac7713b5a9ae385ebf83a8a93cdd2a9ec2a9f6d9d",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0103",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.8.mlp.gate_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0103.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.8.mlp.gate_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "4724d842f5ef7bde09f93f2bf26347b77c94ead3459ecd0495548a3892e5bab7",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0104",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.8.mlp.up_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0104.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.8.mlp.up_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "ced2a2b2cc99fff8189ad96bd94df46d598090eb2f15a083cceadd8445fc8478",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0105",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.8.self_attn.k_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0105.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.8.self_attn.k_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "477d76c1440e5f71a6a224ead9fad7091d4e13b8b31185ab7f97179db57ae7f3",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0106",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.8.self_attn.o_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0106.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.8.self_attn.o_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "4045f84179f06d8a3234fdacefb369e6db75eec6dabb58087d655888dc897c44",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0107",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.8.self_attn.q_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0107.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.8.self_attn.q_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "e102b0ede6cf4cb03f15e5cefd00ab4b33c6c86c652bdaee57d4202dd7f99f4b",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0108",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.8.self_attn.v_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0108.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.8.self_attn.v_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "9e70f1e077c10a7ecf385c406cbd5782bc6407be169200ee62bf509d8c90c189",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0109",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.9.mlp.down_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0109.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.9.mlp.down_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "ae2381064fd7c299ba654388750e66e1f679aa53640f1065e7962df065424429",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0110",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.9.mlp.gate_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0110.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.9.mlp.gate_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "7f0f1e9d29d19c6da46eb121b5f2b476d2bc7cee612e260db00427d106a329e0",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0111",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.9.mlp.up_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0111.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.9.mlp.up_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "8bc4c296d7b0104fdddfb251930abdec5793f3779e50b5317a2f67a8614af9e1",
+      "total_bytes": 527695872,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0112",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.9.self_attn.k_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0112.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.9.self_attn.k_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "cf724aefe53e56b6bf0500b987789ff5e9bace149f0e65cfb9ef3dccee0548ad",
+      "total_bytes": 512622592,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0113",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.9.self_attn.o_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0113.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.9.self_attn.o_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "c40fa78435b5fc35c4fedce9c9571e1b0aff6532416eff8b216af2e24204c748",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0114",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.9.self_attn.q_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0114.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.9.self_attn.q_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "64999ba82ddbc3c7f687bd06d78ec5f3dee7fe277721ed8cc316578b169de5db",
+      "total_bytes": 515637248,
+      "within_budget": true
+    },
+    {
+      "candidate_id": "flip_0115",
+      "flip": {
+        "from": "w4",
+        "layer": "backbone.eagle_model.language_model.model.layers.9.self_attn.v_proj",
+        "to": "fp16"
+      },
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round2/interventions_dynamic/flip_0115.json",
+      "protected_layers": [
+        "backbone.eagle_model.language_model.model.layers.9.self_attn.v_proj"
+      ],
+      "retained_fp16_layers": 1,
+      "sha256": "2dc90eba3ba9fc28b882b166b15bc57a2c99c4e41b8973449c8fe8178f614692",
+      "total_bytes": 512622592,
+      "within_budget": true
+    }
+  ],
+  "cross_model_protocol": {
+    "only_allowed_model_difference": "model_adapter",
+    "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_cross_model_protocol.json",
+    "protocol_file_sha256": "7bf9c89d2925a506d5dcd32a5ae8066e93651e8c46b6b6becf30c27d3c1498a6",
+    "protocol_id": "quantvla-gr00t-pi05-errorfold-v4",
+    "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea"
+  },
+  "current_plan": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/round1/gr00t_full_context_round1_frozen.json",
+  "current_plan_sha256": "1701d3b4eacd1c1059b4ef6e14e80e58cdcf43fee8cb2e2286d9e68d85f3ba8e",
+  "flow_steps": 4,
+  "fp16_capture": "/home1/gyy/vla/QuantVLA/runs/errorfold_v4_iter/calibration/gr00t_full_w4/fp16_capture.npz",
+  "fp16_capture_sha256": "a285c9ef08fee97c84f2af9ddad1fe06fde3a58cfab375a405eb1cb879ca0d75",
+  "fp16_total_bytes": 1811939328,
+  "full_context_protocol": {
+    "formal_statistics_sha256": "7dba6c94398c1c9702f6a5b38309a598c5226e022f9cb7622edb0bd6d806eb40",
+    "method_id": "full_context_fp16_protection_v1",
+    "metric_core_sha256": "deb69b98a63ebda8f08b13f710e76565c3c40831f4a8c756a07a0d882638d2be",
+    "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_full_context_protocol.json",
+    "protocol_file_sha256": "0da2356fca7883d64ff60c20425f9198d09c4b5b9345cb2bd44375ff713f2e00",
+    "protocol_sha256": "71319d8076317f4027649961e87973909e5863c68bd37c27fda5d60194254635",
+    "quick_statistics_sha256": "43bde08e09126bc931dc774510e032ab7de65776269922c58838a9cdaf490f61",
+    "selection_core_sha256": "8500a0f6f9eed9b21499edccda4c3c759a533a98559dbd4715e495c99a880541"
+  },
+  "hessian_w4": "/home1/gyy/vla/QuantVLA/runs/errorfold_v4_iter/calibration/gr00t_full_w4/hessian_w4.npz",
+  "hessian_w4_sha256": "5ced44d1d96f0984e3425078c11b135d80bed6d3dd701f686760bda119630990",
+  "kind": "full_context_single_flip_manifest",
+  "method_id": "full_context_fp16_protection_v1",
+  "model_adapter": "gr00t",
+  "round": 2,
+  "schema_version": 1,
+  "selection_noise": "A",
+  "uses_success_labels": false
+}

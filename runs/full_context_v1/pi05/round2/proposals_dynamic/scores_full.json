@@ -1,0 +1,4400 @@
+{
+  "a8_sha256": null,
+  "activation_mode": "dynamic_a8",
+  "base_full_w4_plan_sha256": "0a970fd109cca226b758907922ccc061d300bdeaab766b3451c7ed3d4888266a",
+  "best_noise_a": "context_base",
+  "calibration_buffer_sha256": "c4de41b304d33b15240538a45006f1cf560fb050d0641610a9d38ede91d1999c",
+  "calibration_only_fp16_bypass": true,
+  "candidate_manifest": {
+    "kind": "full_context_budgeted_proposal_manifest",
+    "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/round2/proposals_dynamic/manifest.json",
+    "sha256": "8c28fecd6c50a11d046121a4bc5035ca0ac8f1d115dfd5a99d00830b822ed378"
+  },
+  "candidate_plans": {
+    "context_base": {
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/round2/proposals_dynamic/context_base.json",
+      "sha256": "e32ca270a1fa96e563eb2d3bb2219aa1ff68aa1b83890067fffb31392e8492ce"
+    },
+    "lambda_0p0": {
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/round2/proposals_dynamic/lambda_0p0.json",
+      "sha256": "c7b89eef2d6701d0d3a322de01692be3bdbaa208789dab050a44288ec21f7d43"
+    },
+    "lambda_0p25": {
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/round2/proposals_dynamic/lambda_0p25.json",
+      "sha256": "8989bb07186a4b20f3d92cbedcb4961508f4a7df479724b66f1708fc9ef26ec1"
+    },
+    "lambda_0p5": {
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/round2/proposals_dynamic/lambda_0p5.json",
+      "sha256": "1268556fb583c3aacd78bc7b110f26ecb69cc4e789b7224eda0f3d4514bbea04"
+    },
+    "lambda_0p75": {
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/round2/proposals_dynamic/lambda_0p75.json",
+      "sha256": "fd9e383f4c32db89a07eec0300381e3a1bac9e90ee7b7e707bba1af53cf1c622"
+    },
+    "lambda_1p0": {
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/round2/proposals_dynamic/lambda_1p0.json",
+      "sha256": "842456c0e229b94fc866805b99d2a2e3a6293bcb71c7b8f571d95b85faf44bee"
+    }
+  },
+  "checkpoint_sha256": "4174133479c6a51d79cac90d6a1739f32f928624eb529bf791cd5be942afdf1c",
+  "complete": true,
+  "cross_model_protocol": {
+    "only_allowed_model_difference": "model_adapter",
+    "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_cross_model_protocol.json",
+    "protocol_file_sha256": "7bf9c89d2925a506d5dcd32a5ae8066e93651e8c46b6b6becf30c27d3c1498a6",
+    "protocol_id": "quantvla-gr00t-pi05-errorfold-v4",
+    "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea"
+  },
+  "deployment_uses_bypass": false,
+  "dynamic_a8_protocol": {
+    "base_protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+    "method_id": "quantvla-dpac-errorfold-dyrange-v5",
+    "only_allowed_model_difference": "model_adapter",
+    "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_dynamic_a8_protocol.json",
+    "protocol_file_sha256": "5a6df3838937fc345e3477edb8c6f71b0b614b825d33a6f03d18d84b06c9e30d",
+    "protocol_sha256": "a276b5ddf943b3cfed9fc27d074e6083424e7c22c0697155262005a53b424854"
+  },
+  "flow_steps": 10,
+  "fp16_bypass_check": {
+    "atol": 0.002,
+    "d_pac": 0.0,
+    "max_abs": 0.0,
+    "mean_abs": 0.0,
+    "passed": true,
+    "rtol": 0.002
+  },
+  "full_context_protocol": {
+    "formal_statistics_sha256": "7dba6c94398c1c9702f6a5b38309a598c5226e022f9cb7622edb0bd6d806eb40",
+    "method_id": "full_context_fp16_protection_v1",
+    "metric_core_sha256": "deb69b98a63ebda8f08b13f710e76565c3c40831f4a8c756a07a0d882638d2be",
+    "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_full_context_protocol.json",
+    "protocol_file_sha256": "0da2356fca7883d64ff60c20425f9198d09c4b5b9345cb2bd44375ff713f2e00",
+    "protocol_sha256": "71319d8076317f4027649961e87973909e5863c68bd37c27fda5d60194254635",
+    "quick_statistics_sha256": "43bde08e09126bc931dc774510e032ab7de65776269922c58838a9cdaf490f61",
+    "selection_core_sha256": "8500a0f6f9eed9b21499edccda4c3c759a533a98559dbd4715e495c99a880541"
+  },
+  "hessian_w4_sha256": "163f97fac072aa1970096f505edecba424367e6a94f5aa7bfffc03f3b5ce7009",
+  "kind": "outputimpact_joint_mask_scores",
+  "merged_shards": [
+    {
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/round2/proposals_dynamic/scores_full_shard0.json",
+      "sha256": "02184133fd7e8ba7a6a8bf4aa587de34207fba8ed7788f844f70274454c27959"
+    },
+    {
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/round2/proposals_dynamic/scores_full_shard1.json",
+      "sha256": "d7d9b00be2dd2ae164a6dac99ea293b5650bcc3965fd85633b4ab8702240d13f"
+    },
+    {
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/round2/proposals_dynamic/scores_full_shard2.json",
+      "sha256": "4f1997deaeeb2dc9e2dccf9e039da3a2a47a1d26db1630ebdee22b7bd4404012"
+    },
+    {
+      "path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/round2/proposals_dynamic/scores_full_shard3.json",
+      "sha256": "737cba7bba07436f388976147480c6ec5175f2f9ff4bdb53e4a409b0bc2aa30b"
+    }
+  ],
+  "model_adapter": "pi05",
+  "n_obs": 32,
+  "noise_b_used_for_selection": false,
+  "schema_version": 1,
+  "scores": {
+    "context_base": {
+      "achieved_compression": 3.237354085603113,
+      "d_func": 0.825048750041276,
+      "d_func_summary": {
+        "action_space": "physical_post_native_inverse_normalization",
+        "canonical_action_shape": [
+          16,
+          12
+        ],
+        "d_final": 0.0439601797444319,
+        "d_func": 0.825048750041276,
+        "d_grip": 0.0,
+        "d_kin": 0.013244485355527693,
+        "d_mean": 0.04868205264210701,
+        "d_solver": 0.04868205757361466,
+        "d_solver_std": 0.19951783889904554,
+        "formula_id": "d_func_v1_physical_execute16_deployed12",
+        "per_dim": {
+          "grip": 2.8025367610462836e-05,
+          "rot": 0.01825020018667325,
+          "trans": 0.008238770524382134
+        },
+        "per_obs": [
+          0.0009486951166763902,
+          0.0015088419895619154,
+          0.0003824029699899256,
+          0.0005317967152222991,
+          0.0015602066414430737,
+          0.001128748874180019,
+          0.0014781543286517262,
+          0.0007397013832814991,
+          0.0011733119608834386,
+          0.0007691570208407938,
+          0.0014938493259251118,
+          0.0002675221476238221,
+          0.001659559435211122,
+          0.00032217128318734467,
+          0.0010959857609122992,
+          0.0004590787866618484,
+          0.002004405716434121,
+          0.4692838788032532,
+          0.00035308446967974305,
+          0.0009027196792885661,
+          1.0627403259277344,
+          5.055452493252233e-05,
+          0.0004890589625574648,
+          0.0014605498872697353,
+          0.0006392312352545559,
+          0.0006647739792242646,
+          0.00039384409319609404,
+          0.0009501124150119722,
+          0.0003524237254168838,
+          0.0003253003233112395,
+          0.0006377900717779994,
+          0.0010586048010736704
+        ],
+        "per_sequence": [
+          0.011082621964901623,
+          0.006229922459352856,
+          0.010078378365590657,
+          0.009080041313569015,
+          0.013921732513972298,
+          0.04539509169873217,
+          1.0642421895377345,
+          2.449311424281591
+        ],
+        "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "selection_sample_unit": "paired_task_seed_sequence",
+        "sequences": [
+          {
+            "components": {
+              "final": 0.0006604019927379602,
+              "grip": 0.0,
+              "kin": 0.008521995142139718,
+              "tail_cvar90": 0.0009501124150119722
+            },
+            "d_func_sequence": 0.011082621964901623,
+            "record_indices": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "seed": 0,
+            "task": "CoffeeSetupMug"
+          },
+          {
+            "components": {
+              "final": 0.0005745966946897083,
+              "grip": 0.0,
+              "kin": 0.003538116162515807,
+              "tail_cvar90": 0.0010586048010736704
+            },
+            "d_func_sequence": 0.006229922459352856,
+            "record_indices": [
+              28,
+              29,
+              30,
+              31
+            ],
+            "seed": 1,
+            "task": "CoffeeSetupMug"
+          },
+          {
+            "components": {
+              "final": 0.0009504302145803243,
+              "grip": 0.0,
+              "kin": 0.006140249499160109,
+              "tail_cvar90": 0.0014938493259251118
+            },
+            "d_func_sequence": 0.010078378365590657,
+            "record_indices": [
+              8,
+              9,
+              10,
+              11
+            ],
+            "seed": 0,
+            "task": "OpenCabinet"
+          },
+          {
+            "components": {
+              "final": 0.0008972121234370103,
+              "grip": 0.0,
+              "kin": 0.0048637103197097615,
+              "tail_cvar90": 0.001659559435211122
+            },
+            "d_func_sequence": 0.009080041313569015,
+            "record_indices": [
+              12,
+              13,
+              14,
+              15
+            ],
+            "seed": 1,
+            "task": "OpenCabinet"
+          },
+          {
+            "components": {
+              "final": 0.0008597827300217943,
+              "grip": 0.0,
+              "kin": 0.010044265804826672,
+              "tail_cvar90": 0.0015088419895619154
+            },
+            "d_func_sequence": 0.013921732513972298,
+            "record_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenStandMixerHead"
+          },
+          {
+            "components": {
+              "final": 0.0012671465168716083,
+              "grip": 0.0,
+              "kin": 0.041007531898974416,
+              "tail_cvar90": 0.0015602066414430737
+            },
+            "d_func_sequence": 0.04539509169873217,
+            "record_indices": [
+              4,
+              5,
+              6,
+              7
+            ],
+            "seed": 1,
+            "task": "OpenStandMixerHead"
+          },
+          {
+            "components": {
+              "final": 0.10357965261606387,
+              "grip": 0.0,
+              "kin": 0.02209477931516436,
+              "tail_cvar90": 0.4692838788032532
+            },
+            "d_func_sequence": 1.0642421895377345,
+            "record_indices": [
+              16,
+              17,
+              18,
+              19
+            ],
+            "seed": 0,
+            "task": "PickPlaceDrawerToCounter"
+          },
+          {
+            "components": {
+              "final": 0.22169452733961312,
+              "grip": 0.0,
+              "kin": 0.10213624508650926,
+              "tail_cvar90": 1.0627403259277344
+            },
+            "d_func_sequence": 2.449311424281591,
+            "record_indices": [
+              20,
+              21,
+              22,
+              23
+            ],
+            "seed": 1,
+            "task": "PickPlaceDrawerToCounter"
+          }
+        ],
+        "tail": {
+          "cvar90": 0.3839220424706582,
+          "n": 32,
+          "p90": 0.0016496241558343174,
+          "p95": 0.21228016860550236
+        },
+        "weights": {
+          "final": 1.0,
+          "grip": 1.0,
+          "kin": 1.0,
+          "tail": 2.0
+        }
+      },
+      "d_pac": 7.847944622859359,
+      "d_pac_summary": {
+        "cvar": 6.357852947711945,
+        "cvar_alpha": 0.9,
+        "d_pac": 7.847944622859359,
+        "dimension_scale": [
+          0.06885150074958801,
+          0.045259736478328705,
+          0.14893585443496704,
+          0.005567340645939112,
+          0.011502329260110855,
+          0.008799596689641476,
+          0.09991134703159332,
+          0.009286065585911274,
+          0.0016210426110774279,
+          0.005643896758556366,
+          0.00046430330257862806,
+          0.09990114718675613
+        ],
+        "formula_id": "d_pac_v2_physical_execute16_deployed12",
+        "mean": 1.4900916751474143,
+        "n_sequences": 8,
+        "per_sequence": [
+          0.7379319787025451,
+          0.41758944392204284,
+          1.0163405328989028,
+          0.6443603992462158,
+          0.5702366173267365,
+          0.9119645774364471,
+          1.2644569039344788,
+          6.357852947711945
+        ],
+        "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "sequence_grouping": "task_seed_ordered_unique_replan",
+        "sequences": [
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.18032722175121307,
+              "pose": 1.8947426080703735,
+              "prefix": 1.4705101251602173,
+              "stitch": 0.14407993853092194
+            },
+            "d_grip": 0.0,
+            "d_local": 0.18032722175121307,
+            "d_pac_sequence": 0.7379319787025451,
+            "d_pose": 1.8947426080703735,
+            "d_prefix": 1.4705101251602173,
+            "d_stitch": 0.14407993853092194,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "CoffeeSetupMug",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.12535209953784943,
+              "pose": 0.8426904678344727,
+              "prefix": 0.9276332855224609,
+              "stitch": 0.1922713667154312
+            },
+            "d_grip": 0.0,
+            "d_local": 0.12535209953784943,
+            "d_pac_sequence": 0.41758944392204284,
+            "d_pose": 0.8426904678344727,
+            "d_prefix": 0.9276332855224609,
+            "d_stitch": 0.1922713667154312,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              28,
+              29,
+              30,
+              31
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "CoffeeSetupMug",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.18769939243793488,
+              "pose": 3.182391881942749,
+              "prefix": 1.2971450090408325,
+              "stitch": 0.41446638107299805
+            },
+            "d_grip": 0.0,
+            "d_local": 0.18769939243793488,
+            "d_pac_sequence": 1.0163405328989028,
+            "d_pose": 3.182391881942749,
+            "d_prefix": 1.2971450090408325,
+            "d_stitch": 0.41446638107299805,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              8,
+              9,
+              10,
+              11
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenCabinet",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.13121768832206726,
+              "pose": 1.879983901977539,
+              "prefix": 1.0517202615737915,
+              "stitch": 0.15888014435768127
+            },
+            "d_grip": 0.0,
+            "d_local": 0.13121768832206726,
+            "d_pac_sequence": 0.6443603992462158,
+            "d_pose": 1.879983901977539,
+            "d_prefix": 1.0517202615737915,
+            "d_stitch": 0.15888014435768127,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              12,
+              13,
+              14,
+              15
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "OpenCabinet",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.2717727720737457,
+              "pose": 1.3509119749069214,
+              "prefix": 0.9536576271057129,
+              "stitch": 0.27484071254730225
+            },
+            "d_grip": 0.0,
+            "d_local": 0.2717727720737457,
+            "d_pac_sequence": 0.5702366173267365,
+            "d_pose": 1.3509119749069214,
+            "d_prefix": 0.9536576271057129,
+            "d_stitch": 0.27484071254730225,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenStandMixerHead",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.2894045412540436,
+              "pose": 2.1830973625183105,
+              "prefix": 1.613376259803772,
+              "stitch": 0.4739447236061096
+            },
+            "d_grip": 0.0,
+            "d_local": 0.2894045412540436,
+            "d_pac_sequence": 0.9119645774364471,
+            "d_pose": 2.1830973625183105,
+            "d_prefix": 1.613376259803772,
+            "d_stitch": 0.4739447236061096,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              4,
+              5,
+              6,
+              7
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "OpenStandMixerHead",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.8092740178108215,
+              "pose": 0.7699203491210938,
+              "prefix": 3.247844696044922,
+              "stitch": 1.4952454566955566
+            },
+            "d_grip": 0.0,
+            "d_local": 0.8092740178108215,
+            "d_pac_sequence": 1.2644569039344788,
+            "d_pose": 0.7699203491210938,
+            "d_prefix": 3.247844696044922,
+            "d_stitch": 1.4952454566955566,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              16,
+              17,
+              18,
+              19
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "PickPlaceDrawerToCounter",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 1.43059504032135,
+              "pose": 16.079057693481445,
+              "prefix": 13.592656135559082,
+              "stitch": 0.6869558691978455
+            },
+            "d_grip": 0.0,
+            "d_local": 1.43059504032135,
+            "d_pac_sequence": 6.357852947711945,
+            "d_pose": 16.079057693481445,
+            "d_prefix": 13.592656135559082,
+            "d_stitch": 0.6869558691978455,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              20,
+              21,
+              22,
+              23
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "PickPlaceDrawerToCounter",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          }
+        ],
+        "tail_weight": 1.0,
+        "teacher": "original_native_fp16_checkpoint"
+      },
+      "elapsed_s": 36.72559714317322,
+      "latency_mean_s": 1.1310144676826894,
+      "quantized_w4_layers": 172,
+      "retained_fp16_layers": 8,
+      "target_compression": 3.2323232332694722
+    },
+    "lambda_0p0": {
+      "achieved_compression": 3.240934885062999,
+      "d_func": 0.5857385102460163,
+      "d_func_summary": {
+        "action_space": "physical_post_native_inverse_normalization",
+        "canonical_action_shape": [
+          16,
+          12
+        ],
+        "d_final": 0.03141135302268295,
+        "d_func": 0.5857385102460163,
+        "d_grip": 0.0,
+        "d_kin": 0.015942155164402692,
+        "d_mean": 0.03442373499274254,
+        "d_solver": 0.03442374088263023,
+        "d_solver_std": 0.18527431898706279,
+        "formula_id": "d_func_v1_physical_execute16_deployed12",
+        "per_dim": {
+          "grip": 2.1406416233595034e-05,
+          "rot": 0.021593265885892863,
+          "trans": 0.010291044442912522
+        },
+        "per_obs": [
+          0.0014806848485022783,
+          0.0021754619665443897,
+          0.0003635820758063346,
+          0.000711222121026367,
+          0.0009912318782880902,
+          0.0005919506656937301,
+          0.0012992878910154104,
+          0.0010471100686118007,
+          0.0013669574400410056,
+          0.0004909432609565556,
+          0.0021308129653334618,
+          0.0003068067308049649,
+          0.0020624306052923203,
+          0.00020848958229180425,
+          0.001145821181125939,
+          0.0006168184336274862,
+          0.0030554260592907667,
+          0.0008551506325602531,
+          0.0002620248415041715,
+          0.005567979998886585,
+          1.0659711360931396,
+          0.00013077330368105322,
+          0.0006950287497602403,
+          0.0019645539578050375,
+          0.0005802924861200154,
+          0.0005290537956170738,
+          0.00025012381956912577,
+          0.0009010570938698947,
+          0.0009328474989160895,
+          0.0005874377093277872,
+          0.0006676989723928273,
+          0.00161951151676476
+        ],
+        "per_sequence": [
+          0.00785711732705946,
+          0.010846862036554553,
+          0.010756166211620788,
+          0.010152001149644048,
+          0.01883845413939767,
+          0.0511337820994529,
+          0.03993317828001912,
+          2.4857780110517105
+        ],
+        "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "selection_sample_unit": "paired_task_seed_sequence",
+        "sequences": [
+          {
+            "components": {
+              "final": 0.0005621733996582395,
+              "grip": 0.0,
+              "kin": 0.00549282973966143,
+              "tail_cvar90": 0.0009010570938698947
+            },
+            "d_func_sequence": 0.00785711732705946,
+            "record_indices": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "seed": 0,
+            "task": "CoffeeSetupMug"
+          },
+          {
+            "components": {
+              "final": 0.000929917883100879,
+              "grip": 0.0,
+              "kin": 0.006677921119924154,
+              "tail_cvar90": 0.00161951151676476
+            },
+            "d_func_sequence": 0.010846862036554553,
+            "record_indices": [
+              28,
+              29,
+              30,
+              31
+            ],
+            "seed": 1,
+            "task": "CoffeeSetupMug"
+          },
+          {
+            "components": {
+              "final": 0.0011121090618112135,
+              "grip": 0.0,
+              "kin": 0.005382431219142651,
+              "tail_cvar90": 0.0021308129653334618
+            },
+            "d_func_sequence": 0.010756166211620788,
+            "record_indices": [
+              8,
+              9,
+              10,
+              11
+            ],
+            "seed": 0,
+            "task": "OpenCabinet"
+          },
+          {
+            "components": {
+              "final": 0.0010238740248660746,
+              "grip": 0.0,
+              "kin": 0.005003265914193333,
+              "tail_cvar90": 0.0020624306052923203
+            },
+            "d_func_sequence": 0.010152001149644048,
+            "record_indices": [
+              12,
+              13,
+              14,
+              15
+            ],
+            "seed": 1,
+            "task": "OpenCabinet"
+          },
+          {
+            "components": {
+              "final": 0.0012114662432853023,
+              "grip": 0.0,
+              "kin": 0.013276063963023587,
+              "tail_cvar90": 0.0021754619665443897
+            },
+            "d_func_sequence": 0.01883845413939767,
+            "record_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenStandMixerHead"
+          },
+          {
+            "components": {
+              "final": 0.0009828111481456224,
+              "grip": 0.0,
+              "kin": 0.04755239516927646,
+              "tail_cvar90": 0.0012992878910154104
+            },
+            "d_func_sequence": 0.0511337820994529,
+            "record_indices": [
+              4,
+              5,
+              6,
+              7
+            ],
+            "seed": 1,
+            "task": "OpenStandMixerHead"
+          },
+          {
+            "components": {
+              "final": 0.0024700952586402076,
+              "grip": 0.0,
+              "kin": 0.026327123023605743,
+              "tail_cvar90": 0.005567979998886585
+            },
+            "d_func_sequence": 0.03993317828001912,
+            "record_indices": [
+              16,
+              17,
+              18,
+              19
+            ],
+            "seed": 0,
+            "task": "PickPlaceDrawerToCounter"
+          },
+          {
+            "components": {
+              "final": 0.22260473697242342,
+              "grip": 0.0,
+              "kin": 0.1312310018930076,
+              "tail_cvar90": 1.0659711360931396
+            },
+            "d_func_sequence": 2.4857780110517105,
+            "record_indices": [
+              20,
+              21,
+              22,
+              23
+            ],
+            "seed": 1,
+            "task": "PickPlaceDrawerToCounter"
+          }
+        ],
+        "tail": {
+          "cvar90": 0.26919250102946535,
+          "n": 32,
+          "p90": 0.002170997066423297,
+          "p95": 0.004186075332108883
+        },
+        "weights": {
+          "final": 1.0,
+          "grip": 1.0,
+          "kin": 1.0,
+          "tail": 2.0
+        }
+      },
+      "d_pac": 9.101706054992974,
+      "d_pac_summary": {
+        "cvar": 7.466133570671081,
+        "cvar_alpha": 0.9,
+        "d_pac": 9.101706054992974,
+        "dimension_scale": [
+          0.06885150074958801,
+          0.045259736478328705,
+          0.14893585443496704,
+          0.005567340645939112,
+          0.011502329260110855,
+          0.008799596689641476,
+          0.09991134703159332,
+          0.009286065585911274,
+          0.0016210426110774279,
+          0.005643896758556366,
+          0.00046430330257862806,
+          0.09990114718675613
+        ],
+        "formula_id": "d_pac_v2_physical_execute16_deployed12",
+        "mean": 1.6355724843218922,
+        "n_sequences": 8,
+        "per_sequence": [
+          0.439335435628891,
+          1.1844504475593567,
+          0.6245503693819046,
+          0.49950637072324755,
+          1.0345533311367034,
+          0.9726345121860505,
+          0.8634158372879028,
+          7.466133570671081
+        ],
+        "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "sequence_grouping": "task_seed_ordered_unique_replan",
+        "sequences": [
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.11290782690048218,
+              "pose": 0.9805288314819336,
+              "prefix": 0.97890305519104,
+              "stitch": 0.12433746457099915
+            },
+            "d_grip": 0.0,
+            "d_local": 0.11290782690048218,
+            "d_pac_sequence": 0.439335435628891,
+            "d_pose": 0.9805288314819336,
+            "d_prefix": 0.97890305519104,
+            "d_stitch": 0.12433746457099915,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "CoffeeSetupMug",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.20716583728790283,
+              "pose": 3.446512222290039,
+              "prefix": 1.8098896741867065,
+              "stitch": 0.458684504032135
+            },
+            "d_grip": 0.0,
+            "d_local": 0.20716583728790283,
+            "d_pac_sequence": 1.1844504475593567,
+            "d_pose": 3.446512222290039,
+            "d_prefix": 1.8098896741867065,
+            "d_stitch": 0.458684504032135,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              28,
+              29,
+              30,
+              31
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "CoffeeSetupMug",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.15683014690876007,
+              "pose": 1.5726972818374634,
+              "prefix": 0.9559053778648376,
+              "stitch": 0.4373190402984619
+            },
+            "d_grip": 0.0,
+            "d_local": 0.15683014690876007,
+            "d_pac_sequence": 0.6245503693819046,
+            "d_pose": 1.5726972818374634,
+            "d_prefix": 0.9559053778648376,
+            "d_stitch": 0.4373190402984619,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              8,
+              9,
+              10,
+              11
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenCabinet",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.10799697786569595,
+              "pose": 1.3676471710205078,
+              "prefix": 0.8725805282592773,
+              "stitch": 0.14930717647075653
+            },
+            "d_grip": 0.0,
+            "d_local": 0.10799697786569595,
+            "d_pac_sequence": 0.49950637072324755,
+            "d_pose": 1.3676471710205078,
+            "d_prefix": 0.8725805282592773,
+            "d_stitch": 0.14930717647075653,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              12,
+              13,
+              14,
+              15
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "OpenCabinet",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.32583972811698914,
+              "pose": 2.9717185497283936,
+              "prefix": 1.4376972913742065,
+              "stitch": 0.4375110864639282
+            },
+            "d_grip": 0.0,
+            "d_local": 0.32583972811698914,
+            "d_pac_sequence": 1.0345533311367034,
+            "d_pose": 2.9717185497283936,
+            "d_prefix": 1.4376972913742065,
+            "d_stitch": 0.4375110864639282,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenStandMixerHead",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.29878637194633484,
+              "pose": 2.3548409938812256,
+              "prefix": 1.768347144126892,
+              "stitch": 0.44119805097579956
+            },
+            "d_grip": 0.0,
+            "d_local": 0.29878637194633484,
+            "d_pac_sequence": 0.9726345121860505,
+            "d_pose": 2.3548409938812256,
+            "d_prefix": 1.768347144126892,
+            "d_stitch": 0.44119805097579956,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              4,
+              5,
+              6,
+              7
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "OpenStandMixerHead",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.5733751654624939,
+              "pose": 0.9680868983268738,
+              "prefix": 1.662514567375183,
+              "stitch": 1.1131025552749634
+            },
+            "d_grip": 0.0,
+            "d_local": 0.5733751654624939,
+            "d_pac_sequence": 0.8634158372879028,
+            "d_pose": 0.9680868983268738,
+            "d_prefix": 1.662514567375183,
+            "d_stitch": 1.1131025552749634,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              16,
+              17,
+              18,
+              19
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "PickPlaceDrawerToCounter",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 1.72431218624115,
+              "pose": 18.478721618652344,
+              "prefix": 16.143434524536133,
+              "stitch": 0.9841995239257812
+            },
+            "d_grip": 0.0,
+            "d_local": 1.72431218624115,
+            "d_pac_sequence": 7.466133570671081,
+            "d_pose": 18.478721618652344,
+            "d_prefix": 16.143434524536133,
+            "d_stitch": 0.9841995239257812,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              20,
+              21,
+              22,
+              23
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "PickPlaceDrawerToCounter",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          }
+        ],
+        "tail_weight": 1.0,
+        "teacher": "original_native_fp16_checkpoint"
+      },
+      "elapsed_s": 36.20881223678589,
+      "latency_mean_s": 1.1146766218880657,
+      "quantized_w4_layers": 174,
+      "retained_fp16_layers": 6,
+      "target_compression": 3.2323232332694722
+    },
+    "lambda_0p25": {
+      "achieved_compression": 3.2391434957102687,
+      "d_func": 0.7071305228331628,
+      "d_func_summary": {
+        "action_space": "physical_post_native_inverse_normalization",
+        "canonical_action_shape": [
+          16,
+          12
+        ],
+        "d_final": 0.038004567381709944,
+        "d_func": 0.7071305228331628,
+        "d_grip": 0.0,
+        "d_kin": 0.017301684843549308,
+        "d_mean": 0.04145228490233421,
+        "d_solver": 0.041452285789546295,
+        "d_solver_std": 0.1882653178358936,
+        "formula_id": "d_func_v1_physical_execute16_deployed12",
+        "per_dim": {
+          "grip": 2.6103768542568257e-05,
+          "rot": 0.020096196379702645,
+          "trans": 0.014507173307395973
+        },
+        "per_obs": [
+          0.0013298933627083898,
+          0.002514425665140152,
+          0.00039940953138284385,
+          0.0007093618041835725,
+          0.00115628179628402,
+          0.00046461093006655574,
+          0.0011335824383422732,
+          0.0009022793383337557,
+          0.0012204705271869898,
+          0.00045524275628849864,
+          0.0017338910838589072,
+          0.0004809020028915256,
+          0.0018849462503567338,
+          0.00013811157259624451,
+          0.0010468969121575356,
+          0.0006816749810241163,
+          0.0028356374241411686,
+          0.0006042646709829569,
+          0.00023733213311061263,
+          0.23300111293792725,
+          1.0652973651885986,
+          3.522730548866093e-05,
+          0.0010282400762662292,
+          0.00180811807513237,
+          0.000434660556493327,
+          0.0005157304112799466,
+          0.00024632527492940426,
+          0.0008320590131916106,
+          0.0005190404481254518,
+          0.0005548830959014595,
+          0.0007624040590599179,
+          0.0015087636420503259
+        ],
+        "per_sequence": [
+          0.007823825315889502,
+          0.009330665710368894,
+          0.009360293071829635,
+          0.009280735013311458,
+          0.020118474002549593,
+          0.04053604061218269,
+          0.5720692374877849,
+          2.4802676603997376
+        ],
+        "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "selection_sample_unit": "paired_task_seed_sequence",
+        "sequences": [
+          {
+            "components": {
+              "final": 0.0005056277090633812,
+              "grip": 0.0,
+              "kin": 0.005654079580442899,
+              "tail_cvar90": 0.0008320590131916106
+            },
+            "d_func_sequence": 0.007823825315889502,
+            "record_indices": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "seed": 0,
+            "task": "CoffeeSetupMug"
+          },
+          {
+            "components": {
+              "final": 0.000810260216087238,
+              "grip": 0.0,
+              "kin": 0.0055028782101810055,
+              "tail_cvar90": 0.0015087636420503259
+            },
+            "d_func_sequence": 0.009330665710368894,
+            "record_indices": [
+              28,
+              29,
+              30,
+              31
+            ],
+            "seed": 1,
+            "task": "CoffeeSetupMug"
+          },
+          {
+            "components": {
+              "final": 0.0010021450837859732,
+              "grip": 0.0,
+              "kin": 0.004890365820325848,
+              "tail_cvar90": 0.0017338910838589072
+            },
+            "d_func_sequence": 0.009360293071829635,
+            "record_indices": [
+              8,
+              9,
+              10,
+              11
+            ],
+            "seed": 0,
+            "task": "OpenCabinet"
+          },
+          {
+            "components": {
+              "final": 0.0009482409546150169,
+              "grip": 0.0,
+              "kin": 0.004562601557982973,
+              "tail_cvar90": 0.0018849462503567338
+            },
+            "d_func_sequence": 0.009280735013311458,
+            "record_indices": [
+              12,
+              13,
+              14,
+              15
+            ],
+            "seed": 1,
+            "task": "OpenCabinet"
+          },
+          {
+            "components": {
+              "final": 0.0012675645619703998,
+              "grip": 0.0,
+              "kin": 0.01382205811029889,
+              "tail_cvar90": 0.002514425665140152
+            },
+            "d_func_sequence": 0.020118474002549593,
+            "record_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenStandMixerHead"
+          },
+          {
+            "components": {
+              "final": 0.0009409836564573037,
+              "grip": 0.0,
+              "kin": 0.037282493363157344,
+              "tail_cvar90": 0.00115628179628402
+            },
+            "d_func_sequence": 0.04053604061218269,
+            "record_indices": [
+              4,
+              5,
+              6,
+              7
+            ],
+            "seed": 1,
+            "task": "OpenStandMixerHead"
+          },
+          {
+            "components": {
+              "final": 0.055243683384965894,
+              "grip": 0.0,
+              "kin": 0.05082332822696458,
+              "tail_cvar90": 0.23300111293792725
+            },
+            "d_func_sequence": 0.5720692374877849,
+            "record_indices": [
+              16,
+              17,
+              18,
+              19
+            ],
+            "seed": 0,
+            "task": "PickPlaceDrawerToCounter"
+          },
+          {
+            "components": {
+              "final": 0.22248001820654273,
+              "grip": 0.0,
+              "kin": 0.12719291181599768,
+              "tail_cvar90": 1.0652973651885986
+            },
+            "d_func_sequence": 2.4802676603997376,
+            "record_indices": [
+              20,
+              21,
+              22,
+              23
+            ],
+            "seed": 1,
+            "task": "PickPlaceDrawerToCounter"
+          }
+        ],
+        "tail": {
+          "cvar90": 0.3259121353039518,
+          "n": 32,
+          "p90": 0.0024514777236618115,
+          "p95": 0.10641010140534474
+        },
+        "weights": {
+          "final": 1.0,
+          "grip": 1.0,
+          "kin": 1.0,
+          "tail": 2.0
+        }
+      },
+      "d_pac": 8.638257976807655,
+      "d_pac_summary": {
+        "cvar": 7.10266124010086,
+        "cvar_alpha": 0.9,
+        "d_pac": 8.638257976807655,
+        "dimension_scale": [
+          0.06885150074958801,
+          0.045259736478328705,
+          0.14893585443496704,
+          0.005567340645939112,
+          0.011502329260110855,
+          0.008799596689641476,
+          0.09991134703159332,
+          0.009286065585911274,
+          0.0016210426110774279,
+          0.005643896758556366,
+          0.00046430330257862806,
+          0.09990114718675613
+        ],
+        "formula_id": "d_pac_v2_physical_execute16_deployed12",
+        "mean": 1.5355967367067935,
+        "n_sequences": 8,
+        "per_sequence": [
+          0.4416897907853127,
+          0.8884683042764664,
+          0.5226945281028748,
+          0.42777796685695646,
+          1.0760578453540801,
+          0.8388861060142517,
+          0.9865381121635437,
+          7.10266124010086
+        ],
+        "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "sequence_grouping": "task_seed_ordered_unique_replan",
+        "sequences": [
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.12149596959352493,
+              "pose": 0.9965324401855469,
+              "prefix": 0.9352996349334717,
+              "stitch": 0.15512090921401978
+            },
+            "d_grip": 0.0,
+            "d_local": 0.12149596959352493,
+            "d_pac_sequence": 0.4416897907853127,
+            "d_pose": 0.9965324401855469,
+            "d_prefix": 0.9352996349334717,
+            "d_stitch": 0.15512090921401978,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "CoffeeSetupMug",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.1610562652349472,
+              "pose": 2.672379732131958,
+              "prefix": 1.3369723558425903,
+              "stitch": 0.2719331681728363
+            },
+            "d_grip": 0.0,
+            "d_local": 0.1610562652349472,
+            "d_pac_sequence": 0.8884683042764664,
+            "d_pose": 2.672379732131958,
+            "d_prefix": 1.3369723558425903,
+            "d_stitch": 0.2719331681728363,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              28,
+              29,
+              30,
+              31
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "CoffeeSetupMug",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.1444927453994751,
+              "pose": 1.2277709245681763,
+              "prefix": 0.8110149502754211,
+              "stitch": 0.43019402027130127
+            },
+            "d_grip": 0.0,
+            "d_local": 0.1444927453994751,
+            "d_pac_sequence": 0.5226945281028748,
+            "d_pose": 1.2277709245681763,
+            "d_prefix": 0.8110149502754211,
+            "d_stitch": 0.43019402027130127,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              8,
+              9,
+              10,
+              11
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenCabinet",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.10183203220367432,
+              "pose": 1.0983117818832397,
+              "prefix": 0.799420177936554,
+              "stitch": 0.1393258422613144
+            },
+            "d_grip": 0.0,
+            "d_local": 0.10183203220367432,
+            "d_pac_sequence": 0.42777796685695646,
+            "d_pose": 1.0983117818832397,
+            "d_prefix": 0.799420177936554,
+            "d_stitch": 0.1393258422613144,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              12,
+              13,
+              14,
+              15
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "OpenCabinet",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.3390890657901764,
+              "pose": 3.147216796875,
+              "prefix": 1.4812196493148804,
+              "stitch": 0.41276371479034424
+            },
+            "d_grip": 0.0,
+            "d_local": 0.3390890657901764,
+            "d_pac_sequence": 1.0760578453540801,
+            "d_pose": 3.147216796875,
+            "d_prefix": 1.4812196493148804,
+            "d_stitch": 0.41276371479034424,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenStandMixerHead",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.2630491554737091,
+              "pose": 1.8953179121017456,
+              "prefix": 1.5873953104019165,
+              "stitch": 0.44866815209388733
+            },
+            "d_grip": 0.0,
+            "d_local": 0.2630491554737091,
+            "d_pac_sequence": 0.8388861060142517,
+            "d_pose": 1.8953179121017456,
+            "d_prefix": 1.5873953104019165,
+            "d_stitch": 0.44866815209388733,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              4,
+              5,
+              6,
+              7
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "OpenStandMixerHead",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.9020950794219971,
+              "pose": 0.9247708916664124,
+              "prefix": 1.9672571420669556,
+              "stitch": 1.1385674476623535
+            },
+            "d_grip": 0.0,
+            "d_local": 0.9020950794219971,
+            "d_pac_sequence": 0.9865381121635437,
+            "d_pose": 0.9247708916664124,
+            "d_prefix": 1.9672571420669556,
+            "d_stitch": 1.1385674476623535,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              16,
+              17,
+              18,
+              19
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "PickPlaceDrawerToCounter",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 1.5704370737075806,
+              "pose": 18.138444900512695,
+              "prefix": 15.23399829864502,
+              "stitch": 0.5704259276390076
+            },
+            "d_grip": 0.0,
+            "d_local": 1.5704370737075806,
+            "d_pac_sequence": 7.10266124010086,
+            "d_pose": 18.138444900512695,
+            "d_prefix": 15.23399829864502,
+            "d_stitch": 0.5704259276390076,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              20,
+              21,
+              22,
+              23
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "PickPlaceDrawerToCounter",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          }
+        ],
+        "tail_weight": 1.0,
+        "teacher": "original_native_fp16_checkpoint"
+      },
+      "elapsed_s": 36.55294895172119,
+      "latency_mean_s": 1.1245930679142475,
+      "quantized_w4_layers": 173,
+      "retained_fp16_layers": 7,
+      "target_compression": 3.2323232332694722
+    },
+    "lambda_0p5": {
+      "achieved_compression": 3.2355666514631394,
+      "d_func": 0.5855478395549496,
+      "d_func_summary": {
+        "action_space": "physical_post_native_inverse_normalization",
+        "canonical_action_shape": [
+          16,
+          12
+        ],
+        "d_final": 0.03137532074309761,
+        "d_func": 0.5855478395549496,
+        "d_grip": 0.0,
+        "d_kin": 0.01501949565458327,
+        "d_mean": 0.034394167363643646,
+        "d_solver": 0.0343941695691683,
+        "d_solver_std": 0.18511548132117828,
+        "formula_id": "d_func_v1_physical_execute16_deployed12",
+        "per_dim": {
+          "grip": 2.4712251128679002e-05,
+          "rot": 0.019960695835258342,
+          "trans": 0.0100782954739082
+        },
+        "per_obs": [
+          0.0015504008624702692,
+          0.0024631868582218885,
+          0.0004262755101080984,
+          0.0006872664671391249,
+          0.0011627629864960909,
+          0.00043117691529914737,
+          0.0012038411805406213,
+          0.0007352893007919192,
+          0.0011907076695933938,
+          0.0004237148677930236,
+          0.0015218761982396245,
+          0.0005230600945651531,
+          0.0018583466298878193,
+          0.00013372367538977414,
+          0.001032808911986649,
+          0.0006379002588801086,
+          0.002836094470694661,
+          0.0006474365945905447,
+          0.00024239192134700716,
+          0.007961646653711796,
+          1.0650451183319092,
+          0.0001489669521106407,
+          0.0009688639547675848,
+          0.0015147008234634995,
+          0.00042524730088189244,
+          0.0005028487648814917,
+          0.0002060366387013346,
+          0.0009248386486433446,
+          0.0005002836114726961,
+          0.0005535036907531321,
+          0.0008017637883313,
+          0.0013513456797227263
+        ],
+        "per_sequence": [
+          0.007929231632361722,
+          0.008948022647418608,
+          0.008525215839668875,
+          0.009114349485753279,
+          0.020870169269522388,
+          0.04133891872773618,
+          0.04518282933978994,
+          2.477218602239752
+        ],
+        "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "selection_sample_unit": "paired_task_seed_sequence",
+        "sequences": [
+          {
+            "components": {
+              "final": 0.0005121669171541317,
+              "grip": 0.0,
+              "kin": 0.005567387417920901,
+              "tail_cvar90": 0.0009248386486433446
+            },
+            "d_func_sequence": 0.007929231632361722,
+            "record_indices": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "seed": 0,
+            "task": "CoffeeSetupMug"
+          },
+          {
+            "components": {
+              "final": 0.0007796622800380097,
+              "grip": 0.0,
+              "kin": 0.005465669007935145,
+              "tail_cvar90": 0.0013513456797227263
+            },
+            "d_func_sequence": 0.008948022647418608,
+            "record_indices": [
+              28,
+              29,
+              30,
+              31
+            ],
+            "seed": 1,
+            "task": "CoffeeSetupMug"
+          },
+          {
+            "components": {
+              "final": 0.0009422996086154886,
+              "grip": 0.0,
+              "kin": 0.004539163834574138,
+              "tail_cvar90": 0.0015218761982396245
+            },
+            "d_func_sequence": 0.008525215839668875,
+            "record_indices": [
+              8,
+              9,
+              10,
+              11
+            ],
+            "seed": 0,
+            "task": "OpenCabinet"
+          },
+          {
+            "components": {
+              "final": 0.0009266299101333549,
+              "grip": 0.0,
+              "kin": 0.004471026315844286,
+              "tail_cvar90": 0.0018583466298878193
+            },
+            "d_func_sequence": 0.009114349485753279,
+            "record_indices": [
+              12,
+              13,
+              14,
+              15
+            ],
+            "seed": 1,
+            "task": "OpenCabinet"
+          },
+          {
+            "components": {
+              "final": 0.0013138443796317473,
+              "grip": 0.0,
+              "kin": 0.014629951173446863,
+              "tail_cvar90": 0.0024631868582218885
+            },
+            "d_func_sequence": 0.020870169269522388,
+            "record_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenStandMixerHead"
+          },
+          {
+            "components": {
+              "final": 0.0009151896290000661,
+              "grip": 0.0,
+              "kin": 0.03801604673765487,
+              "tail_cvar90": 0.0012038411805406213
+            },
+            "d_func_sequence": 0.04133891872773618,
+            "record_indices": [
+              4,
+              5,
+              6,
+              7
+            ],
+            "seed": 1,
+            "task": "OpenStandMixerHead"
+          },
+          {
+            "components": {
+              "final": 0.002910298757727713,
+              "grip": 0.0,
+              "kin": 0.026349237274638636,
+              "tail_cvar90": 0.007961646653711796
+            },
+            "d_func_sequence": 0.04518282933978994,
+            "record_indices": [
+              16,
+              17,
+              18,
+              19
+            ],
+            "seed": 0,
+            "task": "PickPlaceDrawerToCounter"
+          },
+          {
+            "components": {
+              "final": 0.22233633429197813,
+              "grip": 0.0,
+              "kin": 0.12479203128395562,
+              "tail_cvar90": 1.0650451183319092
+            },
+            "d_func_sequence": 2.477218602239752,
+            "record_indices": [
+              20,
+              21,
+              22,
+              23
+            ],
+            "seed": 1,
+            "task": "PickPlaceDrawerToCounter"
+          }
+        ],
+        "tail": {
+          "cvar90": 0.2695765115786344,
+          "n": 32,
+          "p90": 0.002402702835388483,
+          "p95": 0.005142592953052368
+        },
+        "weights": {
+          "final": 1.0,
+          "grip": 1.0,
+          "kin": 1.0,
+          "tail": 2.0
+        }
+      },
+      "d_pac": 8.976737168617547,
+      "d_pac_summary": {
+        "cvar": 7.403501081466675,
+        "cvar_alpha": 0.9,
+        "d_pac": 8.976737168617547,
+        "dimension_scale": [
+          0.06885150074958801,
+          0.045259736478328705,
+          0.14893585443496704,
+          0.005567340645939112,
+          0.011502329260110855,
+          0.008799596689641476,
+          0.09991134703159332,
+          0.009286065585911274,
+          0.0016210426110774279,
+          0.005643896758556366,
+          0.00046430330257862806,
+          0.09990114718675613
+        ],
+        "formula_id": "d_pac_v2_physical_execute16_deployed12",
+        "mean": 1.5732360871508717,
+        "n_sequences": 8,
+        "per_sequence": [
+          0.4445339873433113,
+          0.9155704766511917,
+          0.484504958987236,
+          0.41858466863632204,
+          1.181880569458008,
+          0.8562532842159272,
+          0.8810596704483032,
+          7.403501081466675
+        ],
+        "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "sequence_grouping": "task_seed_ordered_unique_replan",
+        "sequences": [
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.12169090658426285,
+              "pose": 0.9967241287231445,
+              "prefix": 0.958314836025238,
+              "stitch": 0.14594006538391113
+            },
+            "d_grip": 0.0,
+            "d_local": 0.12169090658426285,
+            "d_pac_sequence": 0.4445339873433113,
+            "d_pose": 0.9967241287231445,
+            "d_prefix": 0.958314836025238,
+            "d_stitch": 0.14594006538391113,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "CoffeeSetupMug",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.16383959352970123,
+              "pose": 2.787652015686035,
+              "prefix": 1.3410253524780273,
+              "stitch": 0.2853354215621948
+            },
+            "d_grip": 0.0,
+            "d_local": 0.16383959352970123,
+            "d_pac_sequence": 0.9155704766511917,
+            "d_pose": 2.787652015686035,
+            "d_prefix": 1.3410253524780273,
+            "d_stitch": 0.2853354215621948,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              28,
+              29,
+              30,
+              31
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "CoffeeSetupMug",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.13437063992023468,
+              "pose": 1.1284701824188232,
+              "prefix": 0.7594707012176514,
+              "stitch": 0.4002132713794708
+            },
+            "d_grip": 0.0,
+            "d_local": 0.13437063992023468,
+            "d_pac_sequence": 0.484504958987236,
+            "d_pose": 1.1284701824188232,
+            "d_prefix": 0.7594707012176514,
+            "d_stitch": 0.4002132713794708,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              8,
+              9,
+              10,
+              11
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenCabinet",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.10001277923583984,
+              "pose": 1.0690666437149048,
+              "prefix": 0.781578779220581,
+              "stitch": 0.14226514101028442
+            },
+            "d_grip": 0.0,
+            "d_local": 0.10001277923583984,
+            "d_pac_sequence": 0.41858466863632204,
+            "d_pose": 1.0690666437149048,
+            "d_prefix": 0.781578779220581,
+            "d_stitch": 0.14226514101028442,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              12,
+              13,
+              14,
+              15
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "OpenCabinet",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.3563055098056793,
+              "pose": 3.5014989376068115,
+              "prefix": 1.59779691696167,
+              "stitch": 0.4538014829158783
+            },
+            "d_grip": 0.0,
+            "d_local": 0.3563055098056793,
+            "d_pac_sequence": 1.181880569458008,
+            "d_pose": 3.5014989376068115,
+            "d_prefix": 1.59779691696167,
+            "d_stitch": 0.4538014829158783,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenStandMixerHead",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.26548144221305847,
+              "pose": 1.9532591104507446,
+              "prefix": 1.6190565824508667,
+              "stitch": 0.4434692859649658
+            },
+            "d_grip": 0.0,
+            "d_local": 0.26548144221305847,
+            "d_pac_sequence": 0.8562532842159272,
+            "d_pose": 1.9532591104507446,
+            "d_prefix": 1.6190565824508667,
+            "d_stitch": 0.4434692859649658,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              4,
+              5,
+              6,
+              7
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "OpenStandMixerHead",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.6261715888977051,
+              "pose": 0.8681416511535645,
+              "prefix": 1.7366137504577637,
+              "stitch": 1.174371361732483
+            },
+            "d_grip": 0.0,
+            "d_local": 0.6261715888977051,
+            "d_pac_sequence": 0.8810596704483032,
+            "d_pose": 0.8681416511535645,
+            "d_prefix": 1.7366137504577637,
+            "d_stitch": 1.174371361732483,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              16,
+              17,
+              18,
+              19
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "PickPlaceDrawerToCounter",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 1.7405208349227905,
+              "pose": 18.009611129760742,
+              "prefix": 16.18589210510254,
+              "stitch": 1.0814813375473022
+            },
+            "d_grip": 0.0,
+            "d_local": 1.7405208349227905,
+            "d_pac_sequence": 7.403501081466675,
+            "d_pose": 18.009611129760742,
+            "d_prefix": 16.18589210510254,
+            "d_stitch": 1.0814813375473022,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              20,
+              21,
+              22,
+              23
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "PickPlaceDrawerToCounter",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          }
+        ],
+        "tail_weight": 1.0,
+        "teacher": "original_native_fp16_checkpoint"
+      },
+      "elapsed_s": 38.86197376251221,
+      "latency_mean_s": 1.1966454577923287,
+      "quantized_w4_layers": 171,
+      "retained_fp16_layers": 9,
+      "target_compression": 3.2323232332694722
+    },
+    "lambda_0p75": {
+      "achieved_compression": 3.2355666514631394,
+      "d_func": 0.5827268140686833,
+      "d_func_summary": {
+        "action_space": "physical_post_native_inverse_normalization",
+        "canonical_action_shape": [
+          16,
+          12
+        ],
+        "d_final": 0.031248752309350303,
+        "d_func": 0.5827268140686833,
+        "d_grip": 0.0,
+        "d_kin": 0.014968543829816248,
+        "d_mean": 0.03423328697681427,
+        "d_solver": 0.034233286497737936,
+        "d_solver_std": 0.18465704584936568,
+        "formula_id": "d_func_v1_physical_execute16_deployed12",
+        "per_dim": {
+          "grip": 2.582639584920139e-05,
+          "rot": 0.020367451353032882,
+          "trans": 0.009569636306599613
+        },
+        "per_obs": [
+          0.0016473167343065143,
+          0.0019266292219981551,
+          0.00048151882947422564,
+          0.0005603398894891143,
+          0.0013431005645543337,
+          0.000646216154564172,
+          0.0012594364816322923,
+          0.0004237778193783015,
+          0.001219088793732226,
+          0.0005331319407559931,
+          0.0016486747190356255,
+          0.0002826385316438973,
+          0.0020843329839408398,
+          0.00019448193779680878,
+          0.0011436962522566319,
+          0.000670993875246495,
+          0.004877855069935322,
+          0.0006953646661713719,
+          0.0002698517928365618,
+          0.003711462253704667,
+          1.0623453855514526,
+          8.935190999181941e-05,
+          0.0004517198831308633,
+          0.0016487148823216558,
+          0.0005297181778587401,
+          0.0005066145677119493,
+          0.00023717516160104424,
+          0.0009486417402513325,
+          0.0007713699014857411,
+          0.00044329173397272825,
+          0.0007377440924756229,
+          0.0011355318129062653
+        ],
+        "per_sequence": [
+          0.008294257602759052,
+          0.00855645114692,
+          0.009049582029195298,
+          0.010274414997323561,
+          0.01909794582975368,
+          0.0449290427916743,
+          0.04524198118518967,
+          2.468431724637201
+        ],
+        "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "selection_sample_unit": "paired_task_seed_sequence",
+        "sequences": [
+          {
+            "components": {
+              "final": 0.0005519767739317826,
+              "grip": 0.0,
+              "kin": 0.005844997348324605,
+              "tail_cvar90": 0.0009486417402513325
+            },
+            "d_func_sequence": 0.008294257602759052,
+            "record_indices": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "seed": 0,
+            "task": "CoffeeSetupMug"
+          },
+          {
+            "components": {
+              "final": 0.0007591035932635935,
+              "grip": 0.0,
+              "kin": 0.005526283927843876,
+              "tail_cvar90": 0.0011355318129062653
+            },
+            "d_func_sequence": 0.00855645114692,
+            "record_indices": [
+              28,
+              29,
+              30,
+              31
+            ],
+            "seed": 1,
+            "task": "CoffeeSetupMug"
+          },
+          {
+            "components": {
+              "final": 0.0009517816756926073,
+              "grip": 0.0,
+              "kin": 0.004800450915431439,
+              "tail_cvar90": 0.0016486747190356255
+            },
+            "d_func_sequence": 0.009049582029195298,
+            "record_indices": [
+              8,
+              9,
+              10,
+              11
+            ],
+            "seed": 0,
+            "task": "OpenCabinet"
+          },
+          {
+            "components": {
+              "final": 0.001037854567547682,
+              "grip": 0.0,
+              "kin": 0.0050678944618942,
+              "tail_cvar90": 0.0020843329839408398
+            },
+            "d_func_sequence": 0.010274414997323561,
+            "record_indices": [
+              12,
+              13,
+              14,
+              15
+            ],
+            "seed": 1,
+            "task": "OpenCabinet"
+          },
+          {
+            "components": {
+              "final": 0.001183520651275771,
+              "grip": 0.0,
+              "kin": 0.014061166734481597,
+              "tail_cvar90": 0.0019266292219981551
+            },
+            "d_func_sequence": 0.01909794582975368,
+            "record_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenStandMixerHead"
+          },
+          {
+            "components": {
+              "final": 0.000968719428462421,
+              "grip": 0.0,
+              "kin": 0.04127412223410321,
+              "tail_cvar90": 0.0013431005645543337
+            },
+            "d_func_sequence": 0.0449290427916743,
+            "record_indices": [
+              4,
+              5,
+              6,
+              7
+            ],
+            "seed": 1,
+            "task": "OpenStandMixerHead"
+          },
+          {
+            "components": {
+              "final": 0.0025559528605066115,
+              "grip": 0.0,
+              "kin": 0.032930318184812415,
+              "tail_cvar90": 0.004877855069935322
+            },
+            "d_func_sequence": 0.04524198118518967,
+            "record_indices": [
+              16,
+              17,
+              18,
+              19
+            ],
+            "seed": 0,
+            "task": "PickPlaceDrawerToCounter"
+          },
+          {
+            "components": {
+              "final": 0.22167332961456615,
+              "grip": 0.0,
+              "kin": 0.1220676239197299,
+              "tail_cvar90": 1.0623453855514526
+            },
+            "d_func_sequence": 2.468431724637201,
+            "record_indices": [
+              20,
+              21,
+              22,
+              23
+            ],
+            "seed": 1,
+            "task": "PickPlaceDrawerToCounter"
+          }
+        ],
+        "tail": {
+          "cvar90": 0.26825475896475837,
+          "n": 32,
+          "p90": 0.0020685626077465717,
+          "p95": 0.004236339021008461
+        },
+        "weights": {
+          "final": 1.0,
+          "grip": 1.0,
+          "kin": 1.0,
+          "tail": 2.0
+        }
+      },
+      "d_pac": 8.779565514065325,
+      "d_pac_summary": {
+        "cvar": 7.108839619159698,
+        "cvar_alpha": 0.9,
+        "d_pac": 8.779565514065325,
+        "dimension_scale": [
+          0.06885150074958801,
+          0.045259736478328705,
+          0.14893585443496704,
+          0.005567340645939112,
+          0.011502329260110855,
+          0.008799596689641476,
+          0.09991134703159332,
+          0.009286065585911274,
+          0.0016210426110774279,
+          0.005643896758556366,
+          0.00046430330257862806,
+          0.09990114718675613
+        ],
+        "formula_id": "d_pac_v2_physical_execute16_deployed12",
+        "mean": 1.6707258949056265,
+        "n_sequences": 8,
+        "per_sequence": [
+          0.5082254230976104,
+          1.0932272851467133,
+          0.6616141468286514,
+          0.5800915345549583,
+          1.140841805934906,
+          1.002007883787155,
+          1.270959460735321,
+          7.108839619159698
+        ],
+        "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "sequence_grouping": "task_seed_ordered_unique_replan",
+        "sequences": [
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.1257609724998474,
+              "pose": 1.2036774158477783,
+              "prefix": 1.0794180631637573,
+              "stitch": 0.1322706639766693
+            },
+            "d_grip": 0.0,
+            "d_local": 0.1257609724998474,
+            "d_pac_sequence": 0.5082254230976104,
+            "d_pose": 1.2036774158477783,
+            "d_prefix": 1.0794180631637573,
+            "d_stitch": 0.1322706639766693,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "CoffeeSetupMug",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.18712890148162842,
+              "pose": 3.263948440551758,
+              "prefix": 1.629246711730957,
+              "stitch": 0.385812371969223
+            },
+            "d_grip": 0.0,
+            "d_local": 0.18712890148162842,
+            "d_pac_sequence": 1.0932272851467133,
+            "d_pose": 3.263948440551758,
+            "d_prefix": 1.629246711730957,
+            "d_stitch": 0.385812371969223,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              28,
+              29,
+              30,
+              31
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "CoffeeSetupMug",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.14584697782993317,
+              "pose": 1.7478636503219604,
+              "prefix": 1.0087844133377075,
+              "stitch": 0.405575692653656
+            },
+            "d_grip": 0.0,
+            "d_local": 0.14584697782993317,
+            "d_pac_sequence": 0.6616141468286514,
+            "d_pose": 1.7478636503219604,
+            "d_prefix": 1.0087844133377075,
+            "d_stitch": 0.405575692653656,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              8,
+              9,
+              10,
+              11
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenCabinet",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.10848245769739151,
+              "pose": 1.7033323049545288,
+              "prefix": 0.9401313662528992,
+              "stitch": 0.14851154386997223
+            },
+            "d_grip": 0.0,
+            "d_local": 0.10848245769739151,
+            "d_pac_sequence": 0.5800915345549583,
+            "d_pose": 1.7033323049545288,
+            "d_prefix": 0.9401313662528992,
+            "d_stitch": 0.14851154386997223,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              12,
+              13,
+              14,
+              15
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "OpenCabinet",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.35053977370262146,
+              "pose": 3.4216506481170654,
+              "prefix": 1.5190919637680054,
+              "stitch": 0.41292664408683777
+            },
+            "d_grip": 0.0,
+            "d_local": 0.35053977370262146,
+            "d_pac_sequence": 1.140841805934906,
+            "d_pose": 3.4216506481170654,
+            "d_prefix": 1.5190919637680054,
+            "d_stitch": 0.41292664408683777,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenStandMixerHead",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.28282108902931213,
+              "pose": 2.470045328140259,
+              "prefix": 1.8114018440246582,
+              "stitch": 0.44577115774154663
+            },
+            "d_grip": 0.0,
+            "d_local": 0.28282108902931213,
+            "d_pac_sequence": 1.002007883787155,
+            "d_pose": 2.470045328140259,
+            "d_prefix": 1.8114018440246582,
+            "d_stitch": 0.44577115774154663,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              4,
+              5,
+              6,
+              7
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "OpenStandMixerHead",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.718447744846344,
+              "pose": 1.4507993459701538,
+              "prefix": 2.5316410064697266,
+              "stitch": 1.6539092063903809
+            },
+            "d_grip": 0.0,
+            "d_local": 0.718447744846344,
+            "d_pac_sequence": 1.270959460735321,
+            "d_pose": 1.4507993459701538,
+            "d_prefix": 2.5316410064697266,
+            "d_stitch": 1.6539092063903809,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              16,
+              17,
+              18,
+              19
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "PickPlaceDrawerToCounter",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 1.6415214538574219,
+              "pose": 17.54132080078125,
+              "prefix": 15.482588768005371,
+              "stitch": 0.8787670731544495
+            },
+            "d_grip": 0.0,
+            "d_local": 1.6415214538574219,
+            "d_pac_sequence": 7.108839619159698,
+            "d_pose": 17.54132080078125,
+            "d_prefix": 15.482588768005371,
+            "d_stitch": 0.8787670731544495,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              20,
+              21,
+              22,
+              23
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "PickPlaceDrawerToCounter",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          }
+        ],
+        "tail_weight": 1.0,
+        "teacher": "original_native_fp16_checkpoint"
+      },
+      "elapsed_s": 35.11325025558472,
+      "latency_mean_s": 1.0812428939680103,
+      "quantized_w4_layers": 171,
+      "retained_fp16_layers": 9,
+      "target_compression": 3.2323232332694722
+    },
+    "lambda_1p0": {
+      "achieved_compression": 3.2337811900191937,
+      "d_func": 0.7044227222391012,
+      "d_func_summary": {
+        "action_space": "physical_post_native_inverse_normalization",
+        "canonical_action_shape": [
+          16,
+          12
+        ],
+        "d_final": 0.03792472159499127,
+        "d_func": 0.7044227222391012,
+        "d_grip": 0.0,
+        "d_kin": 0.016825441530868207,
+        "d_mean": 0.04132826253771782,
+        "d_solver": 0.0413282639250383,
+        "d_solver_std": 0.18766560656473674,
+        "formula_id": "d_func_v1_physical_execute16_deployed12",
+        "per_dim": {
+          "grip": 0.00010632111513325182,
+          "rot": 0.018972839935695762,
+          "trans": 0.014678043126040652
+        },
+        "per_obs": [
+          0.0010943356901407242,
+          0.0013295108219608665,
+          0.0004920149804092944,
+          0.0005783250089734793,
+          0.0013346337946131825,
+          0.001117852982133627,
+          0.001477113226428628,
+          0.0003343384014442563,
+          0.0010523837991058826,
+          0.000583966844715178,
+          0.001890190877020359,
+          0.00019585729751270264,
+          0.002105206483975053,
+          0.0002861300017684698,
+          0.0009220927022397518,
+          0.0007031879504211247,
+          0.006552037782967091,
+          0.0008032877231016755,
+          0.0003473397227935493,
+          0.22783108055591583,
+          1.0628567934036255,
+          6.0934191424166784e-05,
+          0.00034388049971312284,
+          0.002080132020637393,
+          0.0009412674698978662,
+          0.00033063613227568567,
+          0.0003368522156961262,
+          0.0008243797346949577,
+          0.000780937378294766,
+          0.00064285151893273,
+          0.0009410909842699766,
+          0.001333803404122591
+        ],
+        "per_sequence": [
+          0.008903194154022975,
+          0.009661763321318594,
+          0.009517815898810318,
+          0.010215275035693985,
+          0.016152319985425413,
+          0.023824329008445465,
+          0.5809620583025144,
+          2.4671657373081546
+        ],
+        "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "selection_sample_unit": "paired_task_seed_sequence",
+        "sequences": [
+          {
+            "components": {
+              "final": 0.0005991271234059228,
+              "grip": 0.0,
+              "kin": 0.006421532090821318,
+              "tail_cvar90": 0.0009412674698978662
+            },
+            "d_func_sequence": 0.008903194154022975,
+            "record_indices": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "seed": 0,
+            "task": "CoffeeSetupMug"
+          },
+          {
+            "components": {
+              "final": 0.000908692666402498,
+              "grip": 0.0,
+              "kin": 0.006085463846670912,
+              "tail_cvar90": 0.001333803404122591
+            },
+            "d_func_sequence": 0.009661763321318594,
+            "record_indices": [
+              28,
+              29,
+              30,
+              31
+            ],
+            "seed": 1,
+            "task": "CoffeeSetupMug"
+          },
+          {
+            "components": {
+              "final": 0.000957986323209729,
+              "grip": 0.0,
+              "kin": 0.004779447821559871,
+              "tail_cvar90": 0.001890190877020359
+            },
+            "d_func_sequence": 0.009517815898810318,
+            "record_indices": [
+              8,
+              9,
+              10,
+              11
+            ],
+            "seed": 0,
+            "task": "OpenCabinet"
+          },
+          {
+            "components": {
+              "final": 0.0010244494243861588,
+              "grip": 0.0,
+              "kin": 0.004980412643357721,
+              "tail_cvar90": 0.002105206483975053
+            },
+            "d_func_sequence": 0.010215275035693985,
+            "record_indices": [
+              12,
+              13,
+              14,
+              15
+            ],
+            "seed": 1,
+            "task": "OpenCabinet"
+          },
+          {
+            "components": {
+              "final": 0.0008890694527743777,
+              "grip": 0.0,
+              "kin": 0.012604228888729304,
+              "tail_cvar90": 0.0013295108219608665
+            },
+            "d_func_sequence": 0.016152319985425413,
+            "record_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenStandMixerHead"
+          },
+          {
+            "components": {
+              "final": 0.0011010502036192457,
+              "grip": 0.0,
+              "kin": 0.019769052351968963,
+              "tail_cvar90": 0.001477113226428628
+            },
+            "d_func_sequence": 0.023824329008445465,
+            "record_indices": [
+              4,
+              5,
+              6,
+              7
+            ],
+            "seed": 1,
+            "task": "OpenStandMixerHead"
+          },
+          {
+            "components": {
+              "final": 0.05523483063519497,
+              "grip": 0.0,
+              "kin": 0.07006506655548768,
+              "tail_cvar90": 0.22783108055591583
+            },
+            "d_func_sequence": 0.5809620583025144,
+            "record_indices": [
+              16,
+              17,
+              18,
+              19
+            ],
+            "seed": 0,
+            "task": "PickPlaceDrawerToCounter"
+          },
+          {
+            "components": {
+              "final": 0.22189047704187673,
+              "grip": 0.0,
+              "kin": 0.11956167345902664,
+              "tail_cvar90": 1.0628567934036255
+            },
+            "d_func_sequence": 2.4671657373081546,
+            "record_indices": [
+              20,
+              21,
+              22,
+              23
+            ],
+            "seed": 1,
+            "task": "PickPlaceDrawerToCounter"
+          }
+        ],
+        "tail": {
+          "cvar90": 0.32483627955662087,
+          "n": 32,
+          "p90": 0.0021026990376412868,
+          "p95": 0.10612760703079387
+        },
+        "weights": {
+          "final": 1.0,
+          "grip": 1.0,
+          "kin": 1.0,
+          "tail": 2.0
+        }
+      },
+      "d_pac": 8.377645942941308,
+      "d_pac_summary": {
+        "cvar": 6.73592324256897,
+        "cvar_alpha": 0.9,
+        "d_pac": 8.377645942941308,
+        "dimension_scale": [
+          0.06885150074958801,
+          0.045259736478328705,
+          0.14893585443496704,
+          0.005567340645939112,
+          0.011502329260110855,
+          0.008799596689641476,
+          0.09991134703159332,
+          0.009286065585911274,
+          0.0016210426110774279,
+          0.005643896758556366,
+          0.00046430330257862806,
+          0.09990114718675613
+        ],
+        "formula_id": "d_pac_v2_physical_execute16_deployed12",
+        "mean": 1.6417227003723385,
+        "n_sequences": 8,
+        "per_sequence": [
+          0.5160470739006996,
+          0.9988877356052399,
+          0.5746961623430252,
+          0.5900879368185997,
+          1.2647924602031708,
+          0.7525160789489747,
+          1.700830912590027,
+          6.73592324256897
+        ],
+        "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "sequence_grouping": "task_seed_ordered_unique_replan",
+        "sequences": [
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.10855799913406372,
+              "pose": 1.6390858888626099,
+              "prefix": 0.7179775238037109,
+              "stitch": 0.11461395770311356
+            },
+            "d_grip": 0.0,
+            "d_local": 0.10855799913406372,
+            "d_pac_sequence": 0.5160470739006996,
+            "d_pose": 1.6390858888626099,
+            "d_prefix": 0.7179775238037109,
+            "d_stitch": 0.11461395770311356,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "CoffeeSetupMug",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.1637958586215973,
+              "pose": 3.2737159729003906,
+              "prefix": 1.2970706224441528,
+              "stitch": 0.2598562240600586
+            },
+            "d_grip": 0.0,
+            "d_local": 0.1637958586215973,
+            "d_pac_sequence": 0.9988877356052399,
+            "d_pose": 3.2737159729003906,
+            "d_prefix": 1.2970706224441528,
+            "d_stitch": 0.2598562240600586,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              28,
+              29,
+              30,
+              31
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "CoffeeSetupMug",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.14432083070278168,
+              "pose": 1.4430246353149414,
+              "prefix": 0.8902955651283264,
+              "stitch": 0.39583978056907654
+            },
+            "d_grip": 0.0,
+            "d_local": 0.14432083070278168,
+            "d_pac_sequence": 0.5746961623430252,
+            "d_pose": 1.4430246353149414,
+            "d_prefix": 0.8902955651283264,
+            "d_stitch": 0.39583978056907654,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              8,
+              9,
+              10,
+              11
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenCabinet",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.09693250805139542,
+              "pose": 1.9392890930175781,
+              "prefix": 0.7793667316436768,
+              "stitch": 0.1348513513803482
+            },
+            "d_grip": 0.0,
+            "d_local": 0.09693250805139542,
+            "d_pac_sequence": 0.5900879368185997,
+            "d_pose": 1.9392890930175781,
+            "d_prefix": 0.7793667316436768,
+            "d_stitch": 0.1348513513803482,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              12,
+              13,
+              14,
+              15
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "OpenCabinet",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.3331754803657532,
+              "pose": 4.006424427032471,
+              "prefix": 1.5529612302780151,
+              "stitch": 0.43140116333961487
+            },
+            "d_grip": 0.0,
+            "d_local": 0.3331754803657532,
+            "d_pac_sequence": 1.2647924602031708,
+            "d_pose": 4.006424427032471,
+            "d_prefix": 1.5529612302780151,
+            "d_stitch": 0.43140116333961487,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "OpenStandMixerHead",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 0.16920757293701172,
+              "pose": 2.1958062648773193,
+              "prefix": 1.1275657415390015,
+              "stitch": 0.2700008153915405
+            },
+            "d_grip": 0.0,
+            "d_local": 0.16920757293701172,
+            "d_pac_sequence": 0.7525160789489747,
+            "d_pose": 2.1958062648773193,
+            "d_prefix": 1.1275657415390015,
+            "d_stitch": 0.2700008153915405,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              4,
+              5,
+              6,
+              7
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "OpenStandMixerHead",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 1.1720610857009888,
+              "pose": 2.1839330196380615,
+              "prefix": 3.187715530395508,
+              "stitch": 1.9604449272155762
+            },
+            "d_grip": 0.0,
+            "d_local": 1.1720610857009888,
+            "d_pac_sequence": 1.700830912590027,
+            "d_pose": 2.1839330196380615,
+            "d_prefix": 3.187715530395508,
+            "d_stitch": 1.9604449272155762,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              16,
+              17,
+              18,
+              19
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 0,
+            "task": "PickPlaceDrawerToCounter",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          },
+          {
+            "action_space": "physical_post_native_inverse_normalization",
+            "components": {
+              "grip": 0.0,
+              "local": 1.4768651723861694,
+              "pose": 17.16346549987793,
+              "prefix": 14.468154907226562,
+              "stitch": 0.571130633354187
+            },
+            "d_grip": 0.0,
+            "d_local": 1.4768651723861694,
+            "d_pac_sequence": 6.73592324256897,
+            "d_pose": 17.16346549987793,
+            "d_prefix": 14.468154907226562,
+            "d_stitch": 0.571130633354187,
+            "dimension_scale": [
+              0.06885150074958801,
+              0.045259736478328705,
+              0.14893585443496704,
+              0.005567340645939112,
+              0.011502329260110855,
+              0.008799596689641476,
+              0.09991134703159332,
+              0.009286065585911274,
+              0.0016210426110774279,
+              0.005643896758556366,
+              0.00046430330257862806,
+              0.09990114718675613
+            ],
+            "executed_actions": 16,
+            "formula_id": "d_pac_v2_physical_execute16_deployed12",
+            "n_replans": 4,
+            "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+            "record_indices": [
+              20,
+              21,
+              22,
+              23
+            ],
+            "replan_indices": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "seed": 1,
+            "task": "PickPlaceDrawerToCounter",
+            "teacher": "original_native_fp16_checkpoint",
+            "weights": {
+              "grip": 1.0,
+              "local": 1.0,
+              "pose": 1.0,
+              "prefix": 1.0,
+              "stitch": 1.0
+            }
+          }
+        ],
+        "tail_weight": 1.0,
+        "teacher": "original_native_fp16_checkpoint"
+      },
+      "elapsed_s": 35.522130250930786,
+      "latency_mean_s": 1.0937779701780528,
+      "quantized_w4_layers": 170,
+      "retained_fp16_layers": 10,
+      "target_compression": 3.2323232332694722
+    }
+  },
+  "selection_buffer_sha256": "c221532ef7d79ef29ba2724f33f695ea1f946b7b963255b0dd760cef8a6e3be7",
+  "selection_metric": "d_pac_v2",
+  "selection_noise": "A",
+  "selection_role": "noise_a_selection",
+  "source_sha256": {
+    "metric": "deb69b98a63ebda8f08b13f710e76565c3c40831f4a8c756a07a0d882638d2be",
+    "quant_runtime": "113221aee8135f806ad076915d6c3f070cc6db727a0e1759bab7cd07d445e94b",
+    "scorer": "7ecd60b19ba198f790c1c0058b8f9b54d725d64732fbfd08e3655c4016ebf06d",
+    "selection_core": "8500a0f6f9eed9b21499edccda4c3c759a533a98559dbd4715e495c99a880541",
+    "single_layer_probe": "299c5428823fa99307e49ef8933450ae9be9e495ca7608552ecdd05ad7ba0e7a",
+    "w4_kernel": "0adba0b496ac303e37ea1de68181285afa7efa255ad1f25ce592cf5e58870a1a"
+  },
+  "teacher": "original_fp16",
+  "teacher_latency_mean_s": 0.3527819465016364,
+  "teacher_latency_mean_s_by_shard": [
+    0.3617902814003173,
+    0.3378615928813815,
+    0.3321143034263514,
+    0.3793616082984954
+  ],
+  "uses_cka": false,
+  "uses_cs": false,
+  "uses_extra_training_data": false,
+  "uses_gradients": false,
+  "uses_success_labels": false,
+  "uses_task_success": false
+}

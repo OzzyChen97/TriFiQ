@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "full_context_round_equivalent_score_reuse",
+  "model_adapter": "gr00t",
+  "from_round": 1,
+  "to_round": 2,
+  "equivalent": true,
+  "candidate_count": 117,
+  "equivalence_fields": [
+    "candidate_id",
+    "flip",
+    "protected_layers",
+    "retained_fp16_layers",
+    "total_bytes",
+    "within_budget",
+    "per_layer_bits",
+    "per_layer_skip",
+    "per_layer_group"
+  ],
+  "reason": "The round-1 winner protects zero layers, so the round-2 context is the same all-W4 network and every registered single-layer flip is semantically identical.",
+  "round1_intervention_manifest_sha256": "507e6f1b52a3171ac825d1f3ac060f46280b147d2495a3d0054ba318f942a4a5",
+  "round2_intervention_manifest_sha256": "fa39131cc0459b54301e5a66f2323f44d68c4be903674e22ca934d8b196b87c3",
+  "reused_noise_a_scores_sha256": "0197f5784a728481f9f22fdd87c0a1446cacf9fc40512f5d2fc0f3a1838d6735",
+  "success_labels_used": false,
+  "quick_results_used_for_selection": false
+}
