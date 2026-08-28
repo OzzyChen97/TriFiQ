@@ -123,6 +123,27 @@
     "final_score": "max(J_teacher_state, J_candidate_state)",
     "role": "selection_stage_diagnostic"
   },
+  "selection_buffer_v2": {
+    "role": "cross_context_fp16_onpolicy_selection_buffer",
+    "tasks_per_split": 4,
+    "seeds_per_task": 3,
+    "replans_per_sequence": 4,
+    "max_replans": 12,
+    "windows": {
+      "early": [0, 4],
+      "middle": [4, 8],
+      "late": [8, 12]
+    },
+    "window_assignment": "hash_of_task_and_seed",
+    "total_sequences": 36,
+    "total_observations": 144,
+    "gr00t_coverage": "atomic_seen_and_composite_seen_and_composite_unseen_checkpoints",
+    "pi05_coverage": "single_fp16_server_checkpoint",
+    "global_static_mask_only": true,
+    "spec_path": "runs/full_context_v2/selection_context_spec.json",
+    "archive_path": "runs/full_context_v2/selection_buffer.npz",
+    "teacher": "fp16_onpolicy_server"
+  },
   "quick_development": {
     "tasks": [
       "CloseFridge",
