@@ -11,10 +11,15 @@ from typing import Any
 from quantvla_cross_model_protocol import sha256_file, validate_quant_plan
 from quantvla_full_context import (
     PROTOCOL,
+    PROTOCOL_V2,
     protocol_attestation,
     require_protocol_attestation,
 )
 from quantvla_outputimpact import atomic_json
+from quantvla_table1_bytes import (
+    TABLE1_QUANTVLA_BYTES,
+    table1_total_static_bytes,
+)
 
 
 def artifact(path: str | Path) -> dict[str, Any]:
@@ -30,6 +35,30 @@ def artifact(path: str | Path) -> dict[str, Any]:
 
 def optional_artifact(path: str | None) -> dict[str, Any] | None:
     return None if path is None else artifact(path)
+
+
+def checkpoint_tree_artifact(path: str | Path) -> dict[str, Any]:
+    """Content-addressed record for a GR00T checkpoint directory tree."""
+    import hashlib
+
+    root = Path(path).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(root)
+    files = sorted(candidate for candidate in root.rglob("*") if candidate.is_file())
+    digest = hashlib.sha256()
+    total = 0
+    for file_path in files:
+        relative = file_path.relative_to(root).as_posix().encode()
+        file_digest = sha256_file(file_path)
+        size = file_path.stat().st_size
+        digest.update(relative + b"\0" + file_digest.encode() + b"\0" + str(size).encode() + b"\n")
+        total += size
+    return {
+        "path": str(root),
+        "sha256_tree": digest.hexdigest(),
+        "files": len(files),
+        "bytes": total,
+    }
 
 
 def main() -> None:
@@ -72,9 +101,16 @@ def main() -> None:
         raise ValueError("static A8 Table-1 deployment requires an A8 artifact")
 
     all_w4 = int(plan["all_w4_total_bytes"])
-    maximum = int(PROTOCOL["byte_budget"]["maximum_quantvla_byte_multiplier"] * all_w4)
-    if int(plan["total_bytes"]) > maximum:
-        raise ValueError("frozen plan exceeds the registered Table-1 byte cap")
+    static_total = table1_total_static_bytes(args.model, int(plan["total_bytes"]))
+    maximum_static = int(
+        PROTOCOL_V2["byte_budget"]["maximum_quantvla_byte_multiplier"]
+        * TABLE1_QUANTVLA_BYTES[args.model]
+    )
+    if static_total > maximum_static:
+        raise ValueError(
+            "frozen plan exceeds the registered Table-1 byte cap "
+            f"({static_total} > {maximum_static} total-static bytes)"
+        )
     table = PROTOCOL["table1"]
     tasks = table["tasks"]
     if {key: len(value) for key, value in tasks.items()} != table["task_counts"]:
@@ -106,13 +142,23 @@ def main() -> None:
             "total_bytes": int(plan["total_bytes"]),
             "all_w4_quantvla_bytes": all_w4,
             "byte_multiplier": float(plan["total_bytes"] / all_w4),
-            "achieved_candidate_compression": float(plan["achieved_candidate_compression"]),
+            "achieved_candidate_compression": float(plan.get("achieved_candidate_compression", plan.get("achieved_target_matrix_compression"))),
             "quantized_w4_layers": int(plan["quantized_w4_layers"]),
             "retained_fp16_layers": int(plan["retained_fp16_layers"]),
             "runtime_selector": False,
             "runtime_correction": False,
         },
         "compression_claim": {
+            "byte_scope": PROTOCOL_V2["byte_budget"]["scope"],
+            "budget_anchor": PROTOCOL_V2["byte_budget"]["budget_anchor"],
+            "quantvla_storage_cell_bytes": TABLE1_QUANTVLA_BYTES[args.model],
+            "maximum_total_static_bytes": maximum_static,
+            "candidate_total_static_bytes": static_total,
+            "within_quantvla_1p10": static_total <= maximum_static,
+            "candidate_linear_byte_multiplier": float(plan["total_bytes"] / all_w4),
+            "candidate_linear_only_compression": float(
+                plan.get("achieved_candidate_compression", plan.get("achieved_target_matrix_compression"))
+            ),
             "quantvla_anchor_compression": float(
                 PROTOCOL["model_hyperparameters"][args.model][
                     "quantvla_anchor_compression"
@@ -124,17 +170,13 @@ def main() -> None:
             "candidate_linear_byte_scope": PROTOCOL["byte_budget"]["scope"],
             "candidate_linear_quantvla_bytes": all_w4,
             "candidate_linear_deployment_bytes": int(plan["total_bytes"]),
-            "candidate_linear_byte_multiplier": float(plan["total_bytes"] / all_w4),
-            "within_quantvla_1p10": int(plan["total_bytes"]) <= maximum,
-            "candidate_linear_only_compression": float(
-                plan["achieved_candidate_compression"]
-            ),
             "note": (
-                "The anchor/floor are full-deployment paper ratios; exact mask optimization "
-                "uses the registered candidate-Linear packed-byte scope and reports it separately."
+                "The v2 budget scope is the total-static component accounting "
+                "against the 1.10x QuantVLA storage cell; the linear-only "
+                "multiplier is reported transparently as a secondary figure."
             ),
         },
-        "checkpoint": artifact(args.checkpoint),
+        "checkpoint": checkpoint_tree_artifact(args.checkpoint),
         "protocol": {
             "benchmark": table["benchmark"],
             "split": table["split"],
