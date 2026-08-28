@@ -76,6 +76,30 @@ ACTION_DIMS = {
 }
 
 ACTION_NOISE_SCHEME = "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1"
+
+
+def canonical_state(obs: dict) -> np.ndarray:
+    """RoboCasa obs -> canonical 16-dim state (eef pos/rot, base pos/rot, gripper)."""
+    parts = [
+        np.asarray(obs["state.end_effector_position_relative"], dtype=np.float32).reshape(-1),
+        np.asarray(obs["state.end_effector_rotation_relative"], dtype=np.float32).reshape(-1),
+        np.asarray(obs["state.base_position"], dtype=np.float32).reshape(-1),
+        np.asarray(obs["state.base_rotation"], dtype=np.float32).reshape(-1),
+        np.asarray(obs["state.gripper_qpos"], dtype=np.float32).reshape(-1),
+    ]
+    state = np.concatenate(parts)
+    if state.size != 16:
+        raise ValueError(f"canonical state size drift: {state.size}")
+    return state
+
+
+def paired_action_noise_tensor(noise_seed: int) -> np.ndarray:
+    """Bitwise replica of the server-side paired noise (torch-cpu-normal-v1)."""
+    import torch
+
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(noise_seed)
+    return torch.randn((50, 32), generator=generator, dtype=torch.float32).numpy()
 ENVIRONMENT_SEED_PROTOCOL = "python-random/numpy-global/robocasa-constructor-and-reset-v1"
 
 
@@ -234,6 +258,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Require each server response to include runtime selector metadata.",
     )
+    p.add_argument(
+        "--candidate-state-archive",
+        default=None,
+        help=("Optional .npz path. When set, one observation row (images, "
+              "states, prompt, task/seed/step/replan keys, paired action "
+              "noise) is appended at every replan for the candidate-state "
+              "teacher audit. Requires --paired-action-noise."),
+    )
     p.add_argument("--out", required=True)
     return p.parse_args()
 
@@ -263,6 +295,8 @@ def main() -> None:
             )
     if args.exact_seed is not None and (len(tasks) != 1 or args.n_trials != 1):
         raise SystemExit("--exact-seed requires exactly one task and --n-trials 1")
+    if args.candidate_state_archive and not args.paired_action_noise:
+        raise SystemExit("--candidate-state-archive requires --paired-action-noise")
     client = _Gr00tZMQClient(host="localhost", port=args.port)
     try:
         server_metadata = client.runtime_info()
@@ -291,6 +325,7 @@ def main() -> None:
 
     results = []
     t0 = time.time()
+    capture_rows: list[dict] = [] if args.candidate_state_archive else []
 
     def persist_results() -> None:
         """Atomically checkpoint completed trials for crash-safe batch recovery."""
@@ -398,6 +433,23 @@ def main() -> None:
                         action_noise_seed(task, seed, replan_index)
                         if args.paired_action_noise else None
                     )
+                    if args.candidate_state_archive:
+                        if noise_seed is None:
+                            raise RuntimeError("candidate-state capture requires paired noise")
+                        capture_rows.append(
+                            {
+                                "image": np.asarray(obs["video.robot0_agentview_left"]),
+                                "wrist_image": np.asarray(obs["video.robot0_eye_in_hand"]),
+                                "right_image": np.asarray(obs["video.robot0_agentview_right"]),
+                                "state": canonical_state(obs),
+                                "prompt": str(obs["annotation.human.task_description"]),
+                                "task": task,
+                                "seed": seed,
+                                "env_step": steps,
+                                "replan": replan_index,
+                                "noise": paired_action_noise_tensor(noise_seed),
+                            }
+                        )
                     infer_t0 = time.perf_counter()
                     action_chunk = client.get_action(send_obs, action_seed=noise_seed)
                     runtime_selector = action_chunk.get("runtime_selector") if isinstance(action_chunk, dict) else None
@@ -481,6 +533,28 @@ def main() -> None:
             persist_results()
         if env is not None:
             env.close()
+    if args.candidate_state_archive:
+        archive_path = Path(args.candidate_state_archive)
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+        if not capture_rows:
+            raise RuntimeError("candidate-state capture produced no rows")
+        payload = {
+            "images": np.stack([row["image"] for row in capture_rows]),
+            "wrist_images": np.stack([row["wrist_image"] for row in capture_rows]),
+            "right_images": np.stack([row["right_image"] for row in capture_rows]),
+            "states": np.stack([row["state"] for row in capture_rows]),
+            "prompts": np.asarray([row["prompt"] for row in capture_rows]),
+            "task_ids": np.asarray([row["task"] for row in capture_rows]),
+            "env_seeds": np.asarray([row["seed"] for row in capture_rows], dtype=np.int64),
+            "env_steps": np.asarray([row["env_step"] for row in capture_rows], dtype=np.int64),
+            "replan_indices": np.asarray([row["replan"] for row in capture_rows], dtype=np.int64),
+            "action_noises": np.stack([row["noise"] for row in capture_rows]),
+        }
+        tmp_path = archive_path.with_name(f".{archive_path.name}.tmp.{os.getpid()}")
+        np.savez_compressed(tmp_path, **payload)
+        os.replace(tmp_path, archive_path)
+        print(f"[robocasa365-eval] candidate-state archive: {archive_path} "
+              f"({len(capture_rows)} rows)", flush=True)
     n_ok = sum(1 for r in results if r["success"])
     print(f"[robocasa365-eval] done: {n_ok}/{len(results)} episodes "
           f"({n_ok / len(results):.1%}) -> {out_path}")

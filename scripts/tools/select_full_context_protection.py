@@ -283,8 +283,21 @@ def freeze(args: argparse.Namespace) -> None:
     scores_path, document = score_payload(args.scores)
     rows = {row["candidate_id"]: row for row in manifest["candidates"]}
     scores = document["scores"]
+    candidate_state: dict[str, dict[str, Any]] | None = None
+    if getattr(args, "candidate_state_audit", None):
+        audit_path, audit = load_json(args.candidate_state_audit)
+        j_values = audit.get("j_candidate_state") or {}
+        if not j_values:
+            raise ValueError(f"{audit_path}: candidate-state audit carries no J values")
+        candidate_state = {
+            identifier: {"j_candidate_state": entry}
+            for identifier, entry in j_values.items()
+        }
     selection = select_frozen_candidate(
-        scores=scores, baseline_id="context_base", plan_rows=rows
+        scores=scores,
+        baseline_id="context_base",
+        plan_rows=rows,
+        candidate_state=candidate_state,
     )
     selected_id = selection["selected_id"]
     selected_path, selected_plan = load_json(rows[selected_id]["path"])
@@ -384,6 +397,11 @@ def parse_args() -> argparse.Namespace:
     freeze_parser.add_argument("--proposals", required=True)
     freeze_parser.add_argument("--scores", required=True)
     freeze_parser.add_argument("--out", required=True)
+    freeze_parser.add_argument(
+        "--candidate-state-audit",
+        default=None,
+        help="optional candidate-state teacher audit (Top-3 J_final adjudication)",
+    )
     freeze_parser.set_defaults(handler=freeze)
     a8_parser = sub.add_parser("a8")
     a8_parser.add_argument("--static-scores", required=True)
