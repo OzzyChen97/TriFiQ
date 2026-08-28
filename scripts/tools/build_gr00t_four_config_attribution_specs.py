@@ -47,7 +47,9 @@ def strip_placement(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_spec(quick_root: Path, task_set: str) -> dict[str, Any]:
+def build_spec(
+    quick_root: Path, task_set: str, a8_scales: dict[str, Path] | None = None
+) -> dict[str, Any]:
     manifest_path = quick_root / task_set / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     rows = {str(row["id"]): row for row in manifest["configs"]}
@@ -61,6 +63,14 @@ def build_spec(quick_root: Path, task_set: str) -> dict[str, Any]:
         raise ValueError(f"{manifest_path}: full_context_v1 role drift")
     h.update({"id": "h", "source_config_id": "gdsq_main"})
     c.update({"id": "c", "source_config_id": "full_context_v1"})
+    if a8_scales and task_set in a8_scales:
+        scales = a8_scales[task_set]
+        h["act_scale"] = {
+            "path": str(scales),
+            "sha256": sha256_file(scales),
+            "bytes": scales.stat().st_size,
+            "regenerated": True,
+        }
 
     m = copy.deepcopy(h)
     m.update(
@@ -105,6 +115,13 @@ def build_spec(quick_root: Path, task_set: str) -> dict[str, Any]:
     }
 
 
+def parse_named(value: str) -> tuple[str, Path]:
+    key, separator, raw_path = value.partition("=")
+    if not separator or not key or not raw_path:
+        raise argparse.ArgumentTypeError("override must be task_set=/path.npz")
+    return key, Path(raw_path).expanduser().resolve()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -115,12 +132,22 @@ def main() -> None:
         "--out-dir",
         default="/home1/gyy/vla/QuantVLA/runs/full_context_v1/gr00t/attribution/specs",
     )
+    parser.add_argument(
+        "--a8-scales",
+        action="append",
+        type=parse_named,
+        default=None,
+        help="optional regenerated gdsq_main A8 scales: task_set=/path.npz",
+    )
     args = parser.parse_args()
     quick_root = Path(args.quick_root).expanduser().resolve()
     out_dir = Path(args.out_dir).expanduser().resolve()
+    a8_scales = dict(args.a8_scales) if args.a8_scales else None
+    if a8_scales and set(a8_scales) != set(TASK_SETS):
+        raise ValueError(f"--a8-scales must cover exactly {TASK_SETS}")
     out_dir.mkdir(parents=True, exist_ok=True)
     for task_set in TASK_SETS:
-        spec = build_spec(quick_root, task_set)
+        spec = build_spec(quick_root, task_set, a8_scales)
         atomic_json(out_dir / f"{task_set}.json", spec)
     print(json.dumps({"specs": str(out_dir), "task_sets": list(TASK_SETS)}, indent=2))
 

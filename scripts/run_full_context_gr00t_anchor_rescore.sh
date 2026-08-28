@@ -24,6 +24,7 @@ BASE_FULL_W4_PLAN="${V2_ANCHOR_BASE_PLAN:-$REPO_ROOT/runs/full_context_v1/gr00t/
 MAIN_MASK_PLAN="$REPO_ROOT/runs/full_context_v2/gr00t_main_pruned_to_table1_budget.json"
 HESSIAN_ROOT="${V2_ANCHOR_HESSIAN_ROOT:-$REPO_ROOT/runs/errorfold_v3_15x20/calibration/gr00t}"
 PACK_ROOT="${V2_ANCHOR_PACK_ROOT:-$REPO_ROOT/runs/errorfold_v3_15x20/calibration/gr00t}"
+DEVICE="${V2_ANCHOR_DEVICE:-cuda:7}"
 
 usage() {
     echo "usage: $0 split | score | rank | all" >&2
@@ -65,6 +66,7 @@ score() {
             --pack-dir "$PACK_ROOT/$split/identity_pack" \
             --hessian-w4 "$HESSIAN_ROOT/$split/hessian_w4.npz" \
             --activation-mode dynamic_a8 \
+            --device "$DEVICE" \
             --buffer "$SPLIT_DIR/selection_buffer_$split.npz" \
             --n-obs 48 \
             --candidate-plan "full_w4=$BASE_FULL_W4_PLAN" \
