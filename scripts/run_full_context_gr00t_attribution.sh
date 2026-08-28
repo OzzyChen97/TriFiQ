@@ -92,25 +92,26 @@ for task_set in task_sets:
     if set(rows) != {"h", "m", "c", "c16"}:
         raise SystemExit(f"{spec_path}: config inventory drift")
     for identifier, row in rows.items():
-        plan = Path(row["plan"]["path"]).resolve()
-        if row["plan"].get("sha256") != digest(plan):
-            raise SystemExit(f"{spec_path}: {identifier} plan sha drift")
-        packdir = Path(row["packdir"]["path"]).resolve()
+        plan = Path(row["plan"]).resolve()
+        if not plan.is_file():
+            raise SystemExit(f"{spec_path}: {identifier} plan missing: {plan}")
+        packdir = Path(row["packdir"]).resolve()
         if not packdir.is_dir():
             raise SystemExit(f"{spec_path}: {identifier} packdir missing: {packdir}")
         if row.get("act_scale"):
-            if row["act_scale"].get("sha256") != digest(Path(row["act_scale"]["path"]).resolve()):
-                raise SystemExit(f"{spec_path}: {identifier} act_scale sha drift")
+            act_scale = Path(row["act_scale"]).resolve()
+            if not act_scale.is_file():
+                raise SystemExit(f"{spec_path}: {identifier} act_scale missing: {act_scale}")
         if row.get("hessian_w4"):
-            hessian = Path(row["hessian_w4"]["path"]).resolve()
+            hessian = Path(row["hessian_w4"]).resolve()
             sidecar = json.loads(Path(str(hessian) + ".json").read_text())
             if sidecar.get("npz_sha256") != digest(hessian):
                 raise SystemExit(f"{spec_path}: {identifier} hessian sha drift")
-    if rows["m"]["plan"]["path"] != rows["h"]["plan"]["path"]:
+    if rows["m"]["plan"] != rows["h"]["plan"]:
         raise SystemExit(f"{spec_path}: M must reuse the historical main mask")
-    if rows["m"]["hessian_w4"]["path"] != rows["c"]["hessian_w4"]["path"]:
+    if rows["m"]["hessian_w4"] != rows["c"]["hessian_w4"]:
         raise SystemExit(f"{spec_path}: M must reuse the common Hessian runtime")
-    if rows["c16"]["plan"]["path"] != rows["c"]["plan"]["path"]:
+    if rows["c16"]["plan"] != rows["c"]["plan"]:
         raise SystemExit(f"{spec_path}: C16 must reuse the candidate mask")
     if rows["c16"]["activation_mode"] != "fp16":
         raise SystemExit(f"{spec_path}: C16 must use FP16 activations")

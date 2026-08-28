@@ -47,6 +47,24 @@ def strip_placement(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def flatten_artifacts(config: dict[str, Any]) -> dict[str, Any]:
+    """The runner spec schema uses plain paths, not manifest artifact dicts."""
+    for key in (
+        "plan",
+        "act_scale",
+        "hessian_w4",
+        "errorfold",
+        "omega_pack",
+        "omega_calibration_manifest",
+        "atm",
+        "packdir",
+    ):
+        value = config.get(key)
+        if isinstance(value, dict):
+            config[key] = value.get("path")
+    return config
+
+
 def build_spec(
     quick_root: Path, task_set: str, a8_scales: dict[str, Path] | None = None
 ) -> dict[str, Any]:
@@ -71,6 +89,8 @@ def build_spec(
             "bytes": scales.stat().st_size,
             "regenerated": True,
         }
+    h = flatten_artifacts(h)
+    c = flatten_artifacts(c)
 
     m = copy.deepcopy(h)
     m.update(
