@@ -589,11 +589,26 @@ def paired_one_se(
     return {"metrics": metrics, "passes": all(row["passes"] for row in metrics.values())}
 
 
+def required_grip_mode(
+    candidate: Mapping[str, Any], baseline: Mapping[str, Any]
+) -> str:
+    """Switch to physical-event grip when the soft component is identically zero."""
+    candidate_vectors = score_vectors(candidate)
+    baseline_vectors = score_vectors(baseline)
+    if "grip" not in candidate_vectors:
+        return "soft"
+    delta = candidate_vectors["grip"] - baseline_vectors["grip"]
+    if np.allclose(delta, 0.0):
+        return "physical_events"
+    return "soft"
+
+
 def select_frozen_candidate(
     *,
     scores: Mapping[str, Mapping[str, Any]],
     baseline_id: str,
     plan_rows: Mapping[str, Mapping[str, Any]],
+    candidate_state: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if baseline_id not in scores or baseline_id not in plan_rows:
         raise ValueError("baseline is absent from scores or plan rows")
@@ -619,6 +634,33 @@ def select_frozen_candidate(
         for identifier in eligible
     }
     qualified = [identifier for identifier in eligible if one_se[identifier]["passes"]]
+    adjudication: dict[str, float] = {}
+    if candidate_state is not None and qualified:
+        # Top-3 by teacher-state objective enter candidate-state adjudication:
+        # J_final = max(J_teacher_state, J_candidate_state) and must be < 0.
+        top_three = sorted(
+            qualified, key=lambda identifier: (summaries[identifier]["objective"], identifier)
+        )[:3]
+        for identifier in top_three:
+            audit = candidate_state.get(identifier)
+            if audit is None:
+                raise ValueError(f"missing candidate-state audit for {identifier}")
+            teacher_j = float(summaries[identifier]["objective"])
+            candidate_j = float(audit["j_candidate_state"]["j"])
+            adjudication[identifier] = max(teacher_j, candidate_j)
+        qualified = [identifier for identifier in qualified if adjudication.get(identifier, 0.0) < 0.0]
+    if not qualified:
+        return {
+            "selected_id": baseline_id,
+            "fallback_to_baseline": True,
+            "reason": (
+                "candidate_state_adjudication_rejected_all_top_candidates"
+                if adjudication
+                else "no_candidate_passes_the_one_se_screen"
+            ),
+            "summaries": summaries,
+            "candidate_state_adjudication": adjudication,
+        }
 
     def tie_key(identifier: str) -> tuple[Any, ...]:
         row = plan_rows[identifier]
@@ -641,6 +683,7 @@ def select_frozen_candidate(
         "selection": summaries[selected],
         "summaries": summaries,
         "paired_one_se": one_se,
+        "candidate_state_adjudication": adjudication or None,
         "tie_break": list(PROTOCOL["selection"]["tie_break"]),
     }
 

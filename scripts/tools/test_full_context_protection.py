@@ -316,8 +316,7 @@ def test_component_rule_requires_nonpositive_task_mean() -> None:
     assert summary["eligible"] is False
 
 
-def _synthetic_byte_rows(count: int, fp16_bytes: int, w4_bytes: int) -> dict:
-    return {
+def _synthetic_byte_rows(count: int, fp16_bytes: int, w4_bytes: int) -> dict:    return {
         f"l{index}": {
             "fp16_bytes": fp16_bytes,
             "w4_bytes": w4_bytes,
@@ -427,3 +426,91 @@ def test_finalize_candidate_plan_emits_table1_fields_and_enforces_static_ceiling
             manifest_sha="0" * 64,
             flow_steps=4,
         )
+
+
+def test_required_grip_mode_switches_on_zero_delta() -> None:
+    from quantvla_full_context import required_grip_mode
+
+    baseline = task_score(
+        {"OpenDrawer": [1.0, 1.0], "OpenCabinet": [1.0, 1.0]},
+        {"OpenDrawer": [1.0, 1.0], "OpenCabinet": [1.0, 1.0]},
+    )
+    identical = task_score(
+        {"OpenDrawer": [0.0, 0.0], "OpenCabinet": [0.0, 0.0]},
+        {"OpenDrawer": [0.0, 0.0], "OpenCabinet": [0.0, 0.0]},
+    )
+    assert required_grip_mode(identical, baseline) == "physical_events"
+    for row in identical["d_pac_summary"]["sequences"]:
+        row["components"]["grip"] = 0.3
+    assert required_grip_mode(identical, baseline) == "soft"
+
+
+def test_physical_event_grip_mode_runs_and_responds_to_grip_perturbation() -> None:
+    from quantvla_metric_protocol import ACTION_LAYOUT, summarize_pair
+
+    generator = torch.Generator().manual_seed(9)
+    reference = torch.randn(8, 16, 12, generator=generator)
+    records = [
+        {"task": "OpenDrawer", "seed": index // 4, "replan": index % 4}
+        for index in range(8)
+    ]
+    identical = summarize_pair(
+        reference, reference.clone(), records, grip_mode="physical_events"
+    )
+    assert identical["d_pac_summary"]["d_pac"] == 0.0
+    lo, hi = ACTION_LAYOUT["grip"]
+    candidate = reference.clone()
+    candidate[:, :, lo:hi] += 0.9
+    changed = summarize_pair(reference, candidate, records, grip_mode="physical_events")
+    assert changed["d_pac_summary"]["d_pac"] > 0.0
+    assert all(
+        row["d_grip"] >= 0.0 for row in changed["d_pac_summary"]["sequences"]
+    )
+
+
+def test_candidate_state_adjudication_top3_and_fallback() -> None:
+    baseline = score([1.0] * 8, [2.0] * 8)
+    improved = score([0.8] * 8, [1.5] * 8)
+    scores = {
+        "context_base": baseline,
+        "c1": improved,
+        "c2": improved,
+        "c3": improved,
+    }
+    plan_rows = {
+        identifier: {
+            "total_bytes": 100,
+            "table1_total_static_bytes": 200,
+            "retained_fp16_layers": 1,
+            "protected_layers": ["l0"],
+        }
+        for identifier in ("context_base", "c1", "c2", "c3")
+    }
+    audits = {
+        "c1": {"j_candidate_state": {"j": 0.5}},
+        "c2": {"j_candidate_state": {"j": -0.01}},
+        "c3": {"j_candidate_state": {"j": 0.2}},
+    }
+    result = select_frozen_candidate(
+        scores=scores,
+        baseline_id="context_base",
+        plan_rows=plan_rows,
+        candidate_state=audits,
+    )
+    assert result["selected_id"] == "c2"
+    assert result["fallback_to_baseline"] is False
+    assert result["candidate_state_adjudication"]["c3"] > 0.0
+
+    failing = {
+        identifier: {"j_candidate_state": {"j": 0.9}}
+        for identifier in ("c1", "c2", "c3")
+    }
+    rejected = select_frozen_candidate(
+        scores=scores,
+        baseline_id="context_base",
+        plan_rows=plan_rows,
+        candidate_state=failing,
+    )
+    assert rejected["fallback_to_baseline"] is True
+    assert rejected["selected_id"] == "context_base"
+    assert "candidate_state_adjudication" in rejected["reason"]

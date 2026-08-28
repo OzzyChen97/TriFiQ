@@ -138,6 +138,43 @@ def _gripper_loss(reference: torch.Tensor, candidate: torch.Tensor, scale: torch
     return 0.5 * (state + event)
 
 
+def _physical_event_grip(
+    reference: torch.Tensor, candidate: torch.Tensor, scale: torch.Tensor
+) -> float:
+    """Grip safety from binary physical events instead of soft sigmoid drift.
+
+    Used as the fallback when the soft gripper component is identically zero
+    across the expanded buffer. Terms: binary state disagreement, relative
+    close/open transition count error, and relative first-close index error.
+    """
+    lo, hi = ACTION_LAYOUT["grip"]
+    if lo >= reference.shape[-1] or hi <= lo or reference.shape[0] < 2:
+        return 0.0
+    teacher = torch.sigmoid(4.0 * reference[:, lo:hi] / scale[lo:hi])
+    quant = torch.sigmoid(4.0 * candidate[:, lo:hi] / scale[lo:hi])
+    teacher_bin = (teacher > 0.5).float()
+    quant_bin = (quant > 0.5).float()
+
+    def transitions(binary: torch.Tensor) -> float:
+        return float((binary[1:] - binary[:-1]).clamp(min=0.0).sum().item())
+
+    def first_close(binary: torch.Tensor) -> int:
+        closed = binary.max(dim=-1).values
+        nonzero = (closed > 0).nonzero(as_tuple=True)[0]
+        return int(nonzero[0].item()) if len(nonzero) else int(binary.shape[0])
+
+    teacher_transitions = transitions(teacher_bin)
+    quant_transitions = transitions(quant_bin)
+    disagreement = float((teacher_bin != quant_bin).float().mean().item())
+    transitions_error = abs(quant_transitions - teacher_transitions) / max(
+        teacher_transitions, 1.0
+    )
+    index_error = abs(first_close(quant_bin) - first_close(teacher_bin)) / float(
+        max(reference.shape[0], 1)
+    )
+    return (disagreement + transitions_error + index_error) / 3.0
+
+
 def d_func(reference: Any, candidate: Any, gamma: float = GAMMA) -> dict[str, Any]:
     """The frozen old local selector, now fed the same physical final chunks."""
     if float(gamma) != GAMMA:
@@ -172,8 +209,11 @@ def d_pac_sequence(
     replan_indices: Sequence[int],
     *,
     scale: Any,
+    grip_mode: str = "soft",
 ) -> dict[str, Any]:
     """Compute the five equal physical components for one ordered sequence."""
+    if grip_mode not in ("soft", "physical_events"):
+        raise ValueError(f"unknown grip_mode: {grip_mode}")
     ref = canonical_physical_actions(reference, "reference")
     quant = canonical_physical_actions(candidate, "candidate")
     ref, quant, sorted_replans = _ordered_chunks(ref, quant, replan_indices)
@@ -188,7 +228,11 @@ def d_pac_sequence(
         "prefix": _prefix_loss(normalized_error),
         "pose": _pose_loss(teacher_control, quant_control, dimension_scale),
         "stitch": _stitch_loss(ref, quant, dimension_scale),
-        "grip": _gripper_loss(teacher_control, quant_control, dimension_scale),
+        "grip": (
+            _physical_event_grip(teacher_control, quant_control, dimension_scale)
+            if grip_mode == "physical_events"
+            else _gripper_loss(teacher_control, quant_control, dimension_scale)
+        ),
     }
     combined = sum(DPAC_WEIGHTS[name] * value for name, value in components.items())
     combined /= sum(DPAC_WEIGHTS.values())
@@ -242,6 +286,7 @@ def summarize_pair(
     records: Sequence[Mapping[str, Any]],
     *,
     scale: Any | None = None,
+    grip_mode: str = "soft",
 ) -> dict[str, Any]:
     """Apply the identical grouping, global scale and formulas to either model."""
     ref = canonical_physical_actions(reference, "reference")
@@ -301,6 +346,7 @@ def summarize_pair(
             quant.index_select(0, selected),
             replans,
             scale=global_scale,
+            grip_mode=grip_mode,
         )
         sequences.append({"task": task, "seed": seed, "record_indices": positions, **row})
     pac = aggregate_d_pac_sequences(sequences)
