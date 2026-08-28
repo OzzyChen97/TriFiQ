@@ -556,7 +556,8 @@ def _runtime_info(policy) -> dict:
             "calibration_samples": int(uniform_value(quant_layers, "calib_batches")) * 8,
             "permutation": bool(uniform_value(quant_layers, "enable_permute")),
             "row_rotation": str(uniform_value(quant_layers, "row_rot_mode")),
-            "static_activation_scales": not bool(uniform_value(quant_layers, "act_dynamic")),
+            "static_activation_scales": not bool(uniform_value(quant_layers, "act_dynamic"))
+            and int(uniform_value(quant_layers, "act_bits")) > 0,
             "activation_scales_ready": bool(static_scales_ready(policy.model)),
             "denoising_steps": int(policy.denoising_steps),
             "n_action_steps": 16,

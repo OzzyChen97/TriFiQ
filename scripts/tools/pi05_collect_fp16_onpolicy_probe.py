@@ -154,7 +154,7 @@ def collect_trial(
     terminated = False
     truncated = False
     try:
-        env, construct_s = construct_env(task, split, egl_device)
+        env, construct_s = construct_env(task, split, egl_device, seed)
         obs, _ = env.reset(seed=seed)
         horizon = get_task_horizon(task)
         candidates: list[dict] = []
