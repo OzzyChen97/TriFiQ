@@ -5,12 +5,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any, Mapping
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PROTOCOL_PATH = REPO_ROOT / "scripts/quantvla_cross_model_protocol.json"
+DEFAULT_PROTOCOL_PATH = REPO_ROOT / "scripts/quantvla_cross_model_protocol.json"
+PROTOCOL_PATH = Path(
+    os.environ.get("QUANTVLA_CROSS_MODEL_PROTOCOL_PATH", str(DEFAULT_PROTOCOL_PATH))
+).expanduser().resolve()
+EXPECTED_PROTOCOL_ID = os.environ.get(
+    "QUANTVLA_CROSS_MODEL_PROTOCOL_ID", "quantvla-gr00t-pi05-errorfold-v4"
+)
 
 
 def canonical_hash(value: Any) -> str:
@@ -28,8 +35,11 @@ def sha256_file(path: str | Path) -> str:
 
 def load_protocol() -> dict[str, Any]:
     value = json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
-    if value.get("protocol_id") != "quantvla-gr00t-pi05-errorfold-v4":
-        raise ValueError(f"unexpected cross-model protocol: {value.get('protocol_id')!r}")
+    if value.get("protocol_id") != EXPECTED_PROTOCOL_ID:
+        raise ValueError(
+            "unexpected cross-model protocol: "
+            f"{value.get('protocol_id')!r} != {EXPECTED_PROTOCOL_ID!r}"
+        )
     return value
 
 
@@ -224,7 +234,11 @@ def selftest() -> None:
     assert set(MODELS) == {"gr00t", "pi05"}
     assert PROTOCOL["metrics"]["canonical_action"]["space"].startswith("physical")
     assert PROTOCOL["metrics"]["d_pac"]["pi05_forecast_overlap"] is False
-    assert PROTOCOL["quantization_selection"]["default_profile"].startswith("all_target")
+    selection = PROTOCOL["quantization_selection"]
+    if "default_profile" in selection:
+        assert selection["default_profile"].startswith("all_target")
+    else:
+        assert selection["retained_fp16_target_layers"] == 0
     assert len(PROTOCOL["softfold"]["grid"]["gate_atm"]) == 9
     assert len(PROTOCOL["softfold"]["grid"]["gate_errorfold"]) == 9
     assert len(PROTOCOL["closed_loop"]["seeds"]) == 20

@@ -24,15 +24,22 @@ def _canonical_hash(value: Any) -> str:
 PROTOCOL = json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
 if PROTOCOL.get("method_id") != "quantvla-dpac-errorfold-dyrange-v5":
     raise ValueError("unexpected DyRange-A8 protocol id")
-if (PROTOCOL.get("base_cross_model_protocol") or {}).get(
+BASE_PROTOCOL_SHA256 = (PROTOCOL.get("base_cross_model_protocol") or {}).get(
     "protocol_sha256"
-) != PROTOCOL_SHA256:
-    raise ValueError("DyRange-A8 base protocol drift")
+)
 PROTOCOL_SHA256 = _canonical_hash(PROTOCOL)
 PROTOCOL_FILE_SHA256 = hashlib.sha256(PROTOCOL_PATH.read_bytes()).hexdigest()
 
 
+def _require_base_protocol() -> None:
+    from quantvla_cross_model_protocol import PROTOCOL_SHA256 as active_base_sha256
+
+    if BASE_PROTOCOL_SHA256 != active_base_sha256:
+        raise ValueError("DyRange-A8 base protocol drift")
+
+
 def protocol_attestation() -> dict[str, Any]:
+    _require_base_protocol()
     return {
         "method_id": PROTOCOL["method_id"],
         "protocol_sha256": PROTOCOL_SHA256,
@@ -46,6 +53,7 @@ def protocol_attestation() -> dict[str, Any]:
 
 
 def require_protocol_attestation(value: Mapping[str, Any], *, source: str) -> None:
+    _require_base_protocol()
     actual = value.get("dynamic_a8_protocol") or value
     expected = protocol_attestation()
     mismatches = {
@@ -58,6 +66,7 @@ def require_protocol_attestation(value: Mapping[str, Any], *, source: str) -> No
 
 
 def validate_runtime(contract: Mapping[str, Any], *, source: str) -> None:
+    _require_base_protocol()
     checks = {
         "activation_bits": int(contract.get("activation_bits", -1)) == 8,
         "dynamic": contract.get("static_activation_scales") is False,

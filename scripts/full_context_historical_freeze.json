@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "kind": "full_context_predecessor_historical_freeze",
+  "branch_head": {
+    "commit": "24666a4294f43f23c8c1f453fa44a699f8f4889e",
+    "subject": "experiments: ErrorFold v5 specs, cross-model protocol, paper updates"
+  },
+  "status": "historical_development_not_eligible_for_new_selection_or_table1",
+  "artifacts": [
+    {
+      "role": "blocksoftfold_r2",
+      "path": "runs/errorfold_v5_iter/frozen/pi05_generalized_sep2_rp0_target2.0x/errorfold_blocksoftfold_dual_r2.json",
+      "bytes": 18196659,
+      "sha256": "6407fd82e94a9c71d2dc6a4c38815ae8b37f2ca31b119a12370b8ef9c4204ce6"
+    },
+    {
+      "role": "blockprotected_f4_plan",
+      "path": "runs/errorfold_v5_iter/plans/pi05_blockprotected_target2.0x/pi05_target2.0x_blockprotect_f4.json",
+      "bytes": 102267,
+      "sha256": "98dc7f222c96b1dc54951283c96efbb3feb2f6a043f9a30a439b5e64e5a6d4fd"
+    },
+    {
+      "role": "blockprotected_f8_plan",
+      "path": "runs/errorfold_v5_iter/plans/pi05_blockprotected_target2.0x/pi05_target2.0x_blockprotect_f8.json",
+      "bytes": 102263,
+      "sha256": "8dcdbb2aca2fa12f0c2c026a57d6f5acb396f41584bfb5b65a3feda8261f3d97"
+    },
+    {
+      "role": "blockprotected_f16_plan",
+      "path": "runs/errorfold_v5_iter/plans/pi05_blockprotected_target2.0x/pi05_target2.0x_blockprotect_f16.json",
+      "bytes": 102261,
+      "sha256": "a2481c5483b5fedb69c0864c08db473a6be35bc028922a38ba22bf0d2bac14b4"
+    },
+    {
+      "role": "blockprotected_f4_hessian",
+      "path": "runs/errorfold_v5_iter/calibration/pi05_blockprotected_target2.0x_f4/hessian_w4.npz",
+      "bytes": 1058391662,
+      "sha256": "3506e34f7d36bb0d60c7c5fb2b9e83b3c89adb4dfe3886b4664d52f04f06c00f"
+    },
+    {
+      "role": "blockprotected_f8_hessian",
+      "path": "runs/errorfold_v5_iter/calibration/pi05_blockprotected_target2.0x_f8/hessian_w4.npz",
+      "bytes": 1058391662,
+      "sha256": "e2fef315bcc95ca8965033506e9037ba8e483064d150af7d4bc08abe9d0577f0"
+    },
+    {
+      "role": "blockprotected_f16_hessian",
+      "path": "runs/errorfold_v5_iter/calibration/pi05_blockprotected_target2.0x_f16/hessian_w4.npz",
+      "bytes": 1058391662,
+      "sha256": "24473bb6ae363feb3bde9d6591687e3133348f686c6ee2dea9e0ad57ed7ddcef"
+    }
+  ]
+}

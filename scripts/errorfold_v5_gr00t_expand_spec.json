@@ -1,10 +1,10 @@
 {
-  "purpose": "Strict paired GR00T expansion of the frozen DyRange-A8 full-W4 D_PAC-v2 configuration; closed-loop outcomes are audit-only.",
+  "purpose": "Historical paired GR00T development expansion of the frozen DyRange-A8 full-W4 D_PAC-v2 configuration.",
   "comparisons": [],
   "decision": {
     "selection_used_closed_loop_success": false,
     "selection_noise": "A",
-    "closed_loop_role": "frozen_candidate_audit_only",
+    "closed_loop_role": "historical_development",
     "diagnostic_only": true
   },
   "configs": [

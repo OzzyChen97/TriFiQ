@@ -1,0 +1,470 @@
+#!/usr/bin/env python3
+"""Shared statistics and exact budget solver for full-context FP16 protection.
+
+This file is intentionally model agnostic.  Model loaders, native action
+normalization, layer-name binding, and real-quant kernels remain in adapters;
+all counterfactual statistics and mask decisions live here.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+import json
+import math
+from pathlib import Path
+from typing import Any, Iterable, Mapping, Sequence
+
+import numpy as np
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PROTOCOL_PATH = REPO_ROOT / "scripts/quantvla_full_context_protocol.json"
+METRIC_PATH = REPO_ROOT / "scripts/tools/quantvla_metric_protocol.py"
+QUICK_STATS_PATH = REPO_ROOT / "scripts/tools/aggregate_full_context_quick.py"
+FORMAL_STATS_PATH = REPO_ROOT / "scripts/tools/aggregate_full_context_table1.py"
+
+
+def canonical_hash(value: Any) -> str:
+    rendered = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
+def sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+PROTOCOL = json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
+if PROTOCOL.get("method_id") != "full_context_fp16_protection_v1":
+    raise ValueError("unexpected full-context protocol")
+PROTOCOL_SHA256 = canonical_hash(PROTOCOL)
+
+
+def protocol_attestation() -> dict[str, Any]:
+    return {
+        "method_id": PROTOCOL["method_id"],
+        "protocol_sha256": PROTOCOL_SHA256,
+        "protocol_file": str(PROTOCOL_PATH),
+        "protocol_file_sha256": sha256_file(PROTOCOL_PATH),
+        "selection_core_sha256": sha256_file(Path(__file__)),
+        "metric_core_sha256": sha256_file(METRIC_PATH),
+        "quick_statistics_sha256": sha256_file(QUICK_STATS_PATH),
+        "formal_statistics_sha256": sha256_file(FORMAL_STATS_PATH),
+    }
+
+
+def require_protocol_attestation(value: Mapping[str, Any], *, source: str) -> None:
+    actual = value.get("full_context_protocol") or {}
+    expected = protocol_attestation()
+    drift = {
+        key: (actual.get(key), expected_value)
+        for key, expected_value in expected.items()
+        if actual.get(key) != expected_value
+    }
+    if drift:
+        raise ValueError(f"{source}: full-context protocol drift: {drift}")
+
+
+def candidate_plan_mapping(
+    *,
+    named: Sequence[tuple[str, Path]] | None = None,
+    manifest_path: str | Path | None = None,
+) -> tuple[dict[str, Path], dict[str, Any] | None]:
+    """Load candidate plans from CLI pairs and/or a frozen manifest.
+
+    Paths stored in manifests are resolved relative to the manifest directory
+    when they are not absolute.  Duplicate identifiers fail closed, including
+    duplicates that point to the same path.
+    """
+    pairs = list(named or ())
+    manifest = None
+    if manifest_path is not None:
+        resolved = Path(manifest_path).expanduser().resolve()
+        if not resolved.is_file():
+            raise FileNotFoundError(resolved)
+        manifest = json.loads(resolved.read_text(encoding="utf-8"))
+        require_protocol_attestation(manifest, source=str(resolved))
+        rows = manifest.get("candidates") or []
+        if not isinstance(rows, list) or not rows:
+            raise ValueError(f"{resolved}: candidate manifest is empty")
+        for row in rows:
+            identifier = str(row.get("candidate_id", ""))
+            raw_path = Path(str(row.get("path", ""))).expanduser()
+            if not identifier or not str(raw_path):
+                raise ValueError(f"{resolved}: malformed candidate row")
+            path = raw_path if raw_path.is_absolute() else resolved.parent / raw_path
+            path = path.resolve()
+            expected_sha = row.get("sha256")
+            if expected_sha and sha256_file(path) != expected_sha:
+                raise ValueError(f"{resolved}: candidate artifact drift for {identifier}")
+            pairs.append((identifier, path))
+    if not pairs:
+        raise ValueError("at least one --candidate-plan or --candidate-manifest is required")
+    candidates: dict[str, Path] = {}
+    for identifier, path in pairs:
+        if identifier in candidates:
+            raise ValueError(f"duplicate candidate id: {identifier}")
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        candidates[identifier] = path
+    return dict(sorted(candidates.items())), manifest
+
+
+def shard_candidate_mapping(
+    candidates: Mapping[str, Path], *, shard_index: int, shard_count: int
+) -> dict[str, Path]:
+    """Deterministically distribute sorted candidates over independent GPUs."""
+    if shard_count < 1 or not 0 <= shard_index < shard_count:
+        raise ValueError("candidate shard must satisfy 0 <= index < count")
+    selected = {
+        identifier: path
+        for position, (identifier, path) in enumerate(sorted(candidates.items()))
+        if position % shard_count == shard_index
+    }
+    if not selected:
+        raise ValueError(
+            f"candidate shard {shard_index}/{shard_count} is empty for {len(candidates)} candidates"
+        )
+    return selected
+
+
+def standard_error(values: Sequence[float] | np.ndarray) -> float:
+    vector = np.asarray(values, dtype=np.float64)
+    if vector.ndim != 1 or vector.size == 0 or not np.isfinite(vector).all():
+        raise ValueError("paired values must be a finite non-empty vector")
+    if vector.size == 1:
+        return 0.0
+    return float(vector.std(ddof=1) / math.sqrt(vector.size))
+
+
+def _finite_vector(value: Any, *, name: str) -> np.ndarray:
+    vector = np.asarray(value, dtype=np.float64)
+    if vector.ndim != 1 or vector.size == 0 or not np.isfinite(vector).all():
+        raise ValueError(f"{name} must be a finite non-empty vector")
+    return vector
+
+
+def score_vectors(score: Mapping[str, Any]) -> dict[str, np.ndarray]:
+    """Extract sequence-paired metric and protected-component vectors."""
+    functional = score.get("d_func_summary") or {}
+    pac = score.get("d_pac_summary") or {}
+    result = {
+        "d_func": _finite_vector(functional.get("per_sequence"), name="d_func"),
+        "d_pac": _finite_vector(pac.get("per_sequence"), name="d_pac"),
+    }
+    sequences = pac.get("sequences") or []
+    if len(sequences) != result["d_pac"].size:
+        raise ValueError("D_PAC sequence/component inventory mismatch")
+    for component in PROTOCOL["selection"]["component_constraints"]:
+        result[component] = _finite_vector(
+            [(row.get("components") or {}).get(component) for row in sequences],
+            name=component,
+        )
+    lengths = {vector.size for vector in result.values()}
+    if len(lengths) != 1:
+        raise ValueError(f"paired metric vectors differ in length: {sorted(lengths)}")
+    return result
+
+
+def _baseline_scale(score: Mapping[str, Any], key: str) -> float:
+    scalar_key = "d_func" if key == "d_func" else "d_pac"
+    value = float(score.get(scalar_key, math.nan))
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError(f"invalid baseline {scalar_key}: {value}")
+    return max(value, 1e-12)
+
+
+def paired_candidate_summary(
+    candidate: Mapping[str, Any], baseline: Mapping[str, Any]
+) -> dict[str, Any]:
+    candidate_vectors = score_vectors(candidate)
+    baseline_vectors = score_vectors(baseline)
+    if any(
+        candidate_vectors[key].shape != baseline_vectors[key].shape
+        for key in candidate_vectors
+    ):
+        raise ValueError("candidate and baseline sequence inventories differ")
+    metrics: dict[str, Any] = {}
+    for key in ("d_func", "d_pac"):
+        delta = candidate_vectors[key] - baseline_vectors[key]
+        mean = float(delta.mean())
+        se = standard_error(delta)
+        scale = _baseline_scale(baseline, key)
+        metrics[key] = {
+            "delta": delta.tolist(),
+            "mean": mean,
+            "se": se,
+            "upper_bound": mean + se,
+            "baseline_scale": scale,
+            "normalized_upper_bound": (mean + se) / scale,
+        }
+    components: dict[str, Any] = {}
+    for key in PROTOCOL["selection"]["component_constraints"]:
+        delta = candidate_vectors[key] - baseline_vectors[key]
+        mean = float(delta.mean())
+        se = standard_error(delta)
+        components[key] = {
+            "delta": delta.tolist(),
+            "mean": mean,
+            "se": se,
+            "passes": bool(mean <= se + 1e-15),
+        }
+    objective = max(
+        metrics["d_func"]["normalized_upper_bound"],
+        metrics["d_pac"]["normalized_upper_bound"],
+    )
+    return {
+        "n_sequences": int(candidate_vectors["d_func"].size),
+        "metrics": metrics,
+        "components": components,
+        "objective": float(objective),
+        "component_constraints_pass": all(row["passes"] for row in components.values()),
+        "eligible": bool(
+            objective < 0.0 and all(row["passes"] for row in components.values())
+        ),
+    }
+
+
+def conservative_fp16_benefit(
+    *, current_is_fp16: bool, flip: Mapping[str, Any], baseline: Mapping[str, Any]
+) -> dict[str, float]:
+    """Estimate the conservative value of choosing FP16 for one layer.
+
+    ``flip`` is always measured against the current complete mask.  When the
+    current state is W4, the flip is W4->FP16 and its upper loss bound is
+    negated.  When current is FP16, the flip is FP16->W4 and its lower loss
+    bound is the conservative value of retaining FP16.
+    """
+    flip_vectors = score_vectors(flip)
+    base_vectors = score_vectors(baseline)
+    result: dict[str, float] = {}
+    for key in ("d_func", "d_pac"):
+        delta = flip_vectors[key] - base_vectors[key]
+        mean = float(delta.mean())
+        se = standard_error(delta)
+        scale = _baseline_scale(baseline, key)
+        result[key] = (
+            (mean - se) / scale if current_is_fp16 else -(mean + se) / scale
+        )
+    return result
+
+
+@dataclass(frozen=True)
+class BudgetItem:
+    name: str
+    extra_bytes: int
+    benefit_d_func: float
+    benefit_d_pac: float
+
+
+@dataclass(frozen=True)
+class KnapsackResult:
+    protected: tuple[str, ...]
+    extra_bytes: int
+    utility: float
+
+
+def _state_better(
+    candidate: tuple[float, tuple[str, ...]], current: tuple[float, tuple[str, ...]]
+) -> bool:
+    if candidate[0] > current[0] + 1e-15:
+        return True
+    if abs(candidate[0] - current[0]) <= 1e-15:
+        return (len(candidate[1]), candidate[1]) < (len(current[1]), current[1])
+    return False
+
+
+def exact_weighted_knapsack(
+    items: Iterable[BudgetItem], *, budget_bytes: int, lambda_d_func: float
+) -> KnapsackResult:
+    """Exact sparse-frontier 0/1 knapsack with deterministic tie-breaking."""
+    if not isinstance(budget_bytes, int) or budget_bytes < 0:
+        raise ValueError("budget_bytes must be a non-negative integer")
+    if not math.isfinite(lambda_d_func) or not 0.0 <= lambda_d_func <= 1.0:
+        raise ValueError("lambda_d_func must lie in [0,1]")
+    ordered = sorted(items, key=lambda item: item.name)
+    if len({item.name for item in ordered}) != len(ordered):
+        raise ValueError("budget item names must be unique")
+    for item in ordered:
+        if item.extra_bytes <= 0:
+            raise ValueError(f"{item.name}: FP16 extra bytes must be positive")
+        if not all(math.isfinite(value) for value in (item.benefit_d_func, item.benefit_d_pac)):
+            raise ValueError(f"{item.name}: non-finite benefit")
+
+    states: dict[int, tuple[float, tuple[str, ...]]] = {0: (0.0, ())}
+    for item in ordered:
+        utility = (
+            lambda_d_func * item.benefit_d_func
+            + (1.0 - lambda_d_func) * item.benefit_d_pac
+        )
+        if utility <= 0.0 or item.extra_bytes > budget_bytes:
+            continue
+        updated = dict(states)
+        for cost, state in states.items():
+            new_cost = cost + item.extra_bytes
+            if new_cost > budget_bytes:
+                continue
+            candidate = (state[0] + utility, state[1] + (item.name,))
+            previous = updated.get(new_cost)
+            if previous is None or _state_better(candidate, previous):
+                updated[new_cost] = candidate
+
+        # Exact dominance pruning: a state is removable only when a cheaper
+        # state has at least as much utility.  Costs and utilities are not binned.
+        frontier: dict[int, tuple[float, tuple[str, ...]]] = {}
+        best_utility = -math.inf
+        for cost in sorted(updated):
+            state = updated[cost]
+            if state[0] > best_utility + 1e-15:
+                frontier[cost] = state
+                best_utility = state[0]
+        states = frontier
+
+    best_cost, best = min(
+        states.items(),
+        key=lambda pair: (-pair[1][0], pair[0], len(pair[1][1]), pair[1][1]),
+    )
+    return KnapsackResult(best[1], int(best_cost), float(best[0]))
+
+
+def paired_one_se(
+    candidate: Mapping[str, Any], reference: Mapping[str, Any]
+) -> dict[str, Any]:
+    candidate_vectors = score_vectors(candidate)
+    reference_vectors = score_vectors(reference)
+    metrics = {}
+    for key in ("d_func", "d_pac"):
+        delta = candidate_vectors[key] - reference_vectors[key]
+        mean = float(delta.mean())
+        se = standard_error(delta)
+        metrics[key] = {"mean": mean, "se": se, "passes": bool(mean <= se + 1e-15)}
+    return {"metrics": metrics, "passes": all(row["passes"] for row in metrics.values())}
+
+
+def select_frozen_candidate(
+    *,
+    scores: Mapping[str, Mapping[str, Any]],
+    baseline_id: str,
+    plan_rows: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    if baseline_id not in scores or baseline_id not in plan_rows:
+        raise ValueError("baseline is absent from scores or plan rows")
+    if set(scores) != set(plan_rows):
+        raise ValueError("score and candidate-plan inventories differ")
+    baseline = scores[baseline_id]
+    summaries = {
+        identifier: paired_candidate_summary(score, baseline)
+        for identifier, score in scores.items()
+        if identifier != baseline_id
+    }
+    eligible = [identifier for identifier, row in summaries.items() if row["eligible"]]
+    if not eligible:
+        return {
+            "selected_id": baseline_id,
+            "fallback_to_baseline": True,
+            "reason": "no_candidate_has_negative_paired_minimax_and_component_safety",
+            "summaries": summaries,
+        }
+    best_id = min(eligible, key=lambda identifier: (summaries[identifier]["objective"], identifier))
+    one_se = {
+        identifier: paired_one_se(scores[identifier], scores[best_id])
+        for identifier in eligible
+    }
+    qualified = [identifier for identifier in eligible if one_se[identifier]["passes"]]
+
+    def tie_key(identifier: str) -> tuple[Any, ...]:
+        row = plan_rows[identifier]
+        protected = tuple(sorted(str(value) for value in row.get("protected_layers", ())))
+        return (
+            int(row["total_bytes"]),
+            int(row["retained_fp16_layers"]),
+            protected,
+            identifier,
+        )
+
+    selected = min(qualified, key=tie_key)
+    return {
+        "selected_id": selected,
+        "fallback_to_baseline": False,
+        "best_objective_id": best_id,
+        "selection": summaries[selected],
+        "summaries": summaries,
+        "paired_one_se": one_se,
+        "tie_break": list(PROTOCOL["selection"]["tie_break"]),
+    }
+
+
+def select_activation_mode(
+    *, static: Mapping[str, Any], dynamic: Mapping[str, Any], a16: Mapping[str, Any]
+) -> dict[str, Any]:
+    control = paired_candidate_summary(a16, static)
+    bottleneck = all(
+        control["metrics"][key]["upper_bound"] < 0.0 for key in ("d_func", "d_pac")
+    )
+    dynamic_summary = paired_candidate_summary(dynamic, static)
+    selected = "dynamic_a8" if bottleneck and dynamic_summary["eligible"] else "static_a8"
+    return {
+        "a8_bottleneck": bottleneck,
+        "a16_control": control,
+        "dynamic_candidate": dynamic_summary,
+        "selected_activation_mode": selected,
+        "a16_deployable": False,
+    }
+
+
+def quick_advancement(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Evaluate the frozen 5x10 development gate from paired episode rows."""
+    if not rows:
+        raise ValueError("quick gate requires paired rows")
+    tasks: dict[str, list[tuple[bool, bool]]] = {}
+    wins = losses = 0
+    for row in rows:
+        task = str(row["task"])
+        main = bool(row["main_success"])
+        candidate = bool(row["candidate_success"])
+        tasks.setdefault(task, []).append((main, candidate))
+        wins += int(candidate and not main)
+        losses += int(main and not candidate)
+    expected_tasks = set(PROTOCOL["quick_development"]["tasks"])
+    expected_seeds = set(PROTOCOL["quick_development"]["seeds"])
+    observed_tasks = set(tasks)
+    observed_seeds = {int(row["seed"]) for row in rows}
+    if observed_tasks != expected_tasks or observed_seeds != expected_seeds:
+        raise ValueError("quick development task/seed coverage drift")
+    if len(rows) != int(PROTOCOL["quick_development"]["episodes_per_config"]):
+        raise ValueError("quick development episode count drift")
+    observed_keys = {(str(row["task"]), int(row["seed"])) for row in rows}
+    expected_keys = {
+        (task, seed) for task in expected_tasks for seed in expected_seeds
+    }
+    if observed_keys != expected_keys or len(observed_keys) != len(rows):
+        raise ValueError("quick development paired-key coverage drift")
+    main_total = sum(int(bool(row["main_success"])) for row in rows)
+    candidate_total = sum(int(bool(row["candidate_success"])) for row in rows)
+    main_macro = float(np.mean([np.mean([m for m, _ in values]) for values in tasks.values()]))
+    candidate_macro = float(np.mean([np.mean([c for _, c in values]) for values in tasks.values()]))
+    return {
+        "main_successes": main_total,
+        "candidate_successes": candidate_total,
+        "main_task_macro": main_macro,
+        "candidate_task_macro": candidate_macro,
+        "paired_wins": wins,
+        "paired_losses": losses,
+        "passes_success_gate": bool(
+            candidate_total > main_total and candidate_macro >= main_macro and wins > losses
+        ),
+    }
+
+
+def selftest() -> None:
+    assert PROTOCOL["byte_budget"]["maximum_quantvla_byte_multiplier"] == 1.1
+    assert PROTOCOL["quick_development"]["seeds"] == list(range(50, 60))
+    print(f"[full-context] selftest OK {PROTOCOL_SHA256}")
+
+
+if __name__ == "__main__":
+    selftest()

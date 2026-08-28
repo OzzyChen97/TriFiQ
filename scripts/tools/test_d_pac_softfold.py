@@ -72,6 +72,7 @@ from gr00t.quantization.duquant_layers import (  # noqa: E402
 from openpi.quant.duquant_layers import (  # noqa: E402
     DuQuantLinear as Pi05DuQuantLinear,
 )
+from openpi.quant.dit_step_context import set_dit_quant_step  # noqa: E402
 
 
 def _records(count: int = 8) -> list[dict]:
@@ -369,6 +370,29 @@ def test_dynamic_a8_is_identical_across_model_adapter_runtimes() -> None:
     torch.testing.assert_close(outputs[0], expected.to(torch.float16))
     torch.testing.assert_close(outputs[1], expected.to(torch.float16))
     torch.testing.assert_close(outputs[0], outputs[1])
+
+
+def test_pi05_static_a8_uses_all_ten_native_flow_tables() -> None:
+    layer = object.__new__(Pi05DuQuantLinear)
+    layer.in_features = 4
+    layer.name = "unit.pi05.dit"
+    layer._weight = torch.zeros(2, 4, dtype=torch.float16)
+    layer._act_scale = None
+    layer._act_scale_initialized = False
+    layer.calibrator = None
+    layer.cfg = SimpleNamespace(act_bits=8, act_dynamic=False)
+    table = torch.arange(1, 41, dtype=torch.float32).reshape(10, 4) / 127.0
+    Pi05DuQuantLinear.set_act_scale(layer, table)
+    with set_dit_quant_step(7, total=10):
+        actual = Pi05DuQuantLinear._get_act_scale(
+            layer, torch.zeros(1, 4, dtype=torch.float16)
+        )
+    torch.testing.assert_close(actual, table[7].to(torch.float16))
+    with set_dit_quant_step(3, total=4):
+        with pytest.raises(RuntimeError, match="10-row"):
+            Pi05DuQuantLinear._get_act_scale(
+                layer, torch.zeros(1, 4, dtype=torch.float16)
+            )
 
 
 def test_dynamic_a8_v5_attestation_and_runtime_contract_are_fail_closed() -> None:

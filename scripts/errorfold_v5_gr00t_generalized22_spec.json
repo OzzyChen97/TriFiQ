@@ -1,10 +1,10 @@
 {
-  "purpose": "Strict paired GR00T audit of the frozen target-2.2x generalized-risk mask selected only by full-network D_PAC-v2 on noise-A; closed-loop outcomes are audit-only.",
+  "purpose": "Historical paired GR00T development run of the frozen target-2.2x generalized-risk mask.",
   "comparisons": [],
   "decision": {
     "selection_used_closed_loop_success": false,
     "selection_noise": "A",
-    "closed_loop_role": "frozen_candidate_audit_only",
+    "closed_loop_role": "historical_development",
     "diagnostic_only": true
   },
   "configs": [

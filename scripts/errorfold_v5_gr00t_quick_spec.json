@@ -7,7 +7,7 @@
     "selection_used_closed_loop_success": false,
     "softfold_grid": "complete_9x9",
     "selection_noise": "A",
-    "closed_loop_role": "frozen_candidate_audit_only",
+    "closed_loop_role": "historical_development",
     "diagnostic_only": true
   },
   "configs": [
