@@ -66,7 +66,10 @@ def flatten_artifacts(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_spec(
-    quick_root: Path, task_set: str, a8_scales: dict[str, Path] | None = None
+    quick_root: Path,
+    task_set: str,
+    a8_scales: dict[str, Path] | None = None,
+    hessian_subsets: dict[str, Path] | None = None,
 ) -> dict[str, Any]:
     manifest_path = quick_root / task_set / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -106,6 +109,14 @@ def build_spec(
             "meta": {"role": "historical_main_mask_common_runtime"},
         }
     )
+    if hessian_subsets and task_set in hessian_subsets:
+        subset = hessian_subsets[task_set]
+        m["hessian_w4"] = {
+            "path": str(subset),
+            "sha256": sha256_file(subset),
+            "bytes": subset.stat().st_size,
+            "inventory_subset": True,
+        }
     c16 = copy.deepcopy(c)
     c16.update(
         {
@@ -114,6 +125,8 @@ def build_spec(
             "meta": {"role": "candidate_mask_a16_diagnostic"},
         }
     )
+    m = flatten_artifacts(m)
+    c16 = flatten_artifacts(c16)
     return {
         "schema_version": 1,
         "kind": "full_context_four_config_attribution_spec",
@@ -159,15 +172,25 @@ def main() -> None:
         default=None,
         help="optional regenerated gdsq_main A8 scales: task_set=/path.npz",
     )
+    parser.add_argument(
+        "--hessian-subsets",
+        action="append",
+        type=parse_named,
+        default=None,
+        help="optional main-mask inventory-exact hessian subsets: task_set=/path.npz",
+    )
     args = parser.parse_args()
     quick_root = Path(args.quick_root).expanduser().resolve()
     out_dir = Path(args.out_dir).expanduser().resolve()
     a8_scales = dict(args.a8_scales) if args.a8_scales else None
     if a8_scales and set(a8_scales) != set(TASK_SETS):
         raise ValueError(f"--a8-scales must cover exactly {TASK_SETS}")
+    hessian_subsets = dict(args.hessian_subsets) if args.hessian_subsets else None
+    if hessian_subsets and set(hessian_subsets) != set(TASK_SETS):
+        raise ValueError(f"--hessian-subsets must cover exactly {TASK_SETS}")
     out_dir.mkdir(parents=True, exist_ok=True)
     for task_set in TASK_SETS:
-        spec = build_spec(quick_root, task_set, a8_scales)
+        spec = build_spec(quick_root, task_set, a8_scales, hessian_subsets)
         atomic_json(out_dir / f"{task_set}.json", spec)
     print(json.dumps({"specs": str(out_dir), "task_sets": list(TASK_SETS)}, indent=2))
 

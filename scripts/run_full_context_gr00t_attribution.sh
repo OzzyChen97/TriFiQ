@@ -109,8 +109,8 @@ for task_set in task_sets:
                 raise SystemExit(f"{spec_path}: {identifier} hessian sha drift")
     if rows["m"]["plan"] != rows["h"]["plan"]:
         raise SystemExit(f"{spec_path}: M must reuse the historical main mask")
-    if rows["m"]["hessian_w4"] != rows["c"]["hessian_w4"]:
-        raise SystemExit(f"{spec_path}: M must reuse the common Hessian runtime")
+    if rows["m"]["hessian_w4"] == rows["c"]["hessian_w4"]:
+        raise SystemExit(f"{spec_path}: M must use an inventory-exact hessian subset")
     if rows["c16"]["plan"] != rows["c"]["plan"]:
         raise SystemExit(f"{spec_path}: C16 must reuse the candidate mask")
     if rows["c16"]["activation_mode"] != "fp16":
