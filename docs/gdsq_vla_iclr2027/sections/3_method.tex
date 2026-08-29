@@ -2,88 +2,63 @@
 \label{sec:method}
 
 \paragraph{Overview.}
-\method converts a pretrained VLA policy into a frozen mixed-precision policy and a model-level correction decision without updating model parameters. The allocation pipeline in Fig.~\ref{fig:pipeline} has four stages: isolated layer interventions, dual-similarity and action scoring, constrained mask search, and paired functional adjudication. A fifth stage calibrates ATM and OHB for the selected mask and applies a preregistered absolute gate. The deployed output is therefore a pair $(M,v)$, where $M$ is a W4/FP16 mask and $v\in\{\text{baseline},\text{ATM},\text{OHB}\}$ is fixed for the model.
+\method converts a frozen FP16 VLA into a single static W4/FP16 policy. Figure~\ref{fig:pipeline} summarizes three stages. First, paired teacher and candidate action chunks are compared with \dpac. Second, \fcp searches precision changes under an exact total-component byte budget and adjudicates complete candidates across task contexts. Third, the frozen plan is deployed with Hessian-aware group-64 W4 weights and dynamic per-forward A8 ranges. No success label, gradient, extra training data, task-dependent mask, runtime selector, or output correction is used.
 
 \input{figures/pipeline_figure}
 
-\subsection{Isolated Quantization Interventions}
-\label{sec:setting}
+\subsection{Prefix-Accumulated Control Divergence}
+\label{sec:dpac}
 
-Given visual observations $I$, instruction $l$, robot state $s$, and denoising time $t$, a VLA policy iteratively updates an action sample
+Let $A^T=(a_1^T,\ldots,a_H^T)$ and $A^Q=(a_1^Q,\ldots,a_H^Q)$ be paired FP16-teacher and quantized action chunks generated from the same observation and initial action noise. We compare final physical actions after native inverse normalization, with $H=16$ and translation, rotation, gripper, and other deployed coordinates. A robust per-coordinate penalty
 \begin{equation}
-    x_{t-1}=f_{\theta}(x_t,F_{\mathrm{VL}}(I,l),s,t).
-    \label{eq:vla}
+    \rho(z)=2\!\left(\sqrt{1+z^2}-1\right)
 \end{equation}
-We use group-wise DuQuant-style W4 weights and static A8 activations with group size 64~\cite{lin2024duquant}. The selectable inventory is checkpoint-specific. GR00T contains 116 candidate Linear layers---84 language projections and 32 DiT feed-forward projections---while 64 protected DiT attention projections remain FP16. The $\pi_{0.5}$ inventory contains 180 language and action-expert Linear layers.
+limits domination by isolated outliers. Its scale $s$ is estimated once from the entire FP16 selection buffer using a MAD/RMS floor and is never re-estimated per sequence.
 
-A single reference path cannot separate W4 attribution from wrapper mechanics. We therefore use an \emph{attribution reference} $R$ that retains the transformations and A8 wrappers but routes every candidate weight through its full-precision branch. The \emph{deployment reference} is the unwrapped FP16 policy. For candidate $i$, all layers follow $R$ except $i$, which uses W4. A fixed calibration buffer, token mask, and initial action noise are shared between the intervention and $R$. Hooks collect matched outputs $(H_i^R,H_i^Q)$; padding rows are removed with the reference mask, and deterministic stratified pooling prevents visual, language, or state tokens from dominating. Representation and single-layer action scores use $R$, whereas activation guards and complete-mask adjudication use the deployment reference.
-
-\subsection{Dual Similarity, Action Weighting, and Guards}
-\label{sec:dual_scores}
-
-CKA measures preservation of inter-sample geometry. For centered matrices $\widetilde H_i^R,\widetilde H_i^Q\in\mathbb{R}^{N\times d}$, let $G_i^{UV}=(\widetilde H_i^U)^{\!\top}\widetilde H_i^V$. We compute
+Local error alone ignores temporal accumulation. For action residual $e_h=a_h^Q-a_h^T$, the prefix term measures $\sum_{j=1}^{h}e_j/(s\sqrt{h})$ at every prefix. We additionally compose relative end-effector transforms in SE(3) for pose drift, compare the boundary between consecutive replans for stitch error, and measure both soft gripper state and open/close event timing. After normalizing the five components, a sequence score is
 \begin{equation}
-\operatorname{CKA}_i=
-\frac{\|G_i^{RQ}\|_F^2}
-{\|G_i^{RR}\|_F\|G_i^{QQ}\|_F+\epsilon},
-\qquad \dcka_i=1-\operatorname{CKA}_i.
-\label{eq:cka}
+ d_{\mathrm{PAC}}=
+ d_{\mathrm{local}}+d_{\mathrm{prefix}}+d_{\mathrm{pose}}+
+ d_{\mathrm{stitch}}+d_{\mathrm{grip}}.
+ \label{eq:dpac_sequence}
 \end{equation}
-Its invariance to isotropic scaling is useful for stable geometry comparison but creates a scale blind spot. We complement it with an empirical CS divergence. For Gaussian kernel $k$ whose bandwidth is fixed from the reference samples,
-\begin{align}
-\dcs_i={}&\log\!\left(\frac{1}{N^2}\sum_{a,b}k(h_a^R,h_b^R)\right)
-+\log\!\left(\frac{1}{N^2}\sum_{a,b}k(h_a^Q,h_b^Q)\right)\nonumber\\
-&-2\log\!\left(\frac{1}{N^2}\sum_{a,b}k(h_a^R,h_b^Q)\right).
-\label{eq:cs}
-\end{align}
-We use log-sum-exp accumulation and a bandwidth floor of $10^{-3}$. After joint min--max normalization across candidates, the representation score is
+The buffer-level divergence combines the sequence mean with $\operatorname{CVaR}_{0.9}$, exposing rare catastrophic deviations that a mean can hide. We also retain a complementary functional diagnostic
 \begin{equation}
-S_i=\lambda_{\mathrm{CKA}}\overline{\dcka}_i+
-    \lambda_{\mathrm{CS}}\overline{\dcs}_i.
-\label{eq:dual_score}
+ \dfunc=d_{\mathrm{final}}+d_{\mathrm{kin}}+d_{\mathrm{grip}}
+ +2\operatorname{CVaR}_{0.9}(d_{\mathrm{solver}}),
+ \label{eq:dfunc}
 \end{equation}
+but the complete selection rule must be safe under both $\dpac$ and $\dfunc$.
 
-Representation damage matters only when it changes control. Under the same isolated intervention and paired denoising noise, let $d_i$ denote action-trajectory divergence from $R$. We define
+\subsection{Full-Context Precision Protection}
+\label{sec:fcp}
+
+\paragraph{Context buffer.}
+We collect FP16 on-policy observations from 12 tasks: four each from Atomic-Seen, Composite-Seen, and Composite-Unseen. Three seeds per task and four replans per sequence yield 36 sequences and 144 observations, stratified across early, middle, and late rollout windows. Task identifiers are used only to compute stratified statistics; the output remains one global mask.
+
+\paragraph{Counterfactual search.}
+Each target Linear layer has two states: native FP16 or signed-nibble group-64 W4. Starting from a complete mask, round one flips every W4 target to FP16 individually; round two flips every target state around the round-one winner. An exact sparse Pareto 0--1 dynamic program combines measured counterfactual benefits under
 \begin{equation}
-    w_i=\frac{n d_i}{\sum_j d_j+\epsilon},
-    \label{eq:action_weight}
+ C(M)=C_{\mathrm{fixed}}+\sum_i C_i(M_i)\le
+ 1.10\,C_{\mathrm{QuantVLA}},
+ \label{eq:budget}
 \end{equation}
-then robustly clip and renormalize the weights so that $n^{-1}\sum_i w_i=1$. This distinguishes layers with similar representation distortion but different downstream effects.
+where $C$ counts the same total static model components used in Table~\ref{tab:main_results}. Layer count is not a constraint. The dynamic program only proposes masks: non-additive interactions are decided after instantiating the complete network.
 
-Similarity is not a stability certificate. Each intervention also records median log-RMS drift from unwrapped FP16 and the estimated fraction beyond the downstream static-A8 range. GR00T uses the frozen thresholds $\tau_{\mathrm{RMS}}=0.1319$ and $\tau_{\mathrm{sat}}=0.00232$; $\pi_{0.5}$ uses its separately calibrated thresholds. A violation forces FP16. The saturation statistic is an engineering approximation based on the calibrated consumer scale, not a direct measurement of fused-kernel clipping.
+\paragraph{Whole-network adjudication.}
+For every complete proposal, we recompute paired $\dpac$ and $\dfunc$ deltas on all contexts. The scalar objective is the worst normalized one-standard-error upper bound over both metrics and the all-task, Atomic, Composite-Seen, and Composite-Unseen clusters. A candidate must make this bound strictly negative and separately satisfy non-positive upper bounds for pose, stitch, and gripper components. Candidate-state rescoring checks the top three plans on observations induced by the candidate itself. These conservative rules prevent a favorable average from masking a harmful context or control component.
 
-\subsection{Byte-Constrained Search and Functional Adjudication}
-\label{sec:selection}
+On GR00T, all 116 one-layer flips have non-positive benefit relative to the preceding 100-W4/16-FP16 mask, and all six full-network proposals are ineligible. The frozen winner is therefore the unchanged context baseline. This result certifies a strict local optimum in the tested one-layer-flip neighborhood; it is not evidence that \fcp discovered a new GR00T mask. For $\pi_{0.5}$, the budgeted plan flips the 41 lowest-benefit protected layers to W4, producing 121 W4 and 59 FP16 layers.
 
-Let $x_i=1$ assign W4A8 and $x_i=0$ preserve the original FP16 Linear. Candidate masks minimize
-\begin{align}
-\min_x\quad &\sum_i x_i w_i S_i, \label{eq:objective}\\
-\text{s.t.}\quad
-&\sum_i\left[x_i C_i^{\mathrm{W4}}+(1-x_i)C_i^{\mathrm{FP16}}\right]\le B,\nonumber\\
-&x_i=0\quad\text{for every guard violation},\qquad x_i\in\{0,1\}.\nonumber
-\end{align}
-Here $C_i$ is theoretical tightly packed weight storage. The uniform-W6 candidate-scope budgets are $862{,}912{,}512$ bytes for GR00T and $2{,}042{,}542{,}080$ bytes for $\pi_{0.5}$. They exclude activations, CUDA workspaces, simulator state, and fake-quant caches. Greedy allocation and local bit flips produce diverse low-objective masks; the additive optimum is not treated as the final policy.
+\subsection{Hessian-W4 and Dynamic-Range A8 Deployment}
+\label{sec:deployment}
 
-Simultaneous interventions can cancel or amplify. We therefore instantiate selected Top-$K$ masks with plan-specific A8 calibration and compare complete policies under paired observations and noise. The functional score is
+For each W4 layer, 256 calibration observations form FP16 input second-order statistics $X^\top X$. A GPTQ-style sequential error-feedback pass selects clipping and quantizes signed weights in groups of 64~\cite{frantar2022gptq}; row rotation is the identity and FP16 weights are not retained for W4 modules.
+
+Static activation tables can fail under policy-induced range shift. \dyrange instead recomputes a scale for every target Linear, forward call, and input channel:
 \begin{equation}
-\dfunc=D_{\mathrm{final}}+D_{\mathrm{kin}}+D_{\mathrm{grip}}
-       +2\operatorname{CVaR}_{0.9}(D_{\mathrm{solver}}),
-\label{eq:dfunc}
+ s_c=\max\!\left(\frac{\max |x_{\ldots,c}|}{127},10^{-6}\right),
+ \qquad q_c=\operatorname{clip}\!\left(\operatorname{round}(x_c/s_c),-127,127\right).
+ \label{eq:dyrange}
 \end{equation}
-where the tail term prevents a low mean from hiding severe denoising failures. Functional adjudication selects a representative for each CKA:CS ratio. On four predeclared GR00T development tasks, the frozen rule selects 16:1 from $\{8,16,32,64,128,256\}:1$ and a CKA-only boundary. The final masks assign W4 to 100 of 116 GR00T candidates and 80 of 180 $\pi_{0.5}$ candidates. A 10,000-draw task/seed bootstrap and leave-one-task-out analysis conducted after freezing finds no ratio whose paired interval against 16:1 excludes zero; we therefore interpret 16:1 as a selected point on a broad development plateau, not a universal optimum.
-
-\subsection{Calibration-Gated Runtime Correction}
-\label{sec:runtime_selector}
-
-The mixed-precision mask can leave structured attention drift, but a correction can also destabilize an already adequate policy. For the frozen mask, ATM calibrates a query-temperature multiplier $\alpha$ and OHB calibrates per-head output multipliers $\beta_h$. We first choose one \emph{candidate} mechanism from their model-level calibration geometry. OHB is the candidate when its correction is broad and its mean absolute log-magnitude is at least twice that of ATM. ATM is the candidate when corrected attention projections remain FP16 and its directional coherence exceeds OHB by at least 0.05. Otherwise the candidate is the baseline. ATM and OHB are not composed because their ratios act at different points of the same propagated attention error and are not calibrated as an additive correction.
-
-The v8 absolute gate then decides whether to admit the candidate. For correction values $c_1,\ldots,c_m$, define
-\begin{align}
-q_{\mathrm{dir}}&=\frac{|n_{<1}-n_{>1}|}{m}, &
-q_{\mathrm{non}}&=\frac{n_{c\ne1}}{m},\nonumber\\
-q_{\log}&=\frac{1}{m}\sum_j|\log c_j|.&&
-\label{eq:selector_gate}
-\end{align}
-The correction is enabled only if $q_{\mathrm{dir}}\ge0.30$, $q_{\mathrm{non}}\ge0.85$, and $q_{\log}\ge0.05$; otherwise the baseline is selected. These three thresholds and the selector SHA were frozen before formal testing. GR00T's ATM candidate fails all three gates and therefore selects the uncorrected GDSQ mask. The $\pi_{0.5}$ OHB candidate passes all three and selects OHB. The decision is evaluated once per model, so task names retained in runtime metadata are attestations only and cannot affect the selected variant.
-
-Every formal result row records the selector SHA, rule name, selected variant, selected configuration ID, and server-metadata hash. For GR00T, whose bitwise gate permits reuse of the immutable static matrix, a separate 2,500-row derived attestation adds these selector fields and the source-row hash without modifying the original outcomes. The runtime rejects an unknown variant and v8 rejects ATM+OHB. Consequently, the final method is exactly GDSQ-VLA plus one frozen model-level choice from $\{\text{baseline},\text{ATM},\text{OHB}\}$; static GDSQ, ATM, OHB, and ATM+OHB configurations are ablations.
+The rule is deterministic, uses the input dtype, and has no calibration table, flow-step selector, task selector, or candidate branch. The final policy applies the frozen W4/FP16 mask and Eq.~\ref{eq:dyrange} uniformly to every input; runtime correction is disabled.

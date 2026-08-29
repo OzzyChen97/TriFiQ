@@ -19,14 +19,10 @@ pdf:
 	cp $(BUILD)/$(PAPER).pdf $(PAPER).pdf
 
 check: pdf
-	$(ROBOCASA_PY) $(REPO_ROOT)/scripts/tools/gdsq_evidence_registry.py
-	$(ROBOCASA_PY) $(REPO_ROOT)/scripts/tools/render_gdsq_main_table.py --check
-	$(ROBOCASA_PY) $(REPO_ROOT)/scripts/tools/render_gdsq_claim_status.py --check
-	$(ROBOCASA_PY) $(REPO_ROOT)/scripts/tools/render_gdsq_component_ablation.py --check
-	$(ROBOCASA_PY) $(REPO_ROOT)/scripts/tools/render_omega_qvla_libero_table.py --check
+	$(ROBOCASA_PY) $(REPO_ROOT)/scripts/tools/render_dypac_paper.py --check
 	$(ROBOCASA_PY) $(REPO_ROOT)/scripts/tools/check_gdsq_paper.py \
 		--paper-dir $(CURDIR) \
-		--report $(REPO_ROOT)/runs/gdsq_week1_preregistered_v1/audit/paper_gate.json
+		--report $(REPO_ROOT)/runs/full_context_v2/paper_audit.json
 
 clean:
 	rm -rf $(BUILD) $(PAPER).pdf

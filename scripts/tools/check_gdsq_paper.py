@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail when the GDSQ-VLA ICLR 2027 PDF violates submission gates."""
+"""Fail when the DyPAC-VLA ICLR 2027 PDF violates submission gates."""
 
 from __future__ import annotations
 
@@ -158,7 +158,7 @@ def audit(paper_dir: Path, main_page_limit: int) -> dict[str, Any]:
 
     return {
         "schema_version": 2,
-        "kind": "gdsq_vla_iclr2027_latex_gate",
+        "kind": "dypac_vla_iclr2027_latex_gate",
         "valid": True,
         "venue": "ICLR 2027",
         "anonymous_review": True,

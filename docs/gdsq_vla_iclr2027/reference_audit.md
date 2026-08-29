@@ -1,5 +1,9 @@
 # Reference audit
 
+> Result-policy note (2026-08-30): citation metadata below remains active, while the historical
+> GDSQ result-policy sections are retained as provenance. Current DyPAC-VLA headline claims and
+> hashes are authoritative in `dypac_evidence_registry.json` and `FINAL_VERSIONS.md`.
+
 Audit date: 2026-08-26. This file is internal and is not included in the submission PDF.
 
 ## Acceptance policy

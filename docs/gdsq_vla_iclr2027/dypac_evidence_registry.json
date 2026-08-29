@@ -1,0 +1,90 @@
+{
+  "gr00t": {
+    "compression": 2.223893051771117,
+    "episodes": 2500,
+    "fp16_layers": 16,
+    "ours_successes": 1350,
+    "ours_task_macro_success_rate": 0.54,
+    "split_task_macro_success_rate": {
+      "atomic_seen": 0.7466666666666666,
+      "composite_seen": 0.43875,
+      "composite_unseen": 0.40875
+    },
+    "static_component_bytes": 962068480,
+    "versus_fp16": {
+      "bootstrap": {
+        "ci95_high": 0.0176,
+        "ci95_low": -0.03879999999999999,
+        "draws": 10000,
+        "mean_delta": -0.01087452,
+        "seed": 0
+      },
+      "delta": -0.01079999999999992,
+      "holm_p": 0.29286269346886834,
+      "losses": 319,
+      "status": "statistically_tied",
+      "wins": 292
+    },
+    "versus_gdsq": {
+      "bootstrap": {
+        "ci95_high": 0.06040000000000001,
+        "ci95_low": 0.0048,
+        "draws": 10000,
+        "mean_delta": 0.0322598,
+        "seed": 0
+      },
+      "delta": 0.032400000000000095,
+      "holm_p": 0.003619369860097224,
+      "losses": 289,
+      "mcnemar_p": 0.001809684930048612,
+      "status": "formal_superiority",
+      "wins": 370
+    },
+    "w4_layers": 100
+  },
+  "kind": "dypac_vla_final_paper_evidence",
+  "paper_identity": {
+    "expanded_name": "Dynamic-Range and Prefix-Accumulated Control-aware Quantization for Vision-Language-Action Models",
+    "short_name": "DyPAC-VLA",
+    "title": "DyPAC-VLA: Full-Context Mixed-Precision Quantization for Vision-Language-Action Models"
+  },
+  "pi05": {
+    "candidate_successes": 29,
+    "claim_status": "not_superior_to_gdsq_main",
+    "compression": 2.701569421338518,
+    "episodes_per_configuration": 100,
+    "fp16_layers": 59,
+    "main_successes": 33,
+    "role": "compression_anchor_only",
+    "static_component_bytes": 1634828288,
+    "w4_layers": 121
+  },
+  "schema_version": 1,
+  "sources": {
+    "gr00t_aggregate": {
+      "path": "runs/full_context_v2/table1/aggregate.json",
+      "sha256": "cbb59547a6149456f9ae8fc0bac0fedea1267e5ff5f4d144448112f15b0f459e"
+    },
+    "gr00t_plan": {
+      "path": "runs/full_context_v2/p2/gr00t_full_context_v2_frozen.json",
+      "sha256": "969c5ae8bc84719229c81a88e8b6ace745cbb87cea551528ec8cf1fd3820e3a2"
+    },
+    "pi05_guard": {
+      "path": "runs/full_context_v2/pi05_quick/non_inferiority_anchor.json",
+      "sha256": "b7922b77071480e5d7d5b37e0492ad22bb42fac23c25f83f22ff872fb190f7b8"
+    },
+    "pi05_main_plan": {
+      "path": "runs/full_context_v2/pi05_p2/interventions_round_main/context_base.json",
+      "sha256": "fed603b2d91ca8ef419b22e665325e73f97bc400018f6514aa86319dd821e4d4"
+    },
+    "pi05_plan": {
+      "path": "runs/full_context_v2/pi05_p2/pi05_full_context_v2_frozen.json",
+      "sha256": "75d03ac67f17e44570055b54b1a25e44b88ee22bc2282d91bda5acc1f1c61b98"
+    },
+    "pi05_quick": {
+      "path": "runs/full_context_v2/pi05_quick/combined_aggregate.json",
+      "sha256": "9633554be93cdfd88448b8e2ebec8e0999e26a7351520752c20ee2eb6d3fbade"
+    }
+  },
+  "valid": true
+}

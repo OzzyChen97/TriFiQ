@@ -1,23 +1,32 @@
 \begin{figure}[t]
     \centering
-    \IfFileExists{figures/gdsq_pipeline.png}{%
-        \includegraphics[width=\textwidth]{figures/gdsq_pipeline.png}%
-    }{%
-        \setlength{\fboxsep}{7pt}%
-        \fbox{%
-        \begin{minipage}{0.96\textwidth}
-        \centering
-        \textbf{GPT-Image 2 figure placeholder -- final prompt is included in the source tree}\\[5pt]
-        \begin{tabular}{>{\centering\arraybackslash}p{0.28\textwidth}
-                        >{\centering\arraybackslash}p{0.30\textwidth}
-                        >{\centering\arraybackslash}p{0.30\textwidth}}
-        \textbf{1. Layerwise Probing} & \textbf{2. Dual-Similarity Scoring} & \textbf{3. Selection and Deployment} \\
-        RGB + instruction + state & $16(1-\mathrm{CKA}) + D_{\mathrm{CS}}$ & W6-equivalent storage budget \\
-        FP16 reference vs. one-layer W4A8 & action weight + hard guards & Top-$K$ functional adjudication \\
-        116 candidate Linear layers & geometry + distribution & 100 W4A8 + 16 FP16
-        \end{tabular}
-        \end{minipage}}
-    }
-    \caption{\method from frozen calibration to action generation. Single-layer interventions measure complementary geometric and distributional changes; action weighting, feasibility guards, a W6-equivalent byte budget, and paired functional adjudication freeze the W4/FP16 mask. A separate model-level calibration gate then selects exactly one of baseline, ATM, or OHB without task identity or rollout feedback.}
+    \setlength{\fboxsep}{5pt}
+    \small
+    \begin{tabular}{@{}p{0.285\linewidth}@{\hspace{3pt}}c@{\hspace{3pt}}p{0.285\linewidth}@{\hspace{3pt}}c@{\hspace{3pt}}p{0.285\linewidth}@{}}
+    \fcolorbox{iclrblue}{blue!5}{\parbox{0.255\textwidth}{\centering\sloppy
+        \textbf{1. $D_{\mathrm{PAC}}$ Evidence}\\[2pt]
+        paired action chunks\\
+        local + prefix drift\\
+        pose + stitch + gripper\\
+        mean + tail risk\\[2pt]
+        \textbf{$D_{\mathrm{PAC}}$}}}
+    & $\Longrightarrow$ &
+    \fcolorbox{iclrblue}{green!6}{\parbox{0.255\textwidth}{\centering\sloppy
+        \textbf{2. FCP Search}\\[2pt]
+        precision flips\\
+        exact byte budget\\
+        full-policy score\\
+        context safety\\[2pt]
+        \textbf{frozen W4 / FP16 plan}}}
+    & $\Longrightarrow$ &
+    \fcolorbox{iclrblue}{orange!8}{\parbox{0.255\textwidth}{\centering\sloppy
+        \textbf{3. DyRange Deploy}\\[2pt]
+        Hessian group-64 W4\\
+        dynamic channelwise A8\\
+        one global plan\\
+        no correction\\[2pt]
+        \textbf{DyRange A8}}}
+    \end{tabular}
+    \caption{\method architecture. Precision evidence is computed on paired physical action sequences, candidate masks are judged as complete policies under an exact byte budget, and the frozen plan is deployed with dynamic activation ranges. On GR00T, full-context adjudication retains the preceding 100-W4/16-FP16 mask rather than claiming a newly discovered allocation.}
     \label{fig:pipeline}
 \end{figure}

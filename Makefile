@@ -19,7 +19,7 @@ ROBOCASA_PY := /home1/gyy/probe/miniforge3/envs/robocasa365/bin/python
 GROOT_PY := /home1/gyy/probe/miniforge3/envs/groot_test/bin/python
 OPENPI_PY := /home1/gyy/probe/miniforge3/envs/openpi/bin/python
 
-.PHONY: test-robocasa test-gr00t test-openpi test-paper test-gdsq
+.PHONY: test-robocasa test-gr00t test-openpi test-paper test-gdsq test-dypac
 
 test-robocasa:
 	$(ROBOCASA_PY) -m pytest -q \
@@ -45,3 +45,7 @@ test-paper:
 	$(MAKE) -C docs/gdsq_vla_iclr2027 check
 
 test-gdsq: test-robocasa test-gr00t test-openpi test-paper
+
+# Current paper gate. test-gdsq is retained as a compatibility alias for the
+# older full project test bundle.
+test-dypac: test-paper

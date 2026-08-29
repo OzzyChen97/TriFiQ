@@ -1,38 +1,22 @@
 \section{Supplementary Evidence}
 \label{sec:supplement}
 
-\subsection{Ratio Sweep and Stability}
+\subsection{Frozen GR00T Decision Record}
 
-\input{tables/ratio_sweep}
+The GR00T search starts from the previous 100-W4/16-FP16 mask. All 116 valid one-layer flips have non-positive benefit under the cross-context score. The exact dynamic program therefore emits no beneficial half- or full-budget combination, and all five additional structured proposals plus the context baseline are evaluated as complete networks. Every alternative has a positive paired minimax objective or violates pose, stitch, or gripper safety. The frozen fallback is the unchanged context baseline. These facts support local optimality only within the declared counterfactual neighborhood.
 
-The point-selection rule freezes 16:1 because it has the largest development task-macro SR. A separate post-freeze analysis resamples tasks and then paired seeds for 10,000 draws. No alternative ratio has a paired difference interval against 16:1 that excludes zero: for example, the 256:1 interval is $[-6.5,5.0]$ points and the CKA-only interval is $[-10.0,3.5]$ points. Leave-one-task-out chooses 16:1 for three omissions and ties 16:1 with 256:1 for the fourth. These diagnostics support stability within a plateau, not universal ratio optimality.
+The final plan uses signed-nibble group-64 weights, identity row rotation, per-forward dynamic A8, and no ATM, OHB, error-folding, calibration bypass, or runtime selector. Its SHA-256 is recorded in the artifact registry and checked before table generation.
 
-\subsection{Selection-Controlled GR00T Atomic Result}
+\subsection{Paired Statistical Detail}
 
-\input{tables/primary14_results}
+For ours versus GDSQ-VLA, 1,841 of 2,500 episodes are tied, 370 favor ours, and 289 favor GDSQ-VLA. Exact two-sided McNemar testing gives $p=0.0018097$; Holm adjustment over the registered comparisons gives $p=0.0036194$. The task-then-seed hierarchical bootstrap interval for the success-rate difference is $[0.0048,0.0604]$. Against FP16, the corresponding counts are 1,889 ties, 292 wins, and 319 losses, with $p=0.2929$ and interval $[-0.0388,0.0176]$.
 
-The four ratio-development tasks are excluded from this comparison. The final GR00T selector chooses the baseline path and is bitwise identical to the static \method row. It obtains 65.9\% SR on Primary-14, versus 45.6\% for QuantVLA W4A8; the paired difference is $+20.3$ points with interval $[13.9,26.9]$. FP16 obtains 73.9\%. Because QuantVLA and \method use different static byte totals, the result is a selection-controlled task comparison but not a fixed-budget causal comparison.
+\subsection{Storage Accounting}
 
-\subsection{Preregistered 50-Seed Component Ablations}
+The GR00T FP16 static-component scope is 2,139,537,408 bytes. The final plan occupies 962,068,480 bytes, including 327,352,320 fixed bytes and packed mixed-precision target components, for 2.2239$\times$ compression. This is 0.9982$\times$ the QuantVLA cell of 963,772,416 bytes and satisfies the preregistered 1.10$\times$ ceiling. The $\pi_{0.5}$ FP16 scope is 4,416,602,112 bytes; its 1,634,828,288-byte plan gives 2.7016$\times$ compression.
 
-\input{tables/component_ablation}
+These values are static packed estimates. Activations, CUDA workspaces, simulator state, and eager fake-quant caches are outside the scope; therefore no runtime speed or peak-memory conclusion follows from the compression ratios.
 
-The table is populated only after all five configurations reach exact Primary-14$\times$50 coverage and the five full-versus-ablation contrasts receive a joint Holm correction. Until then, its pending cells are claim-disabled. In the no-guards arm, a NaN, crash, or out-of-range action is retained as a formal failure rather than silently dropped.
+\subsection{$\pi_{0.5}$ Claim Guard}
 
-\subsection{Earlier Five-Seed Diagnostic}
-
-\input{tables/component_ablation_diagnostic}
-
-This screen predates the 50-seed ratio freeze. Its overlapping task-cluster intervals permit only a qualitative observation that CKA and CS can be complementary. It does not substitute for the preregistered Primary-14$\times$50 component ablation containing CKA-only, CS-only, $w_i=1$, no guards, and no functional adjudication.
-
-\subsection{Static Correction Ablation}
-
-On the complete GR00T 50-task matrix, static ATM+OHB changes task-macro SR from 50.8\% to 49.4\%; the paired interval $[-3.28,0.52]$ points includes zero. On the complete $\pi_{0.5}$ static matrix, ATM+OHB changes 25.3\% to 26.6\%, while the preregistered held-out interval $[-0.39,3.13]$ and Holm-adjusted $p=0.542$ do not establish a gain. Neither combined configuration is an allowed output of the v8 selector. Standalone ATM and OHB remain static ablations; only the selector-chosen OHB runtime path populates the final row, and it does so through a separate complete 2,500-episode manifest.
-
-\subsection{Eager Fake-Quant Runtime Diagnostic}
-
-The GR00T final plan stores an estimated 1.001 GiB over the LLM+DiT Linear scope, versus 1.993 GiB for FP16, giving 1.99$\times$ theoretical compression. The $\pi_{0.5}$ plan stores 1.868 GiB versus 4.113 GiB. The GR00T and $\pi_{0.5}$ $\Omega$-QVLA estimates are 0.599 and 1.307 GiB, respectively, and additionally include required permutation indices and A4 scale tables. These estimates include tightly packed low-bit weights, weight scales, block rotations, and native FP16 for protected layers and biases. They exclude the vision stack, activations, CUDA workspaces, and simulator state. The current GR00T and $\pi_{0.5}$ $\Omega$-QVLA evaluation packs are 6.41 and 34.97 GiB because they store dequantized FP16 weights and dense rotations; they validate the W4A4 numerical path but are not the packed-deployment sizes reported in Table~\ref{tab:main_results}.
-
-\input{tables/efficiency}
-
-These measurements diagnose the current implementation rather than support a deployment claim. The eager path retains floating-point weights and executes floating-point GEMMs. On GR00T it takes 0.254 seconds per replan and peaks at 17.7 GiB, compared with 0.139 seconds and 12.8 GiB for FP16. Packed checkpoint size, isolated policy-server memory, and batch-1 latency require fused low-bit kernels.
+The $\pi_{0.5}$ combined screen uses two ten-seed waves over five tasks, for 100 paired episodes per configuration. The previous 80-W4 plan succeeds in 33 episodes and the 121-W4 candidate in 29; there are seven candidate wins and eleven losses. Since this screen neither advances to the 2,500-episode matrix nor passes a superiority gate, it supports only the observed storage point. The artifact labels the status \texttt{not\_superior\_to\_gdsq\_main}.

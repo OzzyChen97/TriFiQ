@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit and exactly replace the GDSQ-VLA Overleaf worktree.
+"""Audit and exactly replace the DyPAC-VLA Overleaf worktree.
 
 Credentials are parsed locally from config.txt, passed to Git only through an
 ephemeral GIT_ASKPASS environment variable, and never written to the audit.
@@ -26,7 +26,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE = REPO_ROOT / "docs/gdsq_vla_iclr2027"
 CONFIG = REPO_ROOT / "config.txt"
-AUDIT_ROOT = REPO_ROOT / "runs/gdsq_extension_preregistered_v1/overleaf_sync"
+AUDIT_ROOT = REPO_ROOT / "runs/full_context_v2/overleaf_sync"
 BEFORE = AUDIT_ROOT / "audit_before.json"
 AFTER = AUDIT_ROOT / "audit_after.json"
 EXCLUDED_PARTS = {".build", "__pycache__", ".git"}
@@ -206,7 +206,7 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
 
 def audit_remote() -> dict[str, Any]:
     project_id, token = credentials()
-    with tempfile.TemporaryDirectory(prefix="gdsq-overleaf-audit-", dir="/tmp") as temporary:
+    with tempfile.TemporaryDirectory(prefix="dypac-overleaf-audit-", dir="/tmp") as temporary:
         temp_root = Path(temporary)
         access = GitAccess(project_id, token, temp_root)
         clone = temp_root / "remote"
@@ -214,7 +214,7 @@ def audit_remote() -> dict[str, Any]:
         remote = remote_record(access, clone)
     value = {
         "schema_version": 1,
-        "kind": "gdsq_overleaf_pre_replace_audit",
+        "kind": "dypac_overleaf_pre_replace_audit",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "project_id_sha256": hashlib.sha256(project_id.encode("utf-8")).hexdigest(),
         "remote": remote,
@@ -227,14 +227,14 @@ def audit_remote() -> dict[str, Any]:
 
 def audit_remote_metadata() -> dict[str, Any]:
     project_id, token = credentials()
-    with tempfile.TemporaryDirectory(prefix="gdsq-overleaf-metadata-audit-", dir="/tmp") as temporary:
+    with tempfile.TemporaryDirectory(prefix="dypac-overleaf-metadata-audit-", dir="/tmp") as temporary:
         temp_root = Path(temporary)
         access = GitAccess(project_id, token, temp_root)
         branch = resolve_remote_branch(access)
         remote = fetch_remote_metadata(access, temp_root / "remote", branch)
     value = {
         "schema_version": 1,
-        "kind": "gdsq_overleaf_pre_replace_metadata_audit",
+        "kind": "dypac_overleaf_pre_replace_metadata_audit",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "project_id_sha256": hashlib.sha256(project_id.encode("utf-8")).hexdigest(),
         "remote": remote,
@@ -247,14 +247,14 @@ def audit_remote_metadata() -> dict[str, Any]:
 
 def audit_remote_head() -> dict[str, Any]:
     project_id, token = credentials()
-    with tempfile.TemporaryDirectory(prefix="gdsq-overleaf-head-audit-", dir="/tmp") as temporary:
+    with tempfile.TemporaryDirectory(prefix="dypac-overleaf-head-audit-", dir="/tmp") as temporary:
         temp_root = Path(temporary)
         access = GitAccess(project_id, token, temp_root)
         branch = resolve_remote_branch(access)
         commit = resolve_remote_head(access, branch)
     value = {
         "schema_version": 1,
-        "kind": "gdsq_overleaf_pre_replace_head_audit",
+        "kind": "dypac_overleaf_pre_replace_head_audit",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "project_id_sha256": hashlib.sha256(project_id.encode("utf-8")).hexdigest(),
         "remote": {
@@ -282,7 +282,7 @@ def apply_remote() -> dict[str, Any]:
         data = path.read_bytes()
         require(all(secret.encode("utf-8") not in data for secret in secret_bytes), f"token leaked into source: {relative}")
 
-    with tempfile.TemporaryDirectory(prefix="gdsq-overleaf-apply-", dir="/tmp") as temporary:
+    with tempfile.TemporaryDirectory(prefix="dypac-overleaf-apply-", dir="/tmp") as temporary:
         temp_root = Path(temporary)
         access = GitAccess(project_id, token, temp_root)
         clone = temp_root / "remote"
@@ -302,7 +302,7 @@ def apply_remote() -> dict[str, Any]:
             env=access.env,
         ).returncode != 0
         if changed:
-            access.run(["-c", "user.name=Codex", "-c", "user.email=codex@local.invalid", "commit", "--quiet", "-m", "Replace project with audited GDSQ-VLA paper tree"], cwd=clone)
+            access.run(["-c", "user.name=Codex", "-c", "user.email=codex@local.invalid", "commit", "--quiet", "-m", "Replace project with audited DyPAC-VLA paper tree"], cwd=clone)
         new_commit = access.run(["rev-parse", "HEAD"], cwd=clone)
         access.run(["push", "--quiet", "origin", f"HEAD:{before['remote']['branch']}"], cwd=clone)
 
@@ -315,7 +315,7 @@ def apply_remote() -> dict[str, Any]:
 
     value = {
         "schema_version": 1,
-        "kind": "gdsq_overleaf_post_replace_audit",
+        "kind": "dypac_overleaf_post_replace_audit",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "project_id_sha256": fingerprint,
         "previous_commit": before["remote"]["commit"],
@@ -338,7 +338,7 @@ def verify_remote() -> dict[str, Any]:
     fingerprint = hashlib.sha256(project_id.encode("utf-8")).hexdigest()
     require(before["project_id_sha256"] == fingerprint, "Overleaf project changed after audit")
     local_tree = tree_record(source_files())
-    with tempfile.TemporaryDirectory(prefix="gdsq-overleaf-verify-", dir="/tmp") as temporary:
+    with tempfile.TemporaryDirectory(prefix="dypac-overleaf-verify-", dir="/tmp") as temporary:
         temp_root = Path(temporary)
         access = GitAccess(project_id, token, temp_root)
         clone = temp_root / "remote"
@@ -348,7 +348,7 @@ def verify_remote() -> dict[str, Any]:
     require(remote["file_count"] == local_tree["file_count"], "remote file count differs from local")
     value = {
         "schema_version": 1,
-        "kind": "gdsq_overleaf_post_replace_audit",
+        "kind": "dypac_overleaf_post_replace_audit",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "project_id_sha256": fingerprint,
         "previous_commit": before["remote"]["commit"],
@@ -375,7 +375,7 @@ def apply_remote_metadata() -> dict[str, Any]:
     for relative, path in local_files.items():
         require(token.encode("utf-8") not in path.read_bytes(), f"token leaked into source: {relative}")
 
-    with tempfile.TemporaryDirectory(prefix="gdsq-overleaf-metadata-apply-", dir="/tmp") as temporary:
+    with tempfile.TemporaryDirectory(prefix="dypac-overleaf-metadata-apply-", dir="/tmp") as temporary:
         temp_root = Path(temporary)
         access = GitAccess(project_id, token, temp_root)
         branch = str(before["remote"]["branch"])
@@ -395,7 +395,7 @@ def apply_remote_metadata() -> dict[str, Any]:
         local_git_tree = access.run(["write-tree"], cwd=repo)
         access.run([
             "-c", "user.name=Codex", "-c", "user.email=codex@local.invalid",
-            "commit", "--quiet", "-m", "Replace project with audited GDSQ-VLA paper tree"
+            "commit", "--quiet", "-m", "Replace project with audited DyPAC-VLA paper tree"
         ], cwd=repo)
         new_commit = access.run(["rev-parse", "HEAD"], cwd=repo)
         access.run(["push", "--quiet", "origin", f"HEAD:{branch}"], cwd=repo)
@@ -407,7 +407,7 @@ def apply_remote_metadata() -> dict[str, Any]:
 
     value = {
         "schema_version": 1,
-        "kind": "gdsq_overleaf_post_replace_audit",
+        "kind": "dypac_overleaf_post_replace_audit",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "project_id_sha256": fingerprint,
         "previous_commit": before["remote"]["commit"],
@@ -442,7 +442,7 @@ def apply_remote_from_head() -> dict[str, Any]:
     for relative, path in local_files.items():
         require(token.encode("utf-8") not in path.read_bytes(), f"token leaked into source: {relative}")
 
-    with tempfile.TemporaryDirectory(prefix="gdsq-overleaf-head-apply-", dir="/tmp") as temporary:
+    with tempfile.TemporaryDirectory(prefix="dypac-overleaf-head-apply-", dir="/tmp") as temporary:
         temp_root = Path(temporary)
         access = GitAccess(project_id, token, temp_root)
         branch = str(before["remote"]["branch"])
@@ -466,7 +466,7 @@ def apply_remote_from_head() -> dict[str, Any]:
             f"parent {parent}\n"
             f"author {identity}\n"
             f"committer {identity}\n\n"
-            "Replace project with audited GDSQ-VLA paper tree\n"
+            "Replace project with audited DyPAC-VLA paper tree\n"
         )
         new_commit = access.run_input(["hash-object", "-t", "commit", "-w", "--stdin"], commit_body, cwd=repo)
         git_dir = Path(access.run(["rev-parse", "--git-dir"], cwd=repo))
@@ -481,7 +481,7 @@ def apply_remote_from_head() -> dict[str, Any]:
 
     value = {
         "schema_version": 1,
-        "kind": "gdsq_overleaf_post_replace_audit",
+        "kind": "dypac_overleaf_post_replace_audit",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "project_id_sha256": fingerprint,
         "previous_commit": parent,
@@ -519,7 +519,7 @@ def apply_remote_from_cached_clone() -> dict[str, Any]:
     for relative, path in local_files.items():
         require(token.encode("utf-8") not in path.read_bytes(), f"token leaked into source: {relative}")
 
-    with tempfile.TemporaryDirectory(prefix="gdsq-overleaf-cached-apply-", dir="/tmp") as temporary:
+    with tempfile.TemporaryDirectory(prefix="dypac-overleaf-cached-apply-", dir="/tmp") as temporary:
         access = GitAccess(project_id, token, Path(temporary))
         branch = str(before["remote"]["branch"])
         parent = str(before["remote"]["commit"])
@@ -536,7 +536,7 @@ def apply_remote_from_cached_clone() -> dict[str, Any]:
         require(set(tracked) == set(local_files), "staged Overleaf tree differs from local paper tree")
         access.run([
             "-c", "user.name=Codex", "-c", "user.email=codex@local.invalid",
-            "commit", "--quiet", "-m", "Replace project with audited GDSQ-VLA paper tree",
+            "commit", "--quiet", "-m", "Replace project with audited DyPAC-VLA paper tree",
         ], cwd=CACHED_CLONE)
         new_commit = access.run(["rev-parse", "HEAD"], cwd=CACHED_CLONE)
         local_git_tree = access.run(["rev-parse", "HEAD^{tree}"], cwd=CACHED_CLONE)
@@ -545,7 +545,7 @@ def apply_remote_from_cached_clone() -> dict[str, Any]:
 
     value = {
         "schema_version": 1,
-        "kind": "gdsq_overleaf_post_replace_audit",
+        "kind": "dypac_overleaf_post_replace_audit",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "project_id_sha256": fingerprint,
         "previous_commit": parent,
