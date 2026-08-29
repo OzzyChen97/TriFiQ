@@ -10,10 +10,12 @@ Review date: 2026-08-30. This file is internal and is not included in the submis
   source of the gain; three contributions.
 - **Related work:** VLA efficiency, VLA PTQ, general PTQ substrate, and mixed-precision behavioral
   sensitivity; every paragraph ends with the technical distinction.
-- **Method:** paired physical action metric; exact-budget counterfactual search and whole-network
-  adjudication; Hessian group-64 W4 and per-forward channelwise A8.
-- **Experiments:** paired 50-task protocol; GR00T headline; audited core mechanism ablations;
-  planned closed-loop contrasts; separate $\pi_{0.5}$ compression boundary.
+- **Method:** explicit constrained problem; complete $D_{PAC}$ definition; exact-budget
+  counterfactual search, task-level minimax adjudication, and fail-closed freeze algorithm;
+  Hessian group-64 W4 and per-forward channelwise A8.
+- **Experiments:** paired 50-task protocol; two-model Table 1; GR00T split and task-direction
+  analysis; audited mechanism evidence; main closed-loop ablation matrix; separate $\pi_{0.5}$
+  compression boundary and failure-accounting rule.
 - **Appendix:** secondary diagnostic ablation plan and claim-disabled LIBERO extension.
 - **Conclusion:** result, mechanism, and four scope limitations.
 
@@ -30,6 +32,7 @@ Review date: 2026-08-30. This file is internal and is not included in the submis
 | Initialized mask is locally retained | 0/116 positive-benefit flips; 0/5 eligible structured alternatives | supported only in the declared search neighborhood |
 | $\pi_{0.5}$ improves success | quick screen 29/100 vs 33/100, W=7/L=11 | rejected |
 | $\pi_{0.5}$ reaches 2.702× compression | frozen plan, 1,634,828,288 / 4,416,602,112 bytes | compression anchor only |
+| Formal $\pi_{0.5}$ baseline cells use 2,500 episodes | frozen FP16/QuantVLA, W6, and $\Omega$-QVLA summaries; exact source hashes in registry | supported; not compared to the 29/100 anchor |
 | Current code improves latency/live memory | eager fake-quant execution is not a fused deployment | rejected |
 
 The generated registry `dypac_evidence_registry.json` and
@@ -62,7 +65,8 @@ The generated registry `dypac_evidence_registry.json` and
 
 ### 4. Evaluation completeness
 
-- **Pass:** FP16, QuantVLA W4A8, Uniform W6, $\Omega$-QVLA, and ours appear in the main table.
+- **Pass:** FP16, QuantVLA W4A8, Uniform W6, $\Omega$-QVLA, and ours appear for both model
+  families in the main table, with the non-matching $\pi_{0.5}$ protocol visibly separated.
 - **Pass:** all three RoboCasa365 task groups and paired uncertainty are reported.
 - **Pass:** important mechanism ablations are in the main text; lower-priority diagnostics and the
   incomplete LIBERO extension are in the appendix.
@@ -78,7 +82,7 @@ The generated registry `dypac_evidence_registry.json` and
 
 ## Final checks
 
-- [x] GR00T 54.0% is the only row labeled ours.
+- [x] GR00T 54.0% is the only formal row labeled ours; the $\pi_{0.5}$ ours anchor is explicitly non-comparable.
 - [x] The active manuscript contains no comparison with the within-project predecessor.
 - [x] LIBERO is appendix-only and every cell is marked pending.
 - [x] Main-text mechanism evidence is separated from planned-but-unrun ablations.
@@ -87,5 +91,5 @@ The generated registry `dypac_evidence_registry.json` and
 - [x] No runtime selector/correction is part of the method.
 - [x] No latency or live-memory claim is made.
 - [x] PDF visually inspected; architecture and result tables are readable.
-- [x] Official ICLR style/BST hashes unchanged; anonymous main text ends on page 6.
+- [x] Official ICLR style/BST hashes unchanged; anonymous main text ends exactly on page 9.
 - [x] No overfull boxes, undefined citations, or undefined references.

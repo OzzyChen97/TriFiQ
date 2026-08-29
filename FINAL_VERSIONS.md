@@ -1,9 +1,10 @@
 # DyPAC-VLA Final Paper Versions (frozen)
 
 Branch `main` (merged from `codex/d-pac-softfold`), frozen 2026-08-29 and
-paper-renamed 2026-08-30. The previous GDSQ-VLA label is retained below only
-for the paired historical baseline. Both model lines are FROZEN as recorded
-here; every artifact is content-addressed and referenced by sha256.
+paper-renamed 2026-08-30. Both model lines are FROZEN as recorded here; every
+artifact is content-addressed and referenced by sha256. The active paper does
+not compare against an earlier within-project version: GR00T 54.0% is ours,
+and Table 1 uses only FP16, QuantVLA, Uniform W6, and $\Omega$-QVLA baselines.
 
 ## GR00T N1.5 — DyPAC-VLA (formal Table-1 result)
 
@@ -14,15 +15,15 @@ here; every artifact is content-addressed and referenced by sha256.
   - total static bytes: 962,068,480 (0.998x QuantVLA cell; <= 1.10x budget)
 - v2 quick gate: `runs/full_context_v2/quick/aggregate.json`
   - sha256 `33d0f78972408139608f38d7baf97cfb4bab3efe56054c44a2eecce90477c39f`
-  - candidate 28/50 vs gdsq_main 21/50, W=12 L=5 (seeds 60-69, hash-drawn 2/2/1 tasks)
+  - candidate 28/50 vs historical internal reference 21/50, W=12 L=5
+    (seeds 60-69, hash-drawn 2/2/1 tasks); not a paper comparison
 - Table-1 formal aggregate: `runs/full_context_v2/table1/aggregate.json`
   - sha256 `cbb59547a6149456f9ae8fc0bac0fedea1267e5ff5f4d144448112f15b0f459e`
   - candidate 1350/2500 = 54.0% (macro 0.540; splits 74.7/43.9/40.9)
-  - vs gdsq_vla_main (50.8%): W=370 L=289, McNemar p=0.0018, Holm 0.0036,
-    task-then-seed hierarchical bootstrap 95% CI (0.0048, 0.0604)
-    -> **formal_superiority = True**
-  - vs fp16 (55.1%): W=292 L=319, p=0.2929, CI (-0.0388, 0.0176) — tied with teacher
+  - vs fp16 (55.1%): W=292 L=319, p=0.2929, CI (-0.0388, 0.0176) — difference not significant; no equivalence claim
   - vs quantvla_w4a8 (30.4%): W=721 L=132, p<1e-4, CI (0.1912, 0.2800)
+  - the frozen aggregate also retains historical internal comparisons for
+    provenance, but they are excluded from the active manuscript and claims
 - Activation attribution: `runs/full_context_v2/p2/activation_attribution.json`
   - sha256 `3c59f27bf648b575bf87864ba9ed4a44590d077d8a57c298d841e6ff4bd879b9`
   - selected mode dynamic_a8; static reference refuted offline (objective 467);
@@ -45,9 +46,14 @@ here; every artifact is content-addressed and referenced by sha256.
   - main 33/100 vs candidate 29/100, W=7 L=11 -> not superior
 - Non-inferiority anchor: `runs/full_context_v2/pi05_quick/non_inferiority_anchor.json`
   - sha256 `b7922b77071480e5d7d5b37e0492ad22bb42fac23c25f83f22ff872fb190f7b8`
-  - status `not_superior_to_gdsq_main`; claim guard: the many-more-W4 result
-    (121 vs main's 80) is a compression anchor, not success parity or a
-    success-rate improvement.
+  - the superiority gate failed; the many-more-W4 result (121 vs the 80-W4
+    reference) is a compression anchor, not success parity or improvement
+- Formal Table-1 baselines, all with 2,500 target-split episodes:
+  - FP16 and QuantVLA: `runs/pi05_gdsq_gr00t_aligned/official_target_paired50/aggregate/summary.json`
+  - Uniform W6: `runs/gdsq_week1_preregistered_v1/execution/runs/pi05_uniform_w6_official50/aggregate/summary.json`
+  - $\Omega$-QVLA: `runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/summary.json`
+  - the 29/100 ours cell is visibly separated from these formal rows and is
+    never used for a cross-row success comparison
 
 ## Claims
 
@@ -57,10 +63,10 @@ here; every artifact is content-addressed and referenced by sha256.
   Protection (FCP), and DyRange-A8.
 - GR00T N1.5: at QuantVLA-class bytes, DyPAC-VLA uses the historical 100-W4 /
   16-FP16 mask on the common Hessian-g64 + dynamic-A8 runtime. It formally
-  beats the previous GDSQ-VLA runtime (+3.2pp, Holm $p=0.0036$) and is
-  statistically tied with the FP16 teacher. FCP validates the existing mask
-  as a local optimum; it does not discover a different GR00T mask.
+  improves over QuantVLA by 23.6 points and its difference from the FP16
+  teacher is not significant. FCP validates the existing mask as a local
+  optimum; it does not discover a different GR00T mask.
 - pi0.5: the budget-pruned main mask reaches 2.702x compression versus FP16
   (1.097x the QuantVLA byte cell), but its 29/100 quick result does not exceed
-  the previous main plan's 33/100. This is explicitly a compression anchor,
+  the 80-W4 reference plan's 33/100. This is explicitly a compression anchor,
   not a success-rate or formal non-inferiority claim.

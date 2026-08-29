@@ -17,14 +17,16 @@ make check
 ```
 
 The check first verifies frozen DyPAC evidence and generated table cells, then compiles the PDF and
-enforces anonymity, the nine-page main-text limit, statement placement, official template hashes,
+enforces anonymity, an exact nine-page main text, statement placement, official template hashes,
 readable booktabs tables, and a warning-free log.
 
 Active paper artifacts:
 
 - `figures/pipeline_figure.tex`: code-native DyPAC-VLA architecture figure.
-- `tables/main_results.tex`: GR00T Table 1, with 54.0% as ours and no within-project predecessor comparison.
+- `figures/fcp_algorithm.tex`: fail-closed FCP selection and freeze algorithm.
+- `tables/main_results.tex`: GR00T and $\pi_{0.5}$ Table 1, with 54.0% as the formal ours result and the $\pi_{0.5}$ quick result explicitly isolated as a compression anchor.
 - `tables/core_ablation.tex`: audited core mechanism evidence in main-text Table 2.
+- `tables/core_rollout_plan.tex`: main-text Table 3 with the three preregistered closed-loop causal contrasts.
 - `tables/extended_ablation_plan.tex`: appendix-only secondary ablation protocol; pending.
 - `tables/omega_qvla_libero.tex`: appendix-only pending LIBERO extension; claim-disabled.
 - `dypac_evidence_registry.json`: paper identity, claim guards, source paths, and frozen hashes.

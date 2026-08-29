@@ -54,7 +54,7 @@ def pdf_page_size(path: Path) -> str:
     return match.group(1)
 
 
-def audit(paper_dir: Path, main_page_limit: int) -> dict[str, Any]:
+def audit(paper_dir: Path, main_page_minimum: int, main_page_limit: int) -> dict[str, Any]:
     build_dir = paper_dir / ".build"
     pdf_path = paper_dir / "main.pdf"
     build_pdf = build_dir / "main.pdf"
@@ -115,6 +115,9 @@ def audit(paper_dir: Path, main_page_limit: int) -> dict[str, Any]:
         if re.search(pattern, log_text, flags=re.IGNORECASE)
     ]
     require(not found, f"LaTeX warning gate failed: {found}")
+    require(main_end_page >= main_page_minimum, (
+        f"main paper ends on page {main_end_page}, minimum is {main_page_minimum}"
+    ))
     require(main_end_page <= main_page_limit, (
         f"main paper ends on page {main_end_page}, limit is {main_page_limit}"
     ))
@@ -162,6 +165,7 @@ def audit(paper_dir: Path, main_page_limit: int) -> dict[str, Any]:
         "valid": True,
         "venue": "ICLR 2027",
         "anonymous_review": True,
+        "main_page_minimum": main_page_minimum,
         "main_page_limit": main_page_limit,
         "main_end_page": main_end_page,
         "ai_use_statement_page": ai_statement_page,
@@ -196,10 +200,11 @@ def audit(paper_dir: Path, main_page_limit: int) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--paper-dir", default=str(PAPER_DIR))
+    parser.add_argument("--main-page-minimum", type=int, default=9)
     parser.add_argument("--main-page-limit", type=int, default=9)
     parser.add_argument("--report")
     args = parser.parse_args()
-    result = audit(Path(args.paper_dir).resolve(), args.main_page_limit)
+    result = audit(Path(args.paper_dir).resolve(), args.main_page_minimum, args.main_page_limit)
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.report:
         report = Path(args.report).resolve()

@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\caption{Main closed-loop ablation matrix. Each contrast changes one decision while freezing the checkpoint, task--seed pairs, byte accounting, and rollout protocol. Pending cells are a preregistered experiment plan and support no current claim.}
+\label{tab:core_rollout_plan}
+\footnotesize
+\setlength{\tabcolsep}{4.0pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular}{@{}p{0.21\linewidth}p{0.24\linewidth}p{0.30\linewidth}p{0.16\linewidth}@{}}
+\toprule
+Configuration & Changed decision & Frozen controls & Status / SR \\
+\midrule
+\method & None & Formal 50-task protocol & Complete; 54.0 \\
+Static A8 & Activation range only & Same W4 weights and mask & Planned / -- \\
+Local-MSE selection & Precision metric only & Same byte ceiling and generator & Planned / -- \\
+No full-network check & Final adjudication only & Same metric, budget, and runtime & Planned / -- \\
+\bottomrule
+\end{tabular}
+\end{table}

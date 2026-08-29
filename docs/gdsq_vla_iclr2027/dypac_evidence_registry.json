@@ -21,6 +21,18 @@
       "composite_unseen": 0.40875
     },
     "static_component_bytes": 962068480,
+    "task_level_direction": {
+      "versus_fp16": {
+        "better": 18,
+        "equal": 6,
+        "worse": 26
+      },
+      "versus_quantvla": {
+        "better": 48,
+        "equal": 1,
+        "worse": 1
+      }
+    },
     "versus_fp16": {
       "bootstrap": {
         "ci95_high": 0.0176,
@@ -65,6 +77,13 @@
     "episodes_per_configuration": 100,
     "fp16_layers": 59,
     "main_successes": 33,
+    "official_target_split_baselines": {
+      "episodes_per_configuration": 2500,
+      "fp16": 0.26159999999999994,
+      "omega_qvla_w4a4": 0.2148,
+      "quantvla_w4a8": 0.24839999999999995,
+      "uniform_w6": 0.24519999999999992
+    },
     "role": "compression_anchor_only",
     "static_component_bytes": 1634828288,
     "w4_layers": 121
@@ -91,6 +110,10 @@
       "path": "runs/full_context_v2/pi05_p2/interventions_round_main/context_base.json",
       "sha256": "fed603b2d91ca8ef419b22e665325e73f97bc400018f6514aa86319dd821e4d4"
     },
+    "pi05_omega": {
+      "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/summary.json",
+      "sha256": "d898552b26fb68db253decfe9375977f1dbf38daf89bb94d73c6d62564114ae9"
+    },
     "pi05_plan": {
       "path": "runs/full_context_v2/pi05_p2/pi05_full_context_v2_frozen.json",
       "sha256": "75d03ac67f17e44570055b54b1a25e44b88ee22bc2282d91bda5acc1f1c61b98"
@@ -98,6 +121,14 @@
     "pi05_quick": {
       "path": "runs/full_context_v2/pi05_quick/combined_aggregate.json",
       "sha256": "9633554be93cdfd88448b8e2ebec8e0999e26a7351520752c20ee2eb6d3fbade"
+    },
+    "pi05_static_official": {
+      "path": "runs/pi05_gdsq_gr00t_aligned/official_target_paired50/aggregate/summary.json",
+      "sha256": "c7b6441c6ca0a49aa5cfe8e673d1ee465a5d101076b6ad866b149fb545d10cbb"
+    },
+    "pi05_uniform_w6": {
+      "path": "runs/gdsq_week1_preregistered_v1/execution/runs/pi05_uniform_w6_official50/aggregate/summary.json",
+      "sha256": "849e1e159daf6b515bcb1724a8862fea17e9c0c95053ed5fefc99b9c145e052a"
     }
   },
   "valid": true

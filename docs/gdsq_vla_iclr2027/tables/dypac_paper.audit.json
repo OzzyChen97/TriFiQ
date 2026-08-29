@@ -21,6 +21,18 @@
       "composite_unseen": 0.40875
     },
     "static_component_bytes": 962068480,
+    "task_level_direction": {
+      "versus_fp16": {
+        "better": 18,
+        "equal": 6,
+        "worse": 26
+      },
+      "versus_quantvla": {
+        "better": 48,
+        "equal": 1,
+        "worse": 1
+      }
+    },
     "versus_fp16": {
       "bootstrap": {
         "ci95_high": 0.0176,
@@ -60,6 +72,13 @@
     "episodes_per_configuration": 100,
     "fp16_layers": 59,
     "main_successes": 33,
+    "official_target_split_baselines": {
+      "episodes_per_configuration": 2500,
+      "fp16": 0.26159999999999994,
+      "omega_qvla_w4a4": 0.2148,
+      "quantvla_w4a8": 0.24839999999999995,
+      "uniform_w6": 0.24519999999999992
+    },
     "role": "compression_anchor_only",
     "static_component_bytes": 1634828288,
     "w4_layers": 121
@@ -71,8 +90,11 @@
     "gr00t_plan": "969c5ae8bc84719229c81a88e8b6ace745cbb87cea551528ec8cf1fd3820e3a2",
     "pi05_guard": "b7922b77071480e5d7d5b37e0492ad22bb42fac23c25f83f22ff872fb190f7b8",
     "pi05_main_plan": "fed603b2d91ca8ef419b22e665325e73f97bc400018f6514aa86319dd821e4d4",
+    "pi05_omega": "d898552b26fb68db253decfe9375977f1dbf38daf89bb94d73c6d62564114ae9",
     "pi05_plan": "75d03ac67f17e44570055b54b1a25e44b88ee22bc2282d91bda5acc1f1c61b98",
-    "pi05_quick": "9633554be93cdfd88448b8e2ebec8e0999e26a7351520752c20ee2eb6d3fbade"
+    "pi05_quick": "9633554be93cdfd88448b8e2ebec8e0999e26a7351520752c20ee2eb6d3fbade",
+    "pi05_static_official": "c7b6441c6ca0a49aa5cfe8e673d1ee465a5d101076b6ad866b149fb545d10cbb",
+    "pi05_uniform_w6": "849e1e159daf6b515bcb1724a8862fea17e9c0c95053ed5fefc99b9c145e052a"
   },
   "valid": true
 }

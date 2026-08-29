@@ -43,6 +43,18 @@ SOURCES = {
         ROOT / "runs/full_context_v2/pi05_quick/non_inferiority_anchor.json",
         "b7922b77071480e5d7d5b37e0492ad22bb42fac23c25f83f22ff872fb190f7b8",
     ),
+    "pi05_static_official": (
+        ROOT / "runs/pi05_gdsq_gr00t_aligned/official_target_paired50/aggregate/summary.json",
+        "c7b6441c6ca0a49aa5cfe8e673d1ee465a5d101076b6ad866b149fb545d10cbb",
+    ),
+    "pi05_uniform_w6": (
+        ROOT / "runs/gdsq_week1_preregistered_v1/execution/runs/pi05_uniform_w6_official50/aggregate/summary.json",
+        "849e1e159daf6b515bcb1724a8862fea17e9c0c95053ed5fefc99b9c145e052a",
+    ),
+    "pi05_omega": (
+        ROOT / "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/summary.json",
+        "d898552b26fb68db253decfe9375977f1dbf38daf89bb94d73c6d62564114ae9",
+    ),
 }
 
 
@@ -61,6 +73,21 @@ def require(condition: bool, message: str) -> None:
 
 def close(actual: float, expected: float, tol: float = 1e-10) -> bool:
     return abs(actual - expected) <= tol
+
+
+def task_direction_counts(
+    candidate: dict[str, Any], baseline: dict[str, Any], tol: float = 1e-12
+) -> dict[str, int]:
+    """Count task-level directions from frozen per-task success rates."""
+    candidate_rates = candidate["per_task_success_rate"]
+    baseline_rates = baseline["per_task_success_rate"]
+    require(candidate_rates.keys() == baseline_rates.keys(), "per-task key drift")
+    counts = {"better": 0, "equal": 0, "worse": 0}
+    for task in candidate_rates:
+        delta = candidate_rates[task] - baseline_rates[task]
+        direction = "equal" if abs(delta) <= tol else ("better" if delta > 0 else "worse")
+        counts[direction] += 1
+    return counts
 
 
 def load_sources() -> dict[str, dict[str, Any]]:
@@ -92,6 +119,8 @@ def audit(data: dict[str, dict[str, Any]]) -> dict[str, Any]:
     require(close(candidate["task_macro_success_rate"], 0.54), "GR00T headline drift")
     fp16 = comparisons["fp16"]
     quantvla = comparisons["quantvla_w4a8"]
+    quant_task_direction = task_direction_counts(candidate, quantvla["baseline"])
+    fp16_task_direction = task_direction_counts(candidate, fp16["baseline"])
     require(close(fp16["holm_adjusted_mcnemar_p"], 0.29286269346886834), "FP16 p-value drift")
     require(close(quantvla["baseline"]["task_macro_success_rate"], 0.3044), "QuantVLA result drift")
     require((quantvla["paired_wins"], quantvla["paired_losses"]) == (721, 132), "QuantVLA discordance drift")
@@ -99,6 +128,8 @@ def audit(data: dict[str, dict[str, Any]]) -> dict[str, Any]:
         close(quantvla["holm_adjusted_mcnemar_p"], 1.8894854853781264e-98),
         "QuantVLA p-value drift",
     )
+    require(quant_task_direction == {"better": 48, "equal": 1, "worse": 1}, "QuantVLA task-direction drift")
+    require(fp16_task_direction == {"better": 18, "equal": 6, "worse": 26}, "FP16 task-direction drift")
 
     activation = data["activation_attribution"]
     require(activation["selected_activation_mode"] == "dynamic_a8", "activation decision drift")
@@ -123,6 +154,19 @@ def audit(data: dict[str, dict[str, Any]]) -> dict[str, Any]:
     require((quick["candidate_successes"], quick["main_successes"]) == (29, 33), "pi0.5 quick result drift")
     require((quick["paired_wins"], quick["paired_losses"]) == (7, 11), "pi0.5 discordance drift")
     require(guard["candidate_successes"] == 29 and guard["main_successes"] == 33, "pi0.5 guard drift")
+
+    pi_static = data["pi05_static_official"]
+    pi_fp16 = pi_static["configs"]["fp16"]
+    pi_quant = pi_static["configs"]["quantvla_w4a8_atmohb"]
+    pi_w6 = data["pi05_uniform_w6"]["configs"]["uniform_w6"]
+    pi_omega = data["pi05_omega"]
+    for name, row in (("FP16", pi_fp16), ("QuantVLA", pi_quant), ("Uniform W6", pi_w6)):
+        require(row["completed_episodes"] == 2500, f"pi0.5 {name} coverage drift")
+    require(pi_omega["complete"] is True and pi_omega["episodes"] == 2500, "pi0.5 Omega coverage drift")
+    require(close(pi_fp16["task_macro_sr"], 0.2616), "pi0.5 FP16 result drift")
+    require(close(pi_quant["task_macro_sr"], 0.2484), "pi0.5 QuantVLA result drift")
+    require(close(pi_w6["task_macro_sr"], 0.2452), "pi0.5 W6 result drift")
+    require(close(pi_omega["task_macro_sr"], 0.2148), "pi0.5 Omega result drift")
 
     return {
         "schema_version": 1,
@@ -169,6 +213,10 @@ def audit(data: dict[str, dict[str, Any]]) -> dict[str, Any]:
                 "structured_objective_min": min(item["objective"] for item in summaries.values()),
                 "structured_objective_max": max(item["objective"] for item in summaries.values()),
             },
+            "task_level_direction": {
+                "versus_quantvla": quant_task_direction,
+                "versus_fp16": fp16_task_direction,
+            },
         },
         "pi05": {
             "role": "compression_anchor_only",
@@ -180,6 +228,13 @@ def audit(data: dict[str, dict[str, Any]]) -> dict[str, Any]:
             "main_successes": quick["main_successes"],
             "episodes_per_configuration": 100,
             "claim_status": "quick_screen_does_not_support_success_superiority",
+            "official_target_split_baselines": {
+                "fp16": pi_fp16["task_macro_sr"],
+                "quantvla_w4a8": pi_quant["task_macro_sr"],
+                "uniform_w6": pi_w6["task_macro_sr"],
+                "omega_qvla_w4a4": pi_omega["task_macro_sr"],
+                "episodes_per_configuration": 2500,
+            },
         },
         "sources": {
             name: {"path": str(path.relative_to(ROOT)), "sha256": expected_hash}
@@ -202,10 +257,19 @@ def main_table(data: dict[str, dict[str, Any]]) -> str:
     cs = c["split_task_macro_success_rate"]
     fs = fp["split_task_macro_success_rate"]
     qs = q["split_task_macro_success_rate"]
+    pi_static = data["pi05_static_official"]
+    pi_fp = pi_static["configs"]["fp16"]
+    pi_q = pi_static["configs"]["quantvla_w4a8_atmohb"]
+    pi_w6 = data["pi05_uniform_w6"]["configs"]["uniform_w6"]
+    pi_omega = data["pi05_omega"]
+    pifs = pi_fp["task_set_macro_sr"]
+    piqs = pi_q["task_set_macro_sr"]
+    piws = pi_w6["task_set_macro_sr"]
+    pios = {name: row["task_macro_sr"] for name, row in pi_omega["task_sets"].items()}
     return f"""% AUTO-GENERATED by scripts/tools/render_dypac_paper.py; DO NOT EDIT.
 \\begin{{table}}[t]
 \\centering
-\\caption{{GR00T N1.5 task-macro success rate (SR, \\%) on the RoboCasa365 target split, with 50 paired scenarios per task.}}
+\\caption{{RoboCasa365 results and exact static storage for GR00T N1.5 and $\\pi_{{0.5}}$. Formal target-split rows use 50 paired scenarios per task.}}
 \\label{{tab:main_results}}
 \\small
 \\setlength{{\\tabcolsep}}{{4.0pt}}
@@ -214,15 +278,23 @@ def main_table(data: dict[str, dict[str, Any]]) -> str:
 \\toprule
 Configuration & \\shortstack{{Low-bit\\\\layers}} & \\shortstack{{Atomic\\\\SR $\\uparrow$}} & \\shortstack{{C-Seen\\\\SR $\\uparrow$}} & \\shortstack{{C-Unseen\\\\SR $\\uparrow$}} & \\shortstack{{All\\\\SR $\\uparrow$}} & \\shortstack{{Size\\\\(GiB) $\\downarrow$}} & \\shortstack{{Comp.\\\\$\\uparrow$}} \\\\
 \\midrule
+\\multicolumn{{8}}{{@{{}}l}}{{\\textbf{{GR00T N1.5}}\\enspace\\textit{{(formal target split)}}}} \\\\
 \\quad FP16 & -- & {pct(fs['atomic_seen'])} & {pct(fs['composite_seen'])} & {pct(fs['composite_unseen'])} & {pct(fp['task_macro_success_rate'])} & 1.993 & 1.00$\\times$ \\\\
 \\quad \\quantvla W4A8 & 116 W4 & {pct(qs['atomic_seen'])} & {pct(qs['composite_seen'])} & {pct(qs['composite_unseen'])} & {pct(q['task_macro_success_rate'])} & 0.898 & 2.22$\\times$ \\\\
 \\quad Uniform W6 & 116 W6 & 68.4 & 42.9 & 41.8 & 51.7 & 1.109 & 1.80$\\times$ \\\\
 \\quad $\\Omega$-QVLA W4A4$^{{\\ddagger}}$ & 180 W4 & 60.1 & 25.9 & 27.5 & 38.7 & 0.599 & 3.33$\\times$ \\\\
 \\quad \\textbf{{\\method (Ours)}} & \\textbf{{100 W4}} & \\textbf{{{pct(cs['atomic_seen'])}}} & \\textbf{{{pct(cs['composite_seen'])}}} & \\textbf{{{pct(cs['composite_unseen'])}}} & \\textbf{{{pct(c['task_macro_success_rate'])}}} & \\textbf{{0.896}} & \\textbf{{2.22$\\times$}} \\\\
+\\midrule
+\\multicolumn{{8}}{{@{{}}l}}{{\\textbf{{$\\pi_{{0.5}}$}}~\\cite{{intelligence2025pi05}}\\enspace\\textit{{(formal baselines; ours is a quick-screen anchor)}}}} \\\\
+\\quad FP16 & -- & {pct(pifs['atomic_seen'])} & {pct(pifs['composite_seen'])} & {pct(pifs['composite_unseen'])} & {pct(pi_fp['task_macro_sr'])} & 4.113 & 1.00$\\times$ \\\\
+\\quad \\quantvla W4A8 & 180 W4 & {pct(piqs['atomic_seen'])} & {pct(piqs['composite_seen'])} & {pct(piqs['composite_unseen'])} & {pct(pi_q['task_macro_sr'])} & 1.388 & 2.96$\\times$ \\\\
+\\quad Uniform W6 & 180 W6 & {pct(piws['atomic_seen'])} & {pct(piws['composite_seen'])} & {pct(piws['composite_unseen'])} & {pct(pi_w6['task_macro_sr'])} & 1.902 & 2.16$\\times$ \\\\
+\\quad $\\Omega$-QVLA W4A4$^{{\\ddagger}}$ & 252 W4 & {pct(pios['atomic_seen'])} & {pct(pios['composite_seen'])} & {pct(pios['composite_unseen'])} & {pct(pi_omega['task_macro_sr'])} & 1.307 & 3.27$\\times$ \\\\
+\\quad \\textbf{{\\method (Ours; anchor)}} & \\textbf{{121 W4}} & -- & -- & -- & \\textbf{{29/100$^{{*}}$}} & \\textbf{{1.523}} & \\textbf{{2.70$\\times$}} \\\\
 \\bottomrule
 \\end{{tabular}}
 \\vspace{{2pt}}
-\\parbox{{0.99\\textwidth}}{{\\footnotesize C-Seen/C-Unseen denote Composite-Seen/Composite-Unseen. Ours uses exact total static-component accounting (962,068,480 bytes). $^{{\\ddagger}}\\Omega$-QVLA uses model- and task-set-specific RoboCasa365 calibration. Compression ratios denote static component storage, not runtime memory or latency.}}
+\\parbox{{0.99\\textwidth}}{{\\footnotesize C-Seen/C-Unseen denote Composite-Seen/Composite-Unseen. GR00T ours uses 962,068,480 bytes; $\\pi_{{0.5}}$ ours uses 1,634,828,288 bytes. $^{{*}}$The 29/100 cell is a five-task quick screen, not the 2,500-episode target-split protocol, and supports no cross-row success comparison. $^{{\\ddagger}}\\Omega$-QVLA uses model- and task-set-specific calibration. Compression denotes static component storage, not latency.}}
 \\end{{table}}
 """
 

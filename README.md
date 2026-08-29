@@ -39,8 +39,10 @@ The GR00T split success rates are 74.7% Atomic-Seen, 43.9% Composite-Seen, and 4
 Composite-Unseen. FP16 obtains 55.1%; the paired comparison with ours has $p=0.2929$ and a
 95% hierarchical-bootstrap interval of [-3.88, 1.76] points.
 
-The paper places audited core mechanism ablations in the main text. The pending LIBERO comparison
-and lower-priority planned diagnostic ablations are appendix-only and explicitly claim-disabled.
+Table 1 includes formal GR00T and $\pi_{0.5}$ baselines; the $\pi_{0.5}$ ours row is visibly marked
+as a non-comparable quick-screen compression anchor. The paper places audited mechanism evidence
+and the three core closed-loop ablation contrasts in its exact nine-page main text. The pending
+LIBERO comparison and lower-priority planned diagnostics are appendix-only and claim-disabled.
 
 ## Paper and Evidence
 

@@ -2,63 +2,127 @@
 \label{sec:method}
 
 \paragraph{Overview.}
-\method converts a frozen FP16 VLA into a single static W4/FP16 policy. Figure~\ref{fig:pipeline} summarizes three stages. First, paired teacher and candidate action chunks are compared with \dpac. Second, \fcp searches precision changes under an exact total-component byte budget and adjudicates complete candidates across task contexts. Third, the frozen plan is deployed with Hessian-aware group-64 W4 weights and dynamic per-forward A8 ranges. No success label, gradient, extra training data, task-dependent mask, runtime selector, or output correction is used.
+\method converts a frozen FP16 VLA into one static W4/FP16 policy. Figure~\ref{fig:pipeline} summarizes three stages. First, paired teacher and candidate action chunks are compared in physical control space with \dpac. Second, Full-Context Precision Protection (\fcp) generates byte-feasible masks from layer counterfactuals and lets complete-policy, cross-context evidence make the final decision. Third, the frozen plan is deployed with Hessian-aware group-64 W4 weights and dynamic per-forward A8 ranges. The following subsections define the optimization problem, metric, selector, and numerical deployment rule.
 
 \input{figures/pipeline_figure}
+
+\subsection{Problem Setting and Design Constraints}
+\label{sec:problem}
+
+Let $f_{\theta}(o,\epsilon)$ denote a frozen FP16 VLA that maps observation $o$ and generative noise $\epsilon$ to an action chunk $A\in\mathbb{R}^{H\times d}$. The target Linear layers are indexed by $\mathcal{L}$. A mask $M\in\{4,16\}^{|\mathcal{L}|}$ chooses signed-nibble W4 or native FP16 for every target, and $Q_M(f_\theta)$ denotes the instantiated mixed-precision policy. Our goal is
+\begin{equation}
+ M^*=\arg\min_{M}\;\mathcal{R}\!\left(Q_M(f_\theta),f_\theta;\mathcal{B}\right)
+ \quad\text{s.t.}\quad C(M)\le C_{\max},
+ \label{eq:problem}
+\end{equation}
+where $\mathcal{B}$ is a frozen FP16 on-policy context buffer, $\mathcal{R}$ is a paired control-risk surrogate, and $C(M)$ is exact packed static-component storage. Unlike layerwise reconstruction, $\mathcal{R}$ is evaluated after all decisions in $M$ have been applied to the complete policy.
+
+The selection problem is deliberately label-free. Success and reward never enter $\mathcal{R}$; task identifiers are used only to form stratified uncertainty estimates. Selection noise is paired between teacher and candidate, while a second noise stream is reserved for post-freeze audit. The output is one mask and one activation rule shared by every task, flow step, and observation. No gradient update, extra training data, task-conditioned routing, output correction, or FP16 bypass is permitted.
+
+These constraints separate compression design from test-time adaptation. A candidate may exploit the FP16 teacher and unlabeled on-policy observations before deployment, but it cannot observe task success or change its precision state online. This makes a selected mask auditable as a fixed model artifact and prevents a favorable task mixture from being encoded as a runtime selector.
 
 \subsection{Prefix-Accumulated Control Divergence}
 \label{sec:dpac}
 
-Let $A^T=(a_1^T,\ldots,a_H^T)$ and $A^Q=(a_1^Q,\ldots,a_H^Q)$ be paired FP16-teacher and quantized action chunks generated from the same observation and initial action noise. We compare final physical actions after native inverse normalization, with $H=16$ and translation, rotation, gripper, and other deployed coordinates. A robust per-coordinate penalty
+\paragraph{Paired physical actions.}
+Let $A^T_{r,h}$ and $A^Q_{r,h}$ be teacher and candidate actions at replan $r$ and chunk index $h$. Both policies receive the same observation and initial action noise. We inverse-normalize the final deployed actions before comparison, giving $H=16$ and $d=12$ physical coordinates for both model families. For coordinate $k$, a single global FP16-only scale is
 \begin{equation}
-    \rho(z)=2\!\left(\sqrt{1+z^2}-1\right)
+ \tilde{s}_k=\max\!\left(1.4826\operatorname{MAD}_k,0.1\operatorname{RMS}_k\right),\qquad
+ s_k=\max\!\left(\tilde{s}_k,0.05\operatorname{median}_{j}\tilde{s}_j,10^{-4}\right).
+ \label{eq:global_scale}
 \end{equation}
-limits domination by isolated outliers. Its scale $s$ is estimated once from the entire FP16 selection buffer using a MAD/RMS floor and is never re-estimated per sequence.
+It is estimated once over the entire selection buffer and is never re-estimated per task or sequence. This prevents a severely corrupted candidate from making its own error appear small by inflating the denominator.
 
-Local error alone ignores temporal accumulation. For action residual $e_h=a_h^Q-a_h^T$, the prefix term measures $\sum_{j=1}^{h}e_j/(s\sqrt{h})$ at every prefix. We additionally compose relative end-effector transforms in SE(3) for pose drift, compare the boundary between consecutive replans for stitch error, and measure both soft gripper state and open/close event timing. After normalizing the five components, a sequence score is
+\paragraph{Local and accumulated error.}
+Flatten the executed actions in control-time order and define $z_t=(a_t^Q-a_t^T)/s$. We use the exactly-zero Charbonnier penalty $\rho(z)=2(\sqrt{1+z^2}-1)$. The local and prefix terms are
 \begin{equation}
- d_{\mathrm{PAC}}=
+ d_{\mathrm{local}}=\frac{1}{Nd}\sum_{t,k}\rho(z_{t,k}),\qquad
+ d_{\mathrm{prefix}}=\frac{1}{Nd}\sum_{t,k}
+ \rho\!\left(\frac{\sum_{j=1}^{t}z_{j,k}}{\sqrt{t}}\right).
+ \label{eq:local_prefix}
+\end{equation}
+The $\sqrt{t}$ normalization preserves sensitivity to coherent bias: alternating errors can cancel, whereas a small error with constant sign remains visible as its prefix grows. This distinction is important for action chunks because consistent translation or rotation bias can move the end effector away from the teacher trajectory even when per-step MSE is small.
+
+\paragraph{Control-specific components.}
+Three terms capture errors that coordinatewise residuals miss. For $d_{\mathrm{pose}}$, the first six action dimensions are composed as relative transforms in $\mathrm{SE}(3)$; the teacher-to-candidate relative transform is mapped back with the Lie logarithm and normalized by $s_{1:6}\sqrt{t}$ at every prefix. The stitch term compares changes in the replan boundary jump,
+\begin{equation}
+ d_{\mathrm{stitch}}=\overline{\rho}\!\left(
+ \frac{(A^Q_{r+1,1}-A^Q_{r,H})-(A^T_{r+1,1}-A^T_{r,H})}{s}
+ \right),
+ \label{eq:stitch}
+\end{equation}
+and therefore penalizes a candidate whose individually plausible chunks do not join continuously. Finally, $d_{\mathrm{grip}}$ averages a soft gripper-state discrepancy and its first difference, so delayed open/close events are penalized even when continuous arm motion is accurate.
+
+The five normalized components receive equal weight:
+\begin{equation}
+ \begin{aligned}
+ d_{\mathrm{PAC}}^{(u)}&=\tfrac{1}{5}\bigl(
  d_{\mathrm{local}}+d_{\mathrm{prefix}}+d_{\mathrm{pose}}+
- d_{\mathrm{stitch}}+d_{\mathrm{grip}}.
+ d_{\mathrm{stitch}}+d_{\mathrm{grip}}\bigr),\\
+ \dpac&=\operatorname{mean}_u d_{\mathrm{PAC}}^{(u)}+
+ \operatorname{CVaR}_{0.9,u}\!\left(d_{\mathrm{PAC}}^{(u)}\right).
+ \end{aligned}
  \label{eq:dpac_sequence}
 \end{equation}
-The buffer-level divergence combines the sequence mean with $\operatorname{CVaR}_{0.9}$, exposing rare catastrophic deviations that a mean can hide. We also retain a complementary functional diagnostic
+Here $u$ is a task--seed sequence of ordered replans. The outer CVaR gives the worst ten percent of sequences the same total weight as the mean, exposing rare catastrophic deviations without duplicating an observation-level tail term.
+
+We retain a complementary functional diagnostic
 \begin{equation}
  \dfunc=d_{\mathrm{final}}+d_{\mathrm{kin}}+d_{\mathrm{grip}}
  +2\operatorname{CVaR}_{0.9}(d_{\mathrm{solver}}),
  \label{eq:dfunc}
 \end{equation}
-but the complete selection rule must be safe under both $\dpac$ and $\dfunc$.
+computed on the same physical final chunks. \dpac measures ordered control accumulation; \dfunc preserves a local final/kinematic view. A precision change must be conservative under both rather than choosing whichever metric is favorable.
 
 \subsection{Full-Context Precision Protection}
 \label{sec:fcp}
 
 \paragraph{Context buffer.}
-We collect FP16 on-policy observations from 12 tasks: four each from Atomic-Seen, Composite-Seen, and Composite-Unseen. Three seeds per task and four replans per sequence yield 36 sequences and 144 observations, stratified across early, middle, and late rollout windows. Task identifiers are used only to compute stratified statistics; the output remains one global mask.
+We collect FP16 on-policy observations from 12 tasks: four each from Atomic-Seen, Composite-Seen, and Composite-Unseen. Three seeds per task and four replans per sequence yield 36 sequences and 144 observations. A hash of task and seed assigns early, middle, or late rollout windows, preventing the selector from seeing only easy initial states. Task identifiers stratify statistics, but the result remains one global mask.
 
-\paragraph{Counterfactual search.}
-Each target Linear layer has two states: native FP16 or signed-nibble group-64 W4. Starting from a complete mask, round one flips every W4 target to FP16 individually; round two flips every target state around the round-one winner. An exact sparse Pareto 0--1 dynamic program combines measured counterfactual benefits under
+\paragraph{Coordinate counterfactuals.}
+Starting from a complete mask, round one flips every W4 target to FP16 individually; round two flips every target state around the round-one winner. Each intervention is instantiated as a real mixed-precision network and compared with its complete-mask background. The resulting conservative benefits feed an exact sparse Pareto 0--1 dynamic program under
 \begin{equation}
- C(M)=C_{\mathrm{fixed}}+\sum_i C_i(M_i)\le
- 1.10\,C_{\mathrm{QuantVLA}},
+ C(M)=C_{\mathrm{fixed}}+\sum_{i\in\mathcal{L}}C_i(M_i)
+ \le 1.10\,C_{\mathrm{QuantVLA}}.
  \label{eq:budget}
 \end{equation}
-where $C$ counts the same total static model components used in Table~\ref{tab:main_results}. Layer count is not a constraint. The dynamic program only proposes masks: non-additive interactions are decided after instantiating the complete network.
+Layer count is not a constraint because two layers can have different tensor and metadata sizes. The dynamic program is only a candidate generator: additive counterfactual benefits cannot represent interactions between simultaneous layer changes.
 
-\paragraph{Whole-network adjudication.}
-For every complete proposal, we recompute paired $\dpac$ and $\dfunc$ deltas on all contexts. The scalar objective is the worst normalized one-standard-error upper bound over both metrics and the all-task, Atomic, Composite-Seen, and Composite-Unseen clusters. A candidate must make this bound strictly negative and separately satisfy non-positive upper bounds for pose, stitch, and gripper components. Candidate-state rescoring checks the top three plans on observations induced by the candidate itself. These conservative rules prevent a favorable average from masking a harmful context or control component.
+\paragraph{Task-level minimax adjudication.}
+For metric $q\in\{\dfunc,\dpac\}$ and task cluster $g\in\{\mathrm{all},\mathrm{Atomic},\mathrm{C\text{-}Seen},\mathrm{C\text{-}Unseen}\}$, let $\Delta_{q,t}(M)$ be the paired candidate-minus-background task scalar. We define
+\begin{equation}
+ U_{q,g}(M)=
+ \frac{\operatorname{mean}_{t\in g}\Delta_{q,t}(M)+
+ \operatorname{SE}^{\mathrm{jack}}_{t\in g}[\Delta_{q,t}(M)]}
+ {\operatorname{mean}_{t\in g}q_t(M_{\mathrm{base}})},
+ \qquad
+ J(M)=\max_{q,g}U_{q,g}(M).
+ \label{eq:minimax}
+\end{equation}
+The leave-one-task-out jackknife makes the task, rather than an observation, the uncertainty unit. A proposal is eligible only if $J(M)<0$ and the unnormalized one-SE upper bounds for pose, stitch, and gripper are all non-positive. Thus a favorable global mean cannot hide harm on a difficult split or safety-relevant component.
 
-On GR00T, all 116 one-layer flips have non-positive benefit relative to the initialized 100-W4/16-FP16 mask, and all five additional full-network proposals are ineligible. The frozen winner is therefore the unchanged context baseline. This result supports local optimality in the tested one-layer-flip neighborhood; it is not evidence that \fcp discovered a new GR00T mask. For $\pi_{0.5}$, the budgeted plan flips the 41 lowest-benefit protected layers to W4, producing 121 W4 and 59 FP16 layers.
+\paragraph{Candidate-state check and freeze.}
+Teacher-state observations can underrepresent the states induced by a changed policy. We therefore regenerate four to eight replans for the three best eligible masks, pool candidate-induced observations, and evaluate paired teacher/candidate actions again. The final score is $\max(J_{\mathrm{teacher}},J_{\mathrm{candidate}})$. Remaining ties are broken by smaller static bytes, fewer FP16 layers, and then lexicographic mask order. This makes the freeze deterministic and fail-closed.
+
+\input{figures/fcp_algorithm}
+
+On GR00T, all 116 valid one-layer flips have non-positive benefit relative to the initialized 100-W4/16-FP16 mask, and all five additional full-network proposals are ineligible. The unchanged context baseline is therefore frozen. This supports local optimality only in the declared counterfactual neighborhood; it is not evidence of a global optimum or a newly discovered GR00T mask. For $\pi_{0.5}$, exact-budget pruning converts the 41 lowest-benefit protected layers to W4, producing 121 W4 and 59 FP16 layers.
 
 \subsection{Hessian-W4 and Dynamic-Range A8 Deployment}
 \label{sec:deployment}
 
-For each W4 layer, 256 calibration observations form FP16 input second-order statistics $X^\top X$. A GPTQ-style sequential error-feedback pass selects clipping and quantizes signed weights in groups of 64~\cite{frantar2022gptq}; row rotation is the identity and FP16 weights are not retained for W4 modules.
+\paragraph{Weight quantization.}
+For each W4 layer, 256 calibration observations form FP16 input second-order statistics $X^\top X$. A GPTQ-style sequential error-feedback pass selects clipping and quantizes signed weights in groups of 64~\cite{frantar2022gptq}. Two signed four-bit codes are packed per byte; per-group scales and packing metadata are retained, while the FP16 weight tensor is not. Row rotation is the identity, so the reported method does not depend on an unreported learned transform.
 
-Static activation tables can fail under policy-induced range shift. \dyrange instead recomputes a scale for every target Linear, forward call, and input channel:
+\paragraph{Dynamic activation range.}
+Static activation tables can become mismatched as observation and denoising distributions change. \dyrange recomputes a scale for every target Linear, forward call, and input channel:
 \begin{equation}
  s_c=\max\!\left(\frac{\max |x_{\ldots,c}|}{127},10^{-6}\right),
  \qquad q_c=\operatorname{clip}\!\left(\operatorname{round}(x_c/s_c),-127,127\right).
  \label{eq:dyrange}
 \end{equation}
-The rule is deterministic, uses the input dtype, and has no calibration table, flow-step selector, task selector, or candidate branch. The final policy applies the frozen W4/FP16 mask and Eq.~\ref{eq:dyrange} uniformly to every input; runtime correction is disabled.
+The rule is deterministic and uses the input dtype. It has no calibration lookup, flow-step selector, task selector, or candidate branch; Eq.~\ref{eq:dyrange} is applied uniformly to every input and runtime correction is disabled.
+
+\paragraph{Exact storage scope.}
+We report the byte sum of fixed model components, packed W4 codes, per-group scales and metadata, and native FP16 tensors. Activations, CUDA workspaces, simulator state, and eager fake-quant caches are excluded. Under this common scope the final GR00T plan contains 100 W4 and 16 FP16 targets and occupies 962,068,480 bytes. The $\pi_{0.5}$ anchor contains 121 W4 and 59 FP16 targets and occupies 1,634,828,288 bytes. These values establish static compression only; they do not imply latency or peak-memory improvements.
