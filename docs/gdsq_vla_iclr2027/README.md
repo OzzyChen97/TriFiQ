@@ -23,8 +23,8 @@ readable booktabs tables, and a warning-free log.
 Active paper artifacts:
 
 - `figures/pipeline_figure.tex`: code-native DyPAC-VLA architecture figure.
-- `tables/main_results.tex`: audited GR00T table with 54.0% as ours.
-- `tables/pi05_anchor.tex`: compression-only $\pi_{0.5}$ boundary.
+- `tables/main_results.tex`: restored two-model Table 1, with 54.0% as ours in the GR00T block.
+- `tables/omega_qvla_libero.tex`: restored pending LIBERO Table 2; it is claim-disabled.
 - `dypac_evidence_registry.json`: paper identity, claim guards, source paths, and frozen hashes.
 
 Older GDSQ figures and tables are retained only as provenance and are not included by the active

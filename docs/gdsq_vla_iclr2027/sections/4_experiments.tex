@@ -32,9 +32,14 @@ This distinction is central to our claim: \method is the complete validated mask
 \subsection{$\pi_{0.5}$ Compression Boundary}
 \label{sec:pi05}
 
-\input{tables/pi05_anchor}
-
 The $\pi_{0.5}$ plan increases W4 coverage from 80/180 to 121/180 layers, reducing exact static bytes to 0.886$\times$ the previous main plan and reaching 2.702$\times$ compression relative to FP16. In the combined 100-episode screen, however, the compressed candidate obtains 29 successes versus 33 for the prior plan (seven paired wins, eleven losses). We register this result as a compression anchor and make no success-rate improvement, equivalence, or formal non-inferiority claim.
+
+\subsection{LIBERO Comparison}
+\label{sec:libero_comparison}
+
+\input{tables/omega_qvla_libero}
+
+Table~\ref{tab:omega_qvla_libero} restores the previous protocol-registered LIBERO comparison. Its cells remain pending because the joint five-configuration, 4,000-episode local manifest has not passed the completion gate. No author-reported number is imported, and the table supports no empirical claim in its current state.
 
 \paragraph{Deployment scope.}
 The current implementation validates numerical behavior and exact packed storage accounting. Its eager fake-quant path retains floating-point execution, so the paper makes no end-to-end latency or live-memory claim. Fused low-bit kernels and real-robot evaluation remain future work.
