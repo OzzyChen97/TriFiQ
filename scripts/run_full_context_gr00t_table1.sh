@@ -242,13 +242,11 @@ for split in ("atomic_seen", "composite_seen", "composite_unseen"):
 PY
     while read -r split tasks; do
         [[ -n "$split" ]] || continue
-        # Two waves per split: the paper-critical pair first, then the
-        # reference baselines.  Each wave runs two model servers (GPU 5/6)
-        # with its EGL clients spread over the server-free pool devices.
-        run_split "$split" "$tasks" "full_context_v2,gdsq_vla_main"
-        collect_split "$split" "full_context_v2,gdsq_vla_main"
-        run_split "$split" "$tasks" "quantvla_w4a8,fp16"
-        collect_split "$split" "quantvla_w4a8,fp16"
+        # Candidate-only: the fp16 / quantvla_w4a8 / gdsq_vla_main baselines are
+        # reused from the attested official paired-50 rows (modernized into
+        # runs/full_context_v2/table1/baselines), so only full_context_v2 runs.
+        run_split "$split" "$tasks" "full_context_v2"
+        collect_split "$split" "full_context_v2"
     done < "$tasks_file"
     aggregate
 }
@@ -278,9 +276,9 @@ aggregate() {
     "$PYTHON" "$AGGREGATOR" \
         --manifest "$MANIFEST" \
         --candidate-dir "$RESULTS/full_context_v2" \
-        --baseline "fp16=$RESULTS/fp16" \
-        --baseline "quantvla_w4a8=$RESULTS/quantvla_w4a8" \
-        --baseline "gdsq_vla_main=$RESULTS/gdsq_vla_main" \
+        --baseline "fp16=$BASELINES/fp16" \
+        --baseline "quantvla_w4a8=$BASELINES/quantvla_w4a8" \
+        --baseline "gdsq_vla_main=$BASELINES/gdsq_vla_main" \
         --out "$ROOT/aggregate.json"
 }
 
