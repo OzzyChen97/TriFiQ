@@ -214,6 +214,23 @@ def pack_weight(
     # Convert to CPU numpy for preprocessing
     W_np = W.detach().to(dtype=torch.float32, device="cpu").numpy()
     out_features, in_features = W_np.shape
+    if os.environ.get("GR00T_DUQUANT_HESSIAN_W4_PATH"):
+        scale = np.maximum(np.max(np.abs(W_np), axis=1) / 7.0, 1e-12).astype(np.float32)
+        return PackResult(
+            R_in_blocks=None,
+            perm=None,
+            R_out_blocks=None,
+            weight_scale=scale,
+            meta={
+                "in_features": int(in_features),
+                "out_features": int(out_features),
+                "block_size": int(block_size),
+                "block_out_size": int(block_out_size or block_size),
+                "enable_permute": False,
+                "lambda_smooth": float(lambda_smooth),
+                "identity_for_hessian_w4": True,
+            },
+        )
 
     # Weight energy per input channel for permutation
     channel_energy = np.mean(W_np ** 2, axis=0)

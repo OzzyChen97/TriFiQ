@@ -1,0 +1,13 @@
+Use case: scientific-educational
+Asset type: single-contribution ICLR paper figure
+Primary request: Create a technically accurate diagram for Contribution 1 of GDSQ-VLA: a training-free mixed-precision W4/FP16 allocation that combines geometry and distribution preservation with D-PAC paired action sensitivity and stability guards under a frozen byte budget.
+Scene/backdrop: clean white scientific-paper background
+Style/medium: flat vector-like scientific diagram, crisp geometric modules, thin arrows, readable sans-serif typography
+Composition/framing: 2048x1152 landscape; three balanced left-to-right panels; generous whitespace; readable when scaled to a two-column paper width
+Color palette: colorblind-safe blue for full precision, orange for W4A8, green for the selected mask, light gray for guards and budget
+Text (verbatim): "Contribution 1: Mixed-Precision W4/FP16 Allocation", "Frozen Pretrained VLA", "DuQuant Group-Wise W4", "Static A8, Group 64", "Hessian-Aware Initialization", "FP16 Reference", "Single-Layer W4A8 Probe", "Geometry: 1 - CKA", "Distribution: D_CS", "D-PAC Action Sensitivity", "Action Weight w_i = n d_i / sum d_j", "Normalized Score S_i", "RMS Drift Guard", "A8 Saturation Guard", "Force FP16", "Frozen Byte Budget B", "min sum w_i S_i x_i", "Greedy + Local Bit Flips", "Selected Mask", "GR00T: 100 W4A8 + 16 FP16", "pi0.5: 80 W4A8 + 100 FP16"
+Subject: The left panel shows a frozen pretrained VLA probed layer by layer: an FP16 reference path and a single-layer W4A8 intervention with DuQuant-style group-wise W4 weights, static A8 activations, and Hessian-aware initialization. The middle panel scores each layer with dual similarity: geometry via 1-CKA and distribution via Cauchy-Schwarz divergence, combined with a D-PAC action-sensitivity weight w_i, plus two hard stability guards (RMS drift and A8 saturation) that force FP16 when violated. The right panel solves a binary budget-constrained selection problem minimizing the weighted score under a frozen byte budget, producing the final mixed-precision mask.
+Constraints: render every quoted label verbatim; make the action weight formula visually prominent; show guards as hard vetoes; distinguish selectable candidate layers from protected FP16 projections; no unverified numbers beyond the two quoted mask counts; no logos; no watermark
+Avoid: photorealism, robots as decorative characters, 3D perspective, tiny text, dense equations, gradients, black background, extra modules, runtime speedup claims
+
+Execution target: bundled imagegen CLI, model gpt-image-2, quality high, size 2048x1152, PNG output.

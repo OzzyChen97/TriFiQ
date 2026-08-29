@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GR00T v2 sensitivity probe (P0-G measurement layer, v1.2 reference + v1.3 guards).
+"""GR00T sensitivity probe with an original-FP16-only teacher.
 
 Scores (all computed as REFERENCE-vs-intervention differences on identical
 synthetic inputs — data-free, the only external reference is the model itself):
@@ -25,18 +25,13 @@ v1.3 additions (design doc §6.2 / §5.1.2–5.1.3):
   - CS in-situ scaling check (--cs-in-situ-check): the cross term must respond
     monotonically when a real layer output is scaled by 2/4/8.
 
-v1.2 reference protocol (fixes the set_all_bits(16) ambiguity):
-  - REFERENCE R = the quantized pipeline with EVERY target layer at
-    weight_bits = 0 (weights unquantized; rotations/permutation/A8 activation
-    quantization stay active). weight_bits=0 hits the full-precision path in
-    DuQuantLinear.forward — verified in code.
-  - Single-layer intervention = only layer i at bit b, everything else at 0.
-    Both sides share the wrapper and upstream behavior, so CKA/CS attribute
-    layer i's WEIGHT quantization only (no upstream drift, no wrapper confound).
-  - w_i (importance weights) = per-layer d_solver at one probing bit (default
-    4) measured intervention-vs-R.
-  - Global D_solver = FP16 model vs full config (all layers at b). This is the
-    DEPLOY-relevant pairing and is a config-level scalar — never summed.
+v2.0 teacher protocol:
+  - REFERENCE/Teacher = the original unwrapped FP16 checkpoint for CKA, CS,
+    guards, per-layer D_func/D_solver, and full-config adjudication.
+  - Single-layer intervention = only layer i at bit b, everything else at 0;
+    it is always compared with original FP16 on paired observations/noise.
+  - The all-zero wrapped pipeline is retained only as a debug diagnostic for
+    wrapper/A8/rotation confounds and never enters an optimization objective.
   - Base quantization mode of the probe: ATM/OHB OFF, per-step OFF, STATIC
     activation scale (GR00T_DUQUANT_ACT_DYNAMIC=0). ATM/OHB/dynamic-act are
     deployment-time corrections; calibrations for them must use the same act
@@ -63,6 +58,7 @@ from __future__ import annotations
 
 import argparse
 import gc
+import hashlib
 import json
 import os
 import sys
@@ -95,10 +91,70 @@ from gr00t_v2_common import (  # noqa: E402
     stack_obs,
     strip_quant_env,
 )
+from quantvla_cross_model_protocol import (  # noqa: E402
+    PROTOCOL,
+    protocol_artifact,
+    protocol_attestation,
+)
+from quantvla_metric_protocol import (  # noqa: E402
+    aggregate_d_pac_sequences as canonical_aggregate_d_pac_sequences,
+    d_func as canonical_d_func,
+    d_pac_sequence as canonical_d_pac_sequence,
+)
+from quantvla_model_adapters import (  # noqa: E402
+    canonical_trajectory,
+    gr00t_rollout_inputs,
+    load_model_records,
+)
 
-# Reference weight_bits for the v1.2 protocol: 0 = full-precision weight path
-# inside the wrapped pipeline (rotations + A8 still active).
+# Non-target background for a single-layer intervention and the wrapped debug
+# diagnostic: 0 = full-precision weight path inside the quantized pipeline.
+# This is never the teacher; the original unwrapped FP16 model is.
 REF_BITS = 0
+
+
+def _sha256_checkpoint(path: str | Path) -> str:
+    """Content hash all checkpoint safetensors (or the supplied single file)."""
+    root = Path(path).expanduser().resolve()
+    files = [root] if root.is_file() else sorted(root.glob("*.safetensors"))
+    if not files:
+        raise FileNotFoundError(f"no checkpoint safetensors found under {root}")
+    digest = hashlib.sha256()
+    for file_path in files:
+        digest.update(file_path.name.encode("utf-8") + b"\0")
+        with file_path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _update_digest(digest: Any, value: Any) -> None:
+    """Deterministically fingerprint nested observation/noise structures."""
+    if isinstance(value, dict):
+        for key in sorted(value):
+            digest.update(str(key).encode("utf-8") + b"\0")
+            _update_digest(digest, value[key])
+    elif isinstance(value, (list, tuple)):
+        digest.update(str(len(value)).encode("ascii") + b"\0")
+        for item in value:
+            _update_digest(digest, item)
+    elif isinstance(value, torch.Tensor):
+        array = value.detach().to(device="cpu").contiguous().numpy()
+        digest.update(str(array.dtype).encode("ascii") + str(array.shape).encode("ascii"))
+        digest.update(array.tobytes())
+    elif isinstance(value, np.ndarray):
+        array = np.ascontiguousarray(value)
+        digest.update(str(array.dtype).encode("ascii") + str(array.shape).encode("ascii"))
+        digest.update(array.tobytes())
+    else:
+        digest.update(repr(value).encode("utf-8") + b"\0")
+
+
+def _paired_buffer_sha256(observations: List[Dict[str, Any]], noises: List[torch.Tensor]) -> str:
+    digest = hashlib.sha256()
+    _update_digest(digest, observations)
+    _update_digest(digest, noises)
+    return digest.hexdigest()
 
 
 def discover_targets(model: torch.nn.Module, args: argparse.Namespace) -> List[str]:
@@ -199,6 +255,7 @@ class _AttentionCollector:
         self.max_tokens = max_tokens
         self.q_blocks: Dict[str, List[tuple]] = {}
         self.hit_count: Dict[str, int] = {}
+        self.handles: List[Any] = []
 
     def __call__(self, layer_name: str, tensor: torch.Tensor, step: Optional[int]) -> None:
         from gr00t.quantization.kernel_scores import split_blocks
@@ -211,6 +268,24 @@ class _AttentionCollector:
         else:
             self.q_blocks.setdefault(key, []).append((front, back))
         self.hit_count[key] = self.hit_count.get(key, 0) + 1
+
+    def install_native_hooks(self, model: torch.nn.Module, names: List[str]) -> None:
+        """Capture original Attention outputs without an ATM processor callback."""
+        self.remove()
+        selected = set(names)
+        for name, module in model.named_modules():
+            if name not in selected:
+                continue
+
+            def hook(_module, _inputs, output, layer=name):
+                self(layer, output, None)
+
+            self.handles.append(module.register_forward_hook(hook))
+
+    def remove(self) -> None:
+        for handle in self.handles:
+            handle.remove()
+        self.handles = []
 
     def pooled_blocks(self, key: str) -> tuple:
         chunks = self.q_blocks.pop(key, [])
@@ -228,6 +303,22 @@ class _AttentionCollector:
         if front_cat is None:
             return None
         return torch.cat([front_cat, back_cat], dim=0) if back_cat is not None else front_cat
+
+
+def restore_original_fp16_attention(model: torch.nn.Module) -> int:
+    """Undo Gr00tPolicy's instrumentation-only ATM processor on the teacher."""
+    from diffusers.models.attention_processor import AttnProcessor2_0
+    from gr00t.atm.dit_atm import _is_dit_attention
+
+    restored = 0
+    for name, module in model.named_modules():
+        if _is_dit_attention(name, module, scope="dit"):
+            module.set_processor(AttnProcessor2_0())
+            patch_flag = "_gr00t_atm_processor_patched"
+            if hasattr(module, patch_flag):
+                delattr(module, patch_flag)
+            restored += 1
+    return restored
 
 
 # --------------------------------------------------------------------------- #
@@ -264,12 +355,14 @@ def run_rollouts(
     noises: List[torch.Tensor],
     batch_size: int,
     return_trajectory: bool = True,
-) -> Optional[torch.Tensor]:
+    return_physical: bool = False,
+) -> Optional[torch.Tensor] | tuple[Optional[torch.Tensor], torch.Tensor]:
     """Paired-noise rollouts over batched chunks; returns (T+1, B_total, H, D).
 
     Index 0 = initial noise, index T = final action (see module docstring).
     """
     trajs: List[torch.Tensor] = []
+    physical_chunks: List[torch.Tensor] = []
     use_autocast = str(policy.device).startswith("cuda")
     for batched_obs, batched_noise in chunked(obs_list, noises, batch_size):
         norm = policy.apply_transforms(batched_obs)
@@ -281,9 +374,17 @@ def run_rollouts(
                 out = model.get_action(norm, action_noise=batched_noise, return_trajectory=return_trajectory)
         if return_trajectory:
             trajs.append(out["_trajectory"])  # (T+1, B, H, D) cpu
-    if not return_trajectory:
-        return None
-    return torch.cat(trajs, dim=1)  # (T+1, B_total, H, D)
+        if return_physical:
+            from quantvla_model_adapters import gr00t_inverse_normalize_final
+
+            normalized_final = (
+                out["_trajectory"][-1] if return_trajectory else out["action_pred"]
+            )
+            physical_chunks.append(gr00t_inverse_normalize_final(policy, normalized_final))
+    trajectory = torch.cat(trajs, dim=1) if return_trajectory else None
+    if return_physical:
+        return trajectory, torch.cat(physical_chunks, dim=0)
+    return trajectory
 
 
 def run_activations(
@@ -364,7 +465,7 @@ def guard_metrics(fp_out: Optional[torch.Tensor], q_out: Optional[torch.Tensor])
 # Main probe
 # --------------------------------------------------------------------------- #
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="GR00T v2 sensitivity probe (P0-G, v1.2 reference protocol)")
+    p = argparse.ArgumentParser(description="GR00T sensitivity probe (original-FP16-only teacher)")
     p.add_argument("--suite", default="spatial", choices=["spatial", "goal", "object", "90", "10", "robocasa365_atomic"])
     p.add_argument(
         "--model-path",
@@ -387,9 +488,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--act-pct", type=float, default=99.9)
     p.add_argument("--row-rot", default="restore")
     p.add_argument("--calib-steps", type=int, default=32)
-    p.add_argument("--max-tokens", type=int, default=1024, help="Token cap per layer for CKA/CS pools.")
+    p.add_argument("--max-tokens", type=int, default=256, help="Frozen shared token cap for CKA/CS pools.")
     p.add_argument("--gamma", type=float, default=1.2, help="Late-denoising-step weight for solver divergence.")
-    p.add_argument("--per-layer-bits", default="4", help="Probing bits for per-layer solver-divergence importance weights.")
+    p.add_argument("--per-layer-bits", default="4", help="Probing bits for FP16-relative per-layer D_PAC importance weights.")
     p.add_argument("--n-rollout-obs", type=int, default=8,
                    help="Obs count for per-layer rollouts (v1.3: 8–16; 2 paired noises per obs).")
     p.add_argument("--n-noises-per-obs", type=int, default=2,
@@ -400,7 +501,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--cs-in-situ-check", action="store_true",
                    help="v1.3: verify the CS cross term responds monotonically when a real "
                         "layer output is scaled by 2/4/8 (closing criterion, §5.1.2).")
-    p.add_argument("--cka-location", default="linear", choices=["linear", "dit"],
+    p.add_argument("--cka-location", default="dit", choices=["linear", "dit"],
                    help="v1.4 (D-024): where per-layer CKA is measured. 'linear' = raw Linear "
                         "outputs (v1.3 default, no functional signal); 'dit' = the DiT final "
                         "hidden states (action-conditioning representation; gate-0 rho 0.72-0.95 "
@@ -412,6 +513,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--exclude", default=DEFAULT_EXCLUDE)
     p.add_argument("--packdir", default=None, help="DuQuant pack dir (default derives from suite/group/calib/ls).")
     p.add_argument("--out", default=None, help="Output JSON path.")
+    p.add_argument(
+        "--buffer",
+        default=str(protocol_artifact("selection_buffer", verify=False)),
+        help="Shared cross-model RoboCasa selection buffer.",
+    )
     p.add_argument("--skip-per-layer", action="store_true", help="Skip per-layer CKA/CS attribution passes.")
     p.add_argument("--skip-layer-rollouts", action="store_true", help="Skip per-layer D_solver importance rollouts.")
     p.add_argument("--dry-run", action="store_true", help="Load FP model, list targets, exit.")
@@ -450,6 +556,8 @@ def main() -> None:
 
     args.bits = [int(x) for x in args.bits.split(",") if x.strip()]
     args.per_layer_bits = [int(x) for x in args.per_layer_bits.split(",") if x.strip()]
+    if args.n_rollout_obs > args.n_obs:
+        raise ValueError("FP16-only probe requires n_rollout_obs <= n_obs")
     args.data_config = resolve_data_config(args.suite, args.data_config)
     suite_dir = SUITE_DIRS[args.suite]
     if args.model_path is None:
@@ -472,18 +580,19 @@ def main() -> None:
     torch.manual_seed(0)
 
     print("=" * 100)
-    print("[probe] GR00T v2 sensitivity probe (P0-G, v1.2 reference protocol)")
+    print("[probe] GR00T sensitivity probe (original-FP16-only teacher)")
     print(f"[probe] model={args.model_path}")
     print(f"[probe] bits={args.bits} group={args.group} n_obs={args.n_obs} batch={args.batch_size}")
-    print(f"[probe] base mode: ATM/OHB OFF, per-step OFF, static act scale; reference = weight_bits=0 pipeline")
+    print(f"[probe] base mode: ATM/OHB OFF, per-step OFF, static act scale; teacher = original FP16")
     print(f"[probe] out={args.out}")
     print("=" * 100)
 
-    # ---------------------------------------------------------------- FP16 pass
-    # Used ONLY for the deploy-relevant global D_solver pairing (FP16 vs config).
+    # ---------------------------------------------------------------- FP16 teacher pass
+    # This is the only score-bank and functional reference used downstream.
     saved_env = strip_quant_env()
     policy_fp = load_policy(args.model_path, data_config=args.data_config, denoising_steps=args.denoising_steps, device=args.device, embodiment_tag=args.embodiment_tag)
     model_fp = policy_fp.model
+    restored_attention = restore_original_fp16_attention(model_fp)
 
     target_names = discover_targets(model_fp, args)
     attn_names = discover_attention_names(model_fp)
@@ -499,27 +608,86 @@ def main() -> None:
     action_dim = int(model_fp.action_head.config.action_dim)
 
     n_total = max(args.n_obs, args.n_rollout_obs)
-    obs_list = [make_obs(rng, args.obs_format) for _ in range(n_total)]
-    # 每个 obs 一个 2D 噪声 (H, D)：chunked 打包时叠加 batch 维 → (B, H, D)
-    noises = [torch.randn(horizon, action_dim) for _ in obs_list]
-    # v1.3: 每个 obs 2 个配对噪声（w_i 中位数聚合，降低单噪声方差）
-    if args.n_noises_per_obs >= 2:
-        noises_b = [torch.randn(horizon, action_dim) for _ in obs_list]
+    shared_buffer_provenance = None
+    if args.obs_format == "robocasa365":
+        shared_records, shared_buffer_provenance = load_model_records(
+            args.buffer, n_total, model="gr00t"
+        )
+        obs_list, noises = gr00t_rollout_inputs(shared_records)
+        if args.n_noises_per_obs >= 2 and any(
+            len(record["noises"]) < 2 for record in shared_records
+        ):
+            raise ValueError("formal sensitivity requires two shared paired noises")
+        noises_b = (
+            [torch.from_numpy(record["noises"][1]).float() for record in shared_records]
+            if args.n_noises_per_obs >= 2 else None
+        )
     else:
-        noises_b = None
+        obs_list = [make_obs(rng, args.obs_format) for _ in range(n_total)]
+        noises = [torch.randn(horizon, action_dim) for _ in obs_list]
+        noises_b = (
+            [torch.randn(horizon, action_dim) for _ in obs_list]
+            if args.n_noises_per_obs >= 2 else None
+        )
 
-    print("[probe] FP16 pass: paired trajectories for global D_solver (+ guard reference outputs) ...")
+    teacher_checkpoint_sha256 = _sha256_checkpoint(args.model_path)
+    observation_sha256 = _paired_buffer_sha256(obs_list[: args.n_obs], [])
+    paired_buffer_sha256 = _paired_buffer_sha256(
+        obs_list[: args.n_obs], noises[: args.n_obs]
+    )
+
+    from gr00t.quantization.kernel_scores import LayerScoreBank
+    from gr00t.atm import clear_atm_capture, register_output_capture
+
+    banks: Dict[str, LayerScoreBank] = {
+        n: LayerScoreBank(n, max_tokens=args.max_tokens) for n in target_names
+    }
+    for n in attn_names:
+        banks[f"attn:{n}"] = LayerScoreBank(f"attn:{n}", max_tokens=args.max_tokens)
+    if args.cka_location == "dit":
+        banks["action_head.model"] = LayerScoreBank(
+            "action_head.model", max_tokens=args.max_tokens
+        )
+
+    print("[probe] FP16 teacher pass: score banks + paired trajectories + guard outputs ...")
     t0 = time.time()
+    lin_teacher = _LayerCollector(target_names, mode="ref", banks=banks, max_tokens=args.max_tokens)
+    guard_teacher = _LayerCollector(target_names, mode="q", banks={}, max_tokens=args.max_tokens)
+    attn_teacher = _AttentionCollector(mode="ref", banks=banks, max_tokens=args.max_tokens)
+    lin_teacher.install(model_fp)
+    guard_teacher.install(model_fp)
+    attn_teacher.install_native_hooks(model_fp, attn_names)
+    dit_teacher = None
+    if args.cka_location == "dit":
+        dit_teacher = _LayerCollector(
+            ["action_head.model"], mode="ref", banks=banks, max_tokens=args.max_tokens
+        )
+        dit_teacher.install(model_fp)
     fp_traj = run_rollouts(model_fp, policy_fp, obs_list[: args.n_obs], noises[: args.n_obs], args.batch_size)
-    # v1.3: also collect per-layer FP16 outputs (guards are measured vs pure FP16)
-    fp_col = _LayerCollector(target_names, mode="q", banks={}, max_tokens=args.max_tokens)
-    fp_col.install(model_fp)
-    run_activations(model_fp, policy_fp, obs_list[: args.n_obs], noises[: args.n_obs], args.batch_size)
-    fp_out = {n: fp_col.pooled(n) for n in target_names}
-    fp_col.remove()
+    fp_out = {n: guard_teacher.pooled(n) for n in target_names}
+    lin_teacher.remove()
+    guard_teacher.remove()
+    attn_teacher.remove()
+    if dit_teacher is not None:
+        dit_teacher.remove()
+    clear_atm_capture(model_fp)
+    for bank in banks.values():
+        bank.finalize_ref()
+        if not bank.ready:
+            raise RuntimeError(f"FP16 teacher score bank is not ready: {bank.name}")
+    fp_traj_b = None
+    if noises_b is not None:
+        fp_traj_b = run_rollouts(
+            model_fp,
+            policy_fp,
+            obs_list[: args.n_rollout_obs],
+            noises_b[: args.n_rollout_obs],
+            args.batch_size,
+        )
     n_fp_out = sum(1 for v in fp_out.values() if v is not None)
-    print(f"[probe] FP16 pass done in {time.time() - t0:.1f}s; fp_traj {tuple(fp_traj.shape)} "
-          f"(T+1 states); guard refs collected {n_fp_out}/{len(target_names)}")
+    print(f"[probe] FP16 teacher pass done in {time.time() - t0:.1f}s; "
+          f"fp_traj {tuple(fp_traj.shape)}; banks {len(banks)}; "
+          f"guard refs {n_fp_out}/{len(target_names)}")
 
     del model_fp, policy_fp
     gc.collect()
@@ -555,11 +723,20 @@ def main() -> None:
 
     n_warm_batches = args.calib_steps  # GR00T_DUQUANT_CALIB_STEPS = batch count
     n_warm_obs = n_warm_batches * args.batch_size
-    # review round 3: self-contained seed-based canonical buffer (identical to
-    # the one used by baselines/topk/calibrator/server)
-    warm_obs, warm_noises, warm_sha = fixed_calibration_buffer(
-        0, n_warm_obs, horizon, action_dim, fmt=args.obs_format
-    )
+    # The formal RoboCasa probe uses the exact same frozen archive as both
+    # model adapters.  Legacy non-RoboCasa probes keep their historical local
+    # synthetic buffer and are outside the cross-model comparison protocol.
+    if args.obs_format == "robocasa365":
+        calibration_path = protocol_artifact("calibration_buffer")
+        warm_records, warm_provenance = load_model_records(
+            calibration_path, n_warm_obs, model="gr00t"
+        )
+        warm_obs, warm_noises = gr00t_rollout_inputs(warm_records)
+        warm_sha = warm_provenance["sha256"]
+    else:
+        warm_obs, warm_noises, warm_sha = fixed_calibration_buffer(
+            0, n_warm_obs, horizon, action_dim, fmt=args.obs_format
+        )
     print(f"[probe] A8 calibration: {n_warm_obs} obs = {n_warm_batches} batches "
           f"(state = weight_bits=0 reference; buffer sha256 {warm_sha[:16]}...)")
     t0 = time.time()
@@ -572,16 +749,8 @@ def main() -> None:
         )
     print(f"[probe] A8 calibration done in {time.time() - t0:.1f}s ({full}/{total} layers frozen)")
 
-    from gr00t.quantization.kernel_scores import LayerScoreBank
-    from gr00t.atm import clear_atm_capture, register_output_capture
-
-    banks: Dict[str, LayerScoreBank] = {}
-    for n in target_names:
-        banks[n] = LayerScoreBank(n, max_tokens=args.max_tokens)
-    for n in attn_names:
-        banks[f"attn:{n}"] = LayerScoreBank(f"attn:{n}", max_tokens=args.max_tokens)
-
     results: Dict[str, Any] = {
+        "cross_model_protocol": protocol_attestation(),
         "meta": {
             "suite": args.suite,
             "model_path": args.model_path,
@@ -597,13 +766,25 @@ def main() -> None:
             "denoising_steps": args.denoising_steps,
             "calib_steps": args.calib_steps,
             "per_layer_bits": args.per_layer_bits,
-            "obs_source": "L1 synthetic (data-free)",
+            "obs_source": (
+                "shared_cross_model_archive"
+                if shared_buffer_provenance is not None else "L1 synthetic (data-free)"
+            ),
+            "shared_buffer": shared_buffer_provenance,
             "token_mix": "position-stratified: vision-front block + text-back block each capped at max_tokens/2 (stride subsample); zero rows in the back block dropped (padding heuristic)",
-            "reference_protocol": "wrapped pipeline, all target layers weight_bits=0, A8 static act, rotations active",
+            "teacher": "original unwrapped FP16 checkpoint (unique optimization reference)",
+            "teacher_attention_processor": "diffusers AttnProcessor2_0 (ATM instrumentation removed)",
+            "teacher_attention_processors_restored": restored_attention,
+            "teacher_checkpoint_sha256": teacher_checkpoint_sha256,
+            "observation_sha256": observation_sha256,
+            "paired_buffer_sha256": paired_buffer_sha256,
+            "paired_noise_scheme": "torch.manual_seed(0) sequential torch.randn(H,D), pointwise paired",
+            "reference_protocol": "all layer/config/correction scores compare to original FP16",
+            "wrapped_zero_bit_role": "debug diagnostic only; excluded from every optimization objective",
             "base_mode": "ATM OFF, OHB OFF, per-step OFF, static activation scale",
-            "global_dsolver_pairing": "pure FP16 model vs full config",
+            "global_dsolver_pairing": "original FP16 model vs full config",
             "guard_reference": "pure FP16 model (deployment pairing); D_sat proxied by P99.9(|fp_out|)/127",
-            "calibration_buffer_sha256": warm_sha[:16],
+            "calibration_buffer_sha256": warm_sha,
             "guard_thresholds": None,  # filled at the end: τ = P99(W4 candidates) × margin
         },
         "layers": {n: {} for n in banks},
@@ -616,43 +797,34 @@ def main() -> None:
             json.dump(results, f, indent=2)
         print(f"[probe] saved -> {args.out}")
 
-    # ---- REFERENCE pass (all-0): 单次配对噪声前向，激活参照 + 参照轨迹同源 ----
-    print("[probe] REFERENCE pass (all layers weight_bits=0, paired noise) ...")
+    # ---- wrapped-zero-bit debug pass; never used as a score-bank teacher ----
+    print("[probe] wrapped-zero-bit DEBUG pass (excluded from objectives) ...")
     t0 = time.time()
     set_all_bits(model_q, REF_BITS)
-    lin_ref = _LayerCollector(target_names, mode="ref", banks=banks, max_tokens=args.max_tokens)
-    attn_ref = _AttentionCollector(mode="ref", banks=banks, max_tokens=args.max_tokens)
-    lin_ref.install(model_q)
-    register_output_capture(model_q, attn_ref, scope="dit")
-    # v1.4 (D-024): dit-output CKA attribution — the gate-0 evidence shows CKA
-    # at the DiT output predicts d_solver/D_func (rho 0.72-0.95), raw Linear
-    # does not. Collect the DiT final hidden states under a dedicated bank.
-    dit_ref = None
-    if args.cka_location == "dit":
-        banks["action_head.model"] = LayerScoreBank("action_head.model", max_tokens=args.max_tokens)
-        dit_ref = _LayerCollector(["action_head.model"], mode="ref", banks=banks, max_tokens=args.max_tokens)
-        dit_ref.install(model_q)
-    # 只用配对噪声跑一次：激活参照与 ref_traj 来自同一条轨迹
-    ref_traj = run_rollouts(model_q, policy_q, obs_list[: args.n_obs], noises[: args.n_obs], args.batch_size)
-    lin_ref.remove()
-    if dit_ref is not None:
-        dit_ref.remove()
-    clear_atm_capture(model_q)
-    for bank in banks.values():
-        bank.finalize_ref()
-    n_ready = sum(1 for b in banks.values() if b.ready)
-    print(f"[probe] REFERENCE pass done in {time.time() - t0:.1f}s; banks ready {n_ready}/{len(banks)}")
+    wrapped_ref_traj = run_rollouts(
+        model_q, policy_q, obs_list[: args.n_obs], noises[: args.n_obs], args.batch_size
+    )
+    wrapper_max_abs = float((fp_traj - wrapped_ref_traj).abs().max())
+    results["meta"]["wrapped_zero_bit_debug"] = {
+        "trajectory_max_abs_vs_fp16": wrapper_max_abs,
+        "d_solver_vs_fp16": solver_divergence(fp_traj, wrapped_ref_traj, args.gamma)[0],
+        "used_for_optimization": False,
+    }
+    print(f"[probe] wrapped-zero-bit debug done in {time.time() - t0:.1f}s; "
+          f"trajectory max|delta| vs FP16={wrapper_max_abs:.6g}")
 
     # P0-3: the second paired-noise set needs its OWN reference trajectory
     # (D(x^R(ε_b), x^Q(ε_b))), computed while every layer is still at
     # weight_bits=0 and the collectors are removed (banks already finalized).
-    ref_traj_b = None
+    wrapped_ref_traj_b = None
     if noises_b is not None:
-        ref_traj_b = run_rollouts(
+        wrapped_ref_traj_b = run_rollouts(
             model_q, policy_q, obs_list[: args.n_rollout_obs],
             noises_b[: args.n_rollout_obs], args.batch_size
         )
-        print(f"[probe] reference trajectory for noise set B: {tuple(ref_traj_b.shape)}")
+        results["meta"]["wrapped_zero_bit_debug"]["noise_b_d_solver_vs_fp16"] = (
+            solver_divergence(fp_traj_b, wrapped_ref_traj_b, args.gamma)[0]
+        )
 
     # ---- v1.3 CS in-situ scaling check (closing criterion, §5.1.2) ----
     if args.cs_in_situ_check:
@@ -738,10 +910,19 @@ def main() -> None:
         set_all_bits(model_q, b)
         q_traj = run_rollouts(model_q, policy_q, obs_list[: args.n_obs], noises[: args.n_obs], args.batch_size)
         mean_div, per_obs = solver_divergence(fp_traj, q_traj, args.gamma)
+        pac_sequences = [
+            canonical_d_pac_sequence(
+                canonical_trajectory(fp_traj[:, index : index + 1], model="gr00t"),
+                canonical_trajectory(q_traj[:, index : index + 1], model="gr00t"),
+                [0],
+            )
+            for index in range(q_traj.shape[1])
+        ]
         results["global"][f"b{b}"] = {
             "d_solver": mean_div,
             "d_solver_std": float(np.std(per_obs)) if len(per_obs) > 1 else 0.0,
             "per_obs": per_obs,
+            "d_pac": canonical_aggregate_d_pac_sequences(pac_sequences),
         }
         del q_traj
         gc.collect()
@@ -762,8 +943,9 @@ def main() -> None:
                     continue
                 all_per_obs: List[float] = []
                 all_d_func: List[float] = []
+                all_d_pac: List[float] = []
                 # noise set A: paired against the main reference trajectory
-                ref_sub_a = ref_traj[:, : args.n_rollout_obs]
+                ref_sub_a = fp_traj[:, : args.n_rollout_obs]
                 q_traj = run_rollouts(
                     model_q, policy_q, obs_list[: args.n_rollout_obs],
                     noises[: args.n_rollout_obs], args.batch_size
@@ -772,23 +954,43 @@ def main() -> None:
                 all_per_obs.extend(per_obs_a)
                 # v1.4 (D-020 route 3): tail-aware functional metric from the
                 # SAME paired trajectories (no extra rollouts)
-                from gr00t_func_metrics import d_func
-
-                df_a = d_func(ref_sub_a, q_traj, args.gamma)["d_func"]
+                ref_can_a = canonical_trajectory(ref_sub_a, model="gr00t")
+                quant_can_a = canonical_trajectory(q_traj, model="gr00t")
+                df_a = canonical_d_func(ref_can_a, quant_can_a, args.gamma)["d_func"]
                 all_d_func.append(df_a)
+                all_d_pac.extend(
+                    canonical_d_pac_sequence(
+                        ref_can_a[:, index : index + 1],
+                        quant_can_a[:, index : index + 1],
+                        [0],
+                    )["d_pac_sequence"]
+                    for index in range(q_traj.shape[1])
+                )
                 del q_traj
                 # noise set B: paired against ITS OWN reference trajectory
                 # (P0-3: D(x^R(ε_b), x^Q(ε_b)) — the old code compared ε_b
                 # quantized rollouts against the ε_a reference, which measured
                 # noise mismatch, not quantization)
-                if noises_b is not None and ref_traj_b is not None:
+                if noises_b is not None and fp_traj_b is not None:
                     q_traj_b = run_rollouts(
                         model_q, policy_q, obs_list[: args.n_rollout_obs],
                         noises_b[: args.n_rollout_obs], args.batch_size
                     )
-                    _, per_obs_b = solver_divergence(ref_traj_b, q_traj_b, args.gamma)
+                    _, per_obs_b = solver_divergence(fp_traj_b, q_traj_b, args.gamma)
                     all_per_obs.extend(per_obs_b)
-                    all_d_func.append(d_func(ref_traj_b, q_traj_b, args.gamma)["d_func"])
+                    ref_can_b = canonical_trajectory(fp_traj_b, model="gr00t")
+                    quant_can_b = canonical_trajectory(q_traj_b, model="gr00t")
+                    all_d_func.append(
+                        canonical_d_func(ref_can_b, quant_can_b, args.gamma)["d_func"]
+                    )
+                    all_d_pac.extend(
+                        canonical_d_pac_sequence(
+                            ref_can_b[:, index : index + 1],
+                            quant_can_b[:, index : index + 1],
+                            [0],
+                        )["d_pac_sequence"]
+                        for index in range(q_traj_b.shape[1])
+                    )
                     del q_traj_b
                 gc.collect()
                 # median over (obs, noise) — robust aggregation, std recorded
@@ -800,8 +1002,12 @@ def main() -> None:
                 std_df = float(np.std(all_d_func)) if len(all_d_func) > 1 else 0.0
                 results["layers"][name][f"d_func_b{b}"] = mean_df
                 results["layers"][name][f"d_func_b{b}_std"] = std_df
+                results["layers"][name][f"d_pac_b{b}"] = float(np.median(all_d_pac))
+                results["layers"][name][f"d_pac_b{b}_std"] = (
+                    float(np.std(all_d_pac)) if len(all_d_pac) > 1 else 0.0
+                )
             save_incremental()
-            print(f"[probe] per-layer importance rollouts b={b} done (d_solver + d_func)")
+            print(f"[probe] per-layer importance rollouts b={b} done (d_solver + d_func + D_PAC)")
 
     # ---- v1.3 guard thresholds: τ = P99 of the measured W4 candidates × margin ----
     if not args.skip_per_layer:

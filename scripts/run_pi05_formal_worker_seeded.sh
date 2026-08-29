@@ -20,6 +20,7 @@ REPO_ROOT="/home1/gyy/vla/QuantVLA"
 PYTHON="/home1/gyy/probe/miniforge3/envs/robocasa365/bin/python"
 CLIENT_PATH="$REPO_ROOT/code/pi05/openpi/packages/openpi-client/src"
 EVALUATOR="$REPO_ROOT/scripts/run_robocasa365_pi05_eval.py"
+FLOW_STEPS="${PI05_FLOW_STEPS:-4}"
 
 for numeric in "$PORT" "$EGL_GPU" "$SHARD_INDEX" "$SHARD_COUNT"; do
     if [[ ! "$numeric" =~ ^[0-9]+$ ]]; then
@@ -57,6 +58,7 @@ for task_set in $TASK_SETS; do
         --trial-seeds "$TRIAL_SEEDS" \
         --split target \
         --replan-steps 16 \
+        --flow-steps "$FLOW_STEPS" \
         --egl-device "$EGL_GPU" \
         --expected-server-metadata-sha256 "$METADATA_SHA256" \
         "${selector_args[@]}" \

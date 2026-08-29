@@ -65,6 +65,29 @@ from gr00t_v2_common import (  # noqa: E402
     set_quant_env,
     strip_quant_env,
 )
+from quantvla_cross_model_protocol import (  # noqa: E402
+    protocol_artifact,
+    protocol_attestation,
+    validate_quant_plan,
+)
+from quantvla_model_adapters import (  # noqa: E402
+    gr00t_rollout_inputs,
+    load_model_records,
+)
+
+
+def checkpoint_sha256(path: str | Path) -> str:
+    root = Path(path).expanduser().resolve()
+    files = [root] if root.is_file() else sorted(root.glob("*.safetensors"))
+    if not files:
+        raise FileNotFoundError(f"no checkpoint safetensors under {root}")
+    digest = hashlib.sha256()
+    for file_path in files:
+        digest.update(file_path.name.encode("utf-8") + b"\0")
+        with file_path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
 
 
 # --------------------------------------------------------------------------- #
@@ -325,6 +348,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--exclude", default=DEFAULT_EXCLUDE)
     p.add_argument("--packdir", default=None)
     p.add_argument("--out", default=None)
+    p.add_argument(
+        "--buffer", default=str(protocol_artifact("calibration_buffer", verify=False))
+    )
     p.add_argument("--alpha-min", type=float, default=0.7)
     p.add_argument("--alpha-max", type=float, default=1.4)
     p.add_argument("--alpha-neutral", type=float, default=0.02)
@@ -443,12 +469,21 @@ def main() -> None:
     print(f"[calibrate-perstep] out={args.out}")
     print("=" * 100)
 
-    obs_list = [make_obs(rng, args.obs_format) for _ in range(args.n_obs)]
+    shared_buffer_provenance = None
+    if args.obs_format == "robocasa365":
+        shared_records, shared_buffer_provenance = load_model_records(
+            args.buffer, args.n_obs, model="gr00t"
+        )
+        obs_list, noises = gr00t_rollout_inputs(shared_records)
+    else:
+        obs_list = [make_obs(rng, args.obs_format) for _ in range(args.n_obs)]
+        noises = None
 
     # ---------------- teacher (FP16) ----------------
     saved_env = strip_quant_env()
     policy_fp = load_policy(args.model_path, data_config=args.data_config, denoising_steps=args.denoising_steps, device=args.device)
-    noises = make_noises(policy_fp.model, args.n_obs, seed=0)
+    if noises is None:
+        noises = make_noises(policy_fp.model, args.n_obs, seed=0)
     use_autocast = str(policy_fp.device).startswith("cuda")
 
     print("[calibrate-perstep] FP16 pass ...")
@@ -488,14 +523,17 @@ def main() -> None:
     # and --act-scale-path loads the SAME frozen scales the server will use
     # (alpha/beta must be calibrated on the deployed A8 state, not on a
     # re-derived one).
-    from gr00t_v2_common import ensure_a8_calibrated, fixed_calibration_buffer
+    from gr00t_v2_common import ensure_a8_calibrated
 
     n_warm_obs = args.calib_steps * args.batch_size
     print(f"[calibrate-perstep] A8 calibration: {n_warm_obs} obs = {args.calib_steps} batches ...")
-    warm_obs, warm_noises, warm_sha = fixed_calibration_buffer(
-        args.calibration_seed, n_warm_obs, int(policy_q.model.action_head.config.action_horizon),
-        int(policy_q.model.action_head.config.action_dim), fmt=args.obs_format
+    if args.obs_format != "robocasa365":
+        raise ValueError("adapter-only ATM calibration is restricted to RoboCasa365")
+    warm_records, warm_provenance = load_model_records(
+        args.buffer, n_warm_obs, model="gr00t"
     )
+    warm_obs, warm_noises = gr00t_rollout_inputs(warm_records)
+    warm_sha = warm_provenance["sha256"]
     for batched_obs, batched_noise in chunked(warm_obs, warm_noises, args.batch_size):
         norm = policy_q.apply_transforms(batched_obs)
         with torch.inference_mode():
@@ -523,6 +561,8 @@ def main() -> None:
         act_scale_path=args.act_scale_path,
         act_scale_meta={
             "buffer_sha256": warm_sha,
+            "source_buffer_sha256": warm_sha,
+            "source_buffer_path": str(Path(args.buffer).expanduser().resolve()),
             "calibration_seed": args.calibration_seed,
             "data_config": args.data_config,
             "obs_format": args.obs_format,
@@ -572,10 +612,14 @@ def main() -> None:
 
     # ---- v1.3: plan-aware all-FP16-block handling + per-step CV statistics ----
     plan = None
+    quant_selection = None
     marks: Dict[str, Dict[str, Any]] = {}
     if args.plan:
         with open(args.plan, "r", encoding="utf-8") as f:
             plan = json.load(f)
+        quant_selection = validate_quant_plan(
+            plan, model="gr00t", source=str(Path(args.plan).resolve())
+        )
         marks = apply_plan_aware_neutral(data, plan, args.alpha_neutral, args.beta_neutral)
         n_forced = sum(1 for m in marks.values() if m.get("forced_neutral"))
         n_fp16 = sum(1 for m in marks.values() if m.get("fp16_block"))
@@ -592,8 +636,25 @@ def main() -> None:
           f"overall={cv_stats['static_sufficient']}")
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    output_payload = {
+        "schema_version": 1,
+        "kind": "gr00t_atm_ohb_shared_protocol",
+        "cross_model_protocol": protocol_attestation(),
+        "quantization_selection": quant_selection,
+        "meta": {
+            "calibration_buffer_sha256": warm_sha,
+            "calibration_buffer_path": str(Path(args.buffer).expanduser().resolve()),
+            "flow_steps": args.denoising_steps,
+            "frames": args.n_obs,
+            "batch_size": args.batch_size,
+            "plan_sha256": plan_sha,
+            "checkpoint_sha256": checkpoint_sha256(args.model_path),
+            "ohb_mode": "per_head_pre_projection",
+        },
+        "layers": data,
+    }
     with open(args.out, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+        json.dump(output_payload, f, indent=2)
     sidecar = {
         "plan": args.plan,
         "plan_marks": marks,

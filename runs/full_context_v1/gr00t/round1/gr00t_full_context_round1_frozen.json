@@ -1,0 +1,1041 @@
+{
+  "achieved_candidate_compression": 3.5555555555555554,
+  "achieved_compression": 3.5555555555555554,
+  "all_w4_total_bytes": 509607936,
+  "budget_bytes": 560568729,
+  "fp16_total_bytes": 1811939328,
+  "layers": {
+    "action_head.model.transformer_blocks.0.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.0.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.1.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.1.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.10.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.10.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.11.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.11.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.12.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.12.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.13.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.13.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.14.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.14.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.15.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.15.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.2.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.2.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.3.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.3.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.4.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.4.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.5.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.5.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.6.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.6.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.7.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.7.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.8.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.8.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.9.ff.net.0.proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "action_head.model.transformer_blocks.9.ff.net.2": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.0.mlp.down_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.0.mlp.gate_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.0.mlp.up_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.0.self_attn.k_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.0.self_attn.o_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.0.self_attn.q_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.0.self_attn.v_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.1.mlp.down_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.1.mlp.gate_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.1.mlp.up_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.1.self_attn.k_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.1.self_attn.o_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.1.self_attn.q_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.1.self_attn.v_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.10.mlp.down_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.10.mlp.gate_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.10.mlp.up_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.10.self_attn.k_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.10.self_attn.o_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.10.self_attn.q_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.10.self_attn.v_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.11.mlp.down_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.11.mlp.gate_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.11.mlp.up_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.11.self_attn.k_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.11.self_attn.o_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.11.self_attn.q_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.11.self_attn.v_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.2.mlp.down_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.2.mlp.gate_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.2.mlp.up_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.2.self_attn.k_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.2.self_attn.o_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.2.self_attn.q_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.2.self_attn.v_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.3.mlp.down_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.3.mlp.gate_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.3.mlp.up_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.3.self_attn.k_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.3.self_attn.o_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.3.self_attn.q_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.3.self_attn.v_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.4.mlp.down_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.4.mlp.gate_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.4.mlp.up_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.4.self_attn.k_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.4.self_attn.o_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.4.self_attn.q_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.4.self_attn.v_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.5.mlp.down_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.5.mlp.gate_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.5.mlp.up_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.5.self_attn.k_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.5.self_attn.o_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.5.self_attn.q_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.5.self_attn.v_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.6.mlp.down_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.6.mlp.gate_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.6.mlp.up_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.6.self_attn.k_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.6.self_attn.o_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.6.self_attn.q_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.6.self_attn.v_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.7.mlp.down_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.7.mlp.gate_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.7.mlp.up_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.7.self_attn.k_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.7.self_attn.o_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.7.self_attn.q_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.7.self_attn.v_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.8.mlp.down_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.8.mlp.gate_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.8.mlp.up_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.8.self_attn.k_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.8.self_attn.o_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.8.self_attn.q_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.8.self_attn.v_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.9.mlp.down_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.9.mlp.gate_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.9.mlp.up_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.9.self_attn.k_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.9.self_attn.o_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.9.self_attn.q_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    },
+    "backbone.eagle_model.language_model.model.layers.9.self_attn.v_proj": {
+      "bits": 4,
+      "group": 64,
+      "reason": "full_context_protection_w4",
+      "skip": false
+    }
+  },
+  "meta": {
+    "activation_mode": "dynamic_a8",
+    "candidate_id": "context_base",
+    "counterfactual_manifest_sha256": "507e6f1b52a3171ac825d1f3ac060f46280b147d2495a3d0054ba318f942a4a5",
+    "cross_model_protocol": {
+      "only_allowed_model_difference": "model_adapter",
+      "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_cross_model_protocol.json",
+      "protocol_file_sha256": "7bf9c89d2925a506d5dcd32a5ae8066e93651e8c46b6b6becf30c27d3c1498a6",
+      "protocol_id": "quantvla-gr00t-pi05-errorfold-v4",
+      "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea"
+    },
+    "dynamic_a8_protocol": {
+      "base_protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+      "method_id": "quantvla-dpac-errorfold-dyrange-v5",
+      "only_allowed_model_difference": "model_adapter",
+      "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_dynamic_a8_protocol.json",
+      "protocol_file_sha256": "5a6df3838937fc345e3477edb8c6f71b0b614b825d33a6f03d18d84b06c9e30d",
+      "protocol_sha256": "a276b5ddf943b3cfed9fc27d074e6083424e7c22c0697155262005a53b424854"
+    },
+    "flow_steps": 4,
+    "frozen": true,
+    "full_context_protocol": {
+      "formal_statistics_sha256": "7dba6c94398c1c9702f6a5b38309a598c5226e022f9cb7622edb0bd6d806eb40",
+      "method_id": "full_context_fp16_protection_v1",
+      "metric_core_sha256": "deb69b98a63ebda8f08b13f710e76565c3c40831f4a8c756a07a0d882638d2be",
+      "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_full_context_protocol.json",
+      "protocol_file_sha256": "0da2356fca7883d64ff60c20425f9198d09c4b5b9345cb2bd44375ff713f2e00",
+      "protocol_sha256": "71319d8076317f4027649961e87973909e5863c68bd37c27fda5d60194254635",
+      "quick_statistics_sha256": "43bde08e09126bc931dc774510e032ab7de65776269922c58838a9cdaf490f61",
+      "selection_core_sha256": "8500a0f6f9eed9b21499edccda4c3c759a533a98559dbd4715e495c99a880541"
+    },
+    "full_network_scores_sha256": "00460228a2e2ef74e63f5e69f3848b37cb2a9cee86c17c9c1f74a3103d44766c",
+    "kind": "full_context_fp16_protection_frozen",
+    "method_id": "full_context_fp16_protection_v1",
+    "model_adapter": "gr00t",
+    "noise_b_used_for_selection": false,
+    "note": "Original QuantVLA v1: all 116 target Linear layers use DuQuant W4A8; ATM/OHB calibrated separately",
+    "plan": "quantvla_v1_uniform_w4a8",
+    "proposal_manifest_sha256": "c4c9946f6f7b7b1dc1af473493632c14967ac7f96905ae467a7acbc5797c28a1",
+    "round": 1,
+    "runtime_correction": false,
+    "runtime_selector": false,
+    "selected_candidate_id": "context_base",
+    "selection_noise": "A",
+    "selection_result": {
+      "fallback_to_baseline": true,
+      "reason": "no_candidate_has_negative_paired_minimax_and_component_safety",
+      "selected_id": "context_base",
+      "summaries": {
+        "lambda_0p0": {
+          "component_constraints_pass": true,
+          "components": {
+            "grip": {
+              "delta": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "mean": 0.0,
+              "passes": true,
+              "se": 0.0
+            },
+            "pose": {
+              "delta": [
+                -0.856516420841217,
+                -0.09660416841506958,
+                -0.08494573831558228,
+                -0.24694764614105225,
+                1.0107572376728058,
+                -0.5248904824256897,
+                -0.004547633230686188,
+                -0.24672269821166992
+              ],
+              "mean": -0.13130219373852015,
+              "passes": true,
+              "se": 0.1904535243787416
+            },
+            "stitch": {
+              "delta": [
+                -0.03224705159664154,
+                0.017955314368009567,
+                -0.016876697540283203,
+                -0.020003825426101685,
+                -0.051518648862838745,
+                0.0099753737449646,
+                0.09215199947357178,
+                -0.28561902046203613
+              ],
+              "mean": -0.03577281953766942,
+              "passes": true,
+              "se": 0.03887562121220513
+            }
+          },
+          "eligible": false,
+          "metrics": {
+            "d_func": {
+              "baseline_scale": 0.4233636048218285,
+              "delta": [
+                -0.026812162195586672,
+                -0.0030067318135652277,
+                -0.0005751530461750309,
+                -0.02401633687405358,
+                0.022280033681654265,
+                0.026448556967334613,
+                -0.0014710193328326682,
+                0.21783689368877224
+              ],
+              "mean": 0.02633551013444349,
+              "normalized_upper_bound": 0.12872063430464467,
+              "se": 0.0281601216197232,
+              "upper_bound": 0.05449563175416669
+            },
+            "d_pac": {
+              "baseline_scale": 3.232292145863175,
+              "delta": [
+                -0.22468922808766367,
+                0.0035458013415336775,
+                -0.02923300564289094,
+                -0.04757074117660523,
+                0.2786689072847366,
+                -0.09465873315930368,
+                -0.14948280602693564,
+                -0.6560189485549925
+              ],
+              "mean": -0.11492984425276519,
+              "normalized_upper_bound": -0.006697921357051754,
+              "se": 0.09328020565675758,
+              "upper_bound": -0.021649638596007603
+            }
+          },
+          "n_sequences": 8,
+          "objective": 0.12872063430464467
+        },
+        "lambda_0p25": {
+          "component_constraints_pass": true,
+          "components": {
+            "grip": {
+              "delta": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "mean": 0.0,
+              "passes": true,
+              "se": 0.0
+            },
+            "pose": {
+              "delta": [
+                -0.4701153039932251,
+                -0.19084681570529938,
+                -0.14851510524749756,
+                -0.11865758895874023,
+                0.1431606113910675,
+                -0.513229250907898,
+                -0.004441343247890472,
+                -0.2460959255695343
+              ],
+              "mean": -0.19359259027987719,
+              "passes": true,
+              "se": 0.0777156783088901
+            },
+            "stitch": {
+              "delta": [
+                -0.019411295652389526,
+                0.01045462116599083,
+                -0.03410061076283455,
+                -0.05995289981365204,
+                -0.035911694169044495,
+                -0.02798643708229065,
+                -0.16130220890045166,
+                -0.41962242126464844
+              ],
+              "mean": -0.09347911830991507,
+              "passes": true,
+              "se": 0.049912567186445995
+            }
+          },
+          "eligible": false,
+          "metrics": {
+            "d_func": {
+              "baseline_scale": 0.4233636048218285,
+              "delta": [
+                -0.026364198590895026,
+                -0.009790149206513776,
+                -0.04014612099569149,
+                -0.05122390225883308,
+                0.012457536379221062,
+                -0.030640145000963903,
+                0.15293697196021439,
+                -0.17531678753566227
+              ],
+              "mean": -0.02101084940614051,
+              "normalized_upper_bound": 0.025540798720888352,
+              "se": 0.03182389402264455,
+              "upper_bound": 0.01081304461650404
+            },
+            "d_pac": {
+              "baseline_scale": 3.232292145863175,
+              "delta": [
+                -0.14212156683206562,
+                -0.02629360109567641,
+                -0.048473381623625744,
+                -0.04019371569156646,
+                0.0361333593726158,
+                -0.11082685738801956,
+                -0.09923109263181684,
+                -0.9237876713275908
+              ],
+              "mean": -0.1693493159022182,
+              "normalized_upper_bound": -0.018496231543834295,
+              "se": 0.10956409195501589,
+              "upper_bound": -0.0597852239472023
+            }
+          },
+          "n_sequences": 8,
+          "objective": 0.025540798720888352
+        },
+        "lambda_0p5": {
+          "component_constraints_pass": true,
+          "components": {
+            "grip": {
+              "delta": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "mean": 0.0,
+              "passes": true,
+              "se": 0.0
+            },
+            "pose": {
+              "delta": [
+                0.19967389106750488,
+                0.04283803701400757,
+                -0.4903685599565506,
+                -0.09271246194839478,
+                -0.013323724269866943,
+                -0.26802289485931396,
+                0.02330205962061882,
+                -0.1929689645767212
+              ],
+              "mean": -0.09894782723858953,
+              "passes": true,
+              "se": 0.07585584381990901
+            },
+            "stitch": {
+              "delta": [
+                -0.0004925206303596497,
+                -0.018328554928302765,
+                -0.011365815997123718,
+                -0.09326573088765144,
+                -0.03170391917228699,
+                -0.03525329381227493,
+                -0.14646458625793457,
+                -0.19314169883728027
+              ],
+              "mean": -0.06625201506540179,
+              "passes": true,
+              "se": 0.025018830374327818
+            }
+          },
+          "eligible": false,
+          "metrics": {
+            "d_func": {
+              "baseline_scale": 0.4233636048218285,
+              "delta": [
+                0.00023066716170555557,
+                -0.021454340074546392,
+                -0.043920837800451834,
+                -0.0423687061210926,
+                -0.011096788506850239,
+                -0.05247584527573132,
+                0.21302927469202465,
+                -0.16932690186657862
+              ],
+              "mean": -0.015922934723940102,
+              "normalized_upper_bound": 0.05115461614082179,
+              "se": 0.03757993741659531,
+              "upper_bound": 0.021657002692655206
+            },
+            "d_pac": {
+              "baseline_scale": 3.232292145863175,
+              "delta": [
+                0.021921028941869702,
+                -0.0004391267895698381,
+                -0.11871391423046589,
+                -0.05275051966309546,
+                -0.0069243565201759505,
+                -0.07416755855083468,
+                0.28159553632140166,
+                -0.39618003368377686
+              ],
+              "mean": -0.043207368021830915,
+              "normalized_upper_bound": 0.007063620278034903,
+              "se": 0.06603905236788299,
+              "upper_bound": 0.022831684346052074
+            }
+          },
+          "n_sequences": 8,
+          "objective": 0.05115461614082179
+        }
+      }
+    },
+    "suite": "robocasa365_atomic",
+    "target_compression": 3.232323235782922,
+    "target_compression_scope": "candidate",
+    "uses_cka": false,
+    "uses_cs": false,
+    "uses_extra_training_data": false,
+    "uses_gradients": false,
+    "uses_success_labels": false,
+    "uses_task_labels": false
+  },
+  "packdirs": {
+    "64": "/home1/gyy/vla/QuantVLA/checkpoints/packs/robocasa365/duquant_packed_robocasa365_protocolfix_d4_w4a8_b64c32ls015"
+  },
+  "protected_layers": [],
+  "quantized_w4_layers": 116,
+  "retained_fp16_layers": 0,
+  "schema_version": 5,
+  "total_bytes": 509607936
+}

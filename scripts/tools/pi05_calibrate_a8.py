@@ -66,6 +66,7 @@ def parse_args() -> argparse.Namespace:
         "--n-frames", type=int, default=CALIBRATION_BATCHES * CALIBRATION_BATCH_SIZE
     )
     parser.add_argument("--batch-size", type=int, default=CALIBRATION_BATCH_SIZE)
+    parser.add_argument("--flow-steps", type=int, default=FLOW_STEPS)
     parser.add_argument("--permute", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
@@ -87,7 +88,7 @@ def configure_environment(args: argparse.Namespace, buffer_hash: str) -> None:
         "OPENPI_DUQUANT_ROW_ROT": "restore",
         "OPENPI_DUQUANT_ACT_PCT": "99.9",
         "OPENPI_DUQUANT_CALIB_STEPS": "32",
-        "OPENPI_DUQUANT_DENOISING_STEPS": str(FLOW_STEPS),
+        "OPENPI_DUQUANT_DENOISING_STEPS": str(args.flow_steps),
         "OPENPI_DUQUANT_PACKDIR": str(Path(args.pack_dir).resolve()),
         "OPENPI_DUQUANT_ACT_SCALE_PATH": str(Path(args.out).resolve()),
         "OPENPI_DUQUANT_CALIB_BUFFER_SHA256": buffer_hash,
@@ -104,6 +105,8 @@ def configure_environment(args: argparse.Namespace, buffer_hash: str) -> None:
 
 def main() -> None:
     args = parse_args()
+    if args.flow_steps <= 0:
+        raise ValueError("--flow-steps must be positive")
     buffer_path = Path(args.buffer).resolve()
     output_path = Path(args.out).resolve()
     buffer_hash = sha256_file(buffer_path)
@@ -136,7 +139,7 @@ def main() -> None:
     for index, batch in enumerate(iter_batches(observations, args.batch_size)):
         request_started = time.time()
         actions = sample_batch(
-            policy, batch, args.device, num_steps=FLOW_STEPS
+            policy, batch, args.device, num_steps=args.flow_steps
         ).detach().to(torch.float32).cpu().numpy()
         if actions.shape != (args.batch_size, 50, 32) or not np.isfinite(actions).all():
             raise RuntimeError(f"calibration batch {index} produced invalid actions {actions.shape}")
@@ -163,7 +166,7 @@ def main() -> None:
             "calibration_seed": 0,
             "calibration_batch_size": args.batch_size,
             "calibration_observations": args.n_frames,
-            "protocol": "GR00T-N1.5-aligned-target16-d4",
+            "protocol": f"full-context-target16-flow{args.flow_steps}",
         },
     )
     summary = {

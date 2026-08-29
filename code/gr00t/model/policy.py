@@ -330,6 +330,12 @@ class Gr00tPolicy(BasePolicy):
 
                 enable_duquant_if_configured(model)
             except Exception as e:
+                # A requested quantized deployment must fail closed.  Falling
+                # through here used to leave a partially wrapped model alive;
+                # real-quant finalization could then make it look deployable
+                # even though the requested Hessian artifact was never loaded.
+                if any(key.startswith("GR00T_DUQUANT_") for key in os.environ):
+                    raise RuntimeError("configured DuQuant deployment failed") from e
                 print(f"[GR00T] DuQuant not enabled or failed to apply: {e}")
 
         # Apply ATM scaling if configured (uses pre-loaded alpha JSON)

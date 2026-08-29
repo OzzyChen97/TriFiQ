@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""GR00T v2 TopK D_solver adjudicator (v1.3 eight-step pipeline, §3.1 step 4-7).
+"""GR00T TopK original-FP16-relative D_PAC adjudicator.
 
 Reads the diverse TopK from a selector plan JSON, scores EVERY candidate with
-the config-level D_solver under TRUE deployment semantics (each plan is loaded
+the config-level D_PAC under TRUE deployment semantics (each plan is loaded
 via GR00T_DUQUANT_PLAN: quantized layers are DuQuant-wrapped, skip layers stay
 the original FP16 nn.Linear — not the weight_bits=0 approximation), verifies
-the wrapped-layer count, then applies select_final() (min D_solver, 5% tie set
+the wrapped-layer count, then applies select_final() (min D_PAC, 5% tie set
 broken by the canonical proxy objective) and writes the FINAL plan.
 
 Usage (groot_test env, one idle GPU):
@@ -93,7 +93,7 @@ def count_wrapped(model: torch.nn.Module) -> int:
 # CLI
 # --------------------------------------------------------------------------- #
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="GR00T v2 TopK D_solver adjudicator (v1.3)")
+    p = argparse.ArgumentParser(description="GR00T TopK FP16-relative D_PAC adjudicator")
     p.add_argument("--plan", default=None, help="Selector plan JSON with the diverse TopK.")
     p.add_argument("--ckpt", default=None, help="Checkpoint dir.")
     p.add_argument("--suite", default="spatial", choices=["spatial", "goal", "object", "90", "10", "robocasa365_atomic"])
@@ -106,8 +106,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--n-obs", type=int, default=16, help="Synthetic obs for D_solver (round 3: 16, with paired-bootstrap significance).")
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--gamma", type=float, default=1.2)
-    p.add_argument("--metric", default="d_solver", choices=["d_solver", "d_func"],
-                   help="v1.4: adjudication metric (d_func = tail-aware functional metric).")
+    p.add_argument("--metric", default="d_pac", choices=["d_solver", "d_func", "d_pac"],
+                   help="Full-config adjudication metric (default: D_PAC vs original FP16).")
     p.add_argument("--group", type=int, default=64)
     p.add_argument("--ls", type=float, default=0.15)
     p.add_argument("--act-pct", type=float, default=99.9)
@@ -241,27 +241,45 @@ def main() -> None:
         q_traj = run_rollouts(policy_q.model, policy_q, obs_list, noises, args.batch_size)
         mean_div, per_obs = solver_divergence(fp_traj, q_traj, args.gamma)
         # v1.4: tail-aware functional metric from the SAME paired trajectories
-        from gr00t_func_metrics import d_func
+        from gr00t_func_metrics import (
+            aggregate_d_pac_sequences,
+            d_func,
+            d_pac_sequence,
+        )
 
         df = d_func(fp_traj, q_traj, args.gamma)
+        pac_sequences = [
+            d_pac_sequence(
+                fp_traj[:, index : index + 1],
+                q_traj[:, index : index + 1],
+                [0],
+                executed_actions=min(16, horizon),
+            )
+            for index in range(q_traj.shape[1])
+        ]
+        pac = aggregate_d_pac_sequences(pac_sequences)
         scored.append({
             "source": entry.get("source"),
             "d_solver": mean_div,
             "d_solver_std": float(np.std(per_obs)) if len(per_obs) > 1 else 0.0,
             "d_func": df["d_func"],
+            "d_pac": pac["d_pac"],
+            "d_pac_components": pac,
             "d_func_components": {k: v for k, v in df.items() if k != "per_obs"},
             "proxy": float(entry.get("objective", float("inf"))),
             "n_wrapped": n_wrapped,
             "plan_file": plan_path,
             "_per_obs": per_obs,
             "_per_obs_func": df["per_obs"],
+            "_per_sequence_pac": pac["per_sequence"],
         })
         del policy_q, q_traj
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        print(f"[topk_scorer] {entry['source']}: D_solver = {mean_div:.5f} ± "
-              f"{scored[-1]['d_solver_std']:.5f} (wrapped {n_wrapped}) ({time.time() - t0:.1f}s)")
+        print(f"[topk_scorer] {entry['source']}: D_PAC={pac['d_pac']:.5f} "
+              f"D_solver={mean_div:.5f} ± {scored[-1]['d_solver_std']:.5f} "
+              f"(wrapped {n_wrapped}) ({time.time() - t0:.1f}s)")
 
     # paired-bootstrap significance: best vs runner-up over shared obs indices
     # (review round 3, item 9 — a fixed 5% tie rule on 8-16 point estimates is
@@ -272,8 +290,9 @@ def main() -> None:
     if len(scored) >= 2 and all(len(s.get("_per_obs", [])) > 1 for s in scored):
         srt = sorted(scored, key=lambda c: c[args.metric])
         best, runner = srt[0], srt[1]
-        pa = np.asarray(best["_per_obs"])
-        pr = np.asarray(runner["_per_obs"])
+        sample_key = "_per_sequence_pac" if args.metric == "d_pac" else "_per_obs"
+        pa = np.asarray(best[sample_key])
+        pr = np.asarray(runner[sample_key])
         n = min(len(pa), len(pr))
         pa, pr = pa[:n], pr[:n]
         rng_boot = np.random.default_rng(123)
@@ -287,6 +306,7 @@ def main() -> None:
     for s_ in scored:
         s_.pop("_per_obs", None)
         s_.pop("_per_obs_func", None)
+        s_.pop("_per_sequence_pac", None)
 
     final = select_final(scored, tol=args.tol, key=args.metric)
     if final is None:
@@ -303,7 +323,7 @@ def main() -> None:
             "note": "true deployment semantics via GR00T_DUQUANT_PLAN (skip = unwrapped FP16); "
                     f"select_final = min {args.metric}, 5% tie set broken by canonical proxy; "
                     "one shared fixed A8 calibration buffer for all plans; "
-                    "bootstrap significance uses per-obs divergences for both metrics",
+                    "bootstrap significance uses paired sequence values for D_PAC",
         },
         "scored": scored,
         "final": {k: v for k, v in final.items() if k != "plan_file"},
@@ -318,7 +338,7 @@ def main() -> None:
     final_plan["meta"]["final_source"] = final["source"]
     final_plan["meta"]["final_metric"] = args.metric
     final_plan["meta"][f"final_{args.metric}"] = final[args.metric]
-    if args.metric == "d_func" and "d_solver" in final:
+    if args.metric in {"d_func", "d_pac"} and "d_solver" in final:
         final_plan["meta"]["final_d_solver"] = final["d_solver"]
     with open(base.with_suffix(".report.json"), "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)

@@ -32,17 +32,21 @@ export GR00T_DUQUANT_SCOPE=""
 export GR00T_DUQUANT_INCLUDE=".*(backbone\.eagle_model\.language_model\..*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)|action_head\.model\.transformer_blocks\.\d+\.ff\.net\.(0\.proj|2)).*"
 export GR00T_DUQUANT_EXCLUDE="(?:^|\.)(vision|radio|norm|ln|layernorm|embed|lm_head|attn1)(?:\.|$)"
 export GR00T_DUQUANT_WBITS_DEFAULT=4
-export GR00T_DUQUANT_ABITS=8
+export GR00T_DUQUANT_ABITS=${GR00T_DUQUANT_ABITS:-8}
 export GR00T_DUQUANT_BLOCK=64
 export GR00T_DUQUANT_BLOCK_OUT=64
 export GR00T_DUQUANT_PERMUTE=0
-export GR00T_DUQUANT_ROW_ROT=restore
+if [[ -n "${GR00T_DUQUANT_HESSIAN_W4_PATH:-}" ]]; then
+    export GR00T_DUQUANT_ROW_ROT=0
+else
+    export GR00T_DUQUANT_ROW_ROT=${GR00T_DUQUANT_ROW_ROT:-restore}
+fi
 export GR00T_DUQUANT_ACT_PCT=99.9
 export GR00T_DUQUANT_CALIB_STEPS=32
 export GR00T_DUQUANT_LS=0.15
 export GR00T_DUQUANT_PACKDIR="$PACKDIR"
-export GR00T_DUQUANT_ACT_DYNAMIC=0
-export GR00T_DUQUANT_FUSED=0
+export GR00T_DUQUANT_ACT_DYNAMIC=${GR00T_DUQUANT_ACT_DYNAMIC:-0}
+export GR00T_DUQUANT_FUSED=1
 export GR00T_DUQUANT_PRECACHE_WEIGHTS=1
 export GR00T_DUQUANT_DEBUG=0
 export GR00T_OBS_FORMAT=robocasa365

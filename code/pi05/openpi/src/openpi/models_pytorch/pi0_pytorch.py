@@ -414,21 +414,26 @@ class PI0Pytorch(nn.Module):
         x_t = noise
         trajectory = [x_t.detach().clone()] if return_trajectory else None
         time = torch.tensor(1.0, dtype=torch.float32, device=device)
+        flow_step = 0
         while time >= -dt / 2:
             expanded_time = time.expand(bsize)
-            v_t = self.denoise_step(
-                state,
-                prefix_pad_masks,
-                past_key_values,
-                x_t,
-                expanded_time,
-            )
+            from openpi.quant.dit_step_context import set_dit_quant_step
+
+            with set_dit_quant_step(flow_step, total=num_steps):
+                v_t = self.denoise_step(
+                    state,
+                    prefix_pad_masks,
+                    past_key_values,
+                    x_t,
+                    expanded_time,
+                )
 
             # Euler step - use new tensor assignment instead of in-place operation
             x_t = x_t + dt * v_t
             if trajectory is not None:
                 trajectory.append(x_t.detach().clone())
             time += dt
+            flow_step += 1
         if trajectory is not None:
             # (T+1, B, H, D), index 0 is the paired initial noise and index T
             # is the final action.  This path is probe-only; normal policy

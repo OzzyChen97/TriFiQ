@@ -133,6 +133,12 @@ class _ATMProcessor(AttnProcessor2_0):
             query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
         )
 
+        errorfold_head_capture_cb = getattr(
+            attn, "_errorfold_head_capture_callback", None
+        )
+        if errorfold_head_capture_cb is not None:
+            errorfold_head_capture_cb(attn, hidden_states.detach())
+
         # Capture per-head RMS for per-head OHB calibration (BEFORE reshape)
         # hidden_states shape here: (batch, heads, seq, head_dim)
         ohb_perhead_capture_cb = getattr(attn, "_atm_ohb_perhead_capture_callback", None)
@@ -430,6 +436,20 @@ def register_ohb_perhead_capture(
             setattr(module, "_atm_ohb_perhead_capture_name", name)
 
 
+def register_errorfold_head_capture(
+    model: torch.nn.Module,
+    callback: Callable[[str, torch.Tensor], None],
+    scope: str = "dit",
+) -> None:
+    for name, module in model.named_modules():
+        if _is_dit_attention(name, module, scope=scope):
+            setattr(
+                module,
+                "_errorfold_head_capture_callback",
+                lambda attn, output, layer=name: callback(layer, output),
+            )
+
+
 def register_ohb_perhead_capture_step(
     model: torch.nn.Module,
     callback: Callable[[str, torch.Tensor, Optional[int]], None],
@@ -508,6 +528,8 @@ def clear_atm_capture(model: torch.nn.Module) -> None:
                 delattr(module, "_atm_ohb_perhead_capture_step_name")
             if hasattr(module, "_atm_output_capture_callback"):
                 delattr(module, "_atm_output_capture_callback")
+            if hasattr(module, "_errorfold_head_capture_callback"):
+                delattr(module, "_errorfold_head_capture_callback")
             if hasattr(module, "_atm_output_capture_name"):
                 delattr(module, "_atm_output_capture_name")
             if hasattr(module, "_atm_step_getter"):
@@ -545,12 +567,152 @@ def _fold_atm_into_q_projection(module: Attention, alpha: torch.Tensor) -> None:
             f"unexpected GR00T q projection shape={tuple(weight.shape)} heads={module.heads} alpha={alpha.numel()}"
         )
     scale = alpha.to(device=weight.device, dtype=weight.dtype).repeat_interleave(head_dim)
+    if getattr(projection, "_hessian_w4_loaded", False):
+        projection.fold_errorfold(scale, torch.zeros_like(scale))
+        setattr(module, "_gr00t_atm_q_weight_folded", True)
+        return
+    offline_reuse = os.environ.get("GR00T_ERRORFOLD_OFFLINE_REUSE", "0") not in {
+        "0", "false", "False", ""
+    }
+    if offline_reuse and not hasattr(module, "_gr00t_errorfold_base_q_weight"):
+        setattr(module, "_gr00t_errorfold_base_q_weight", weight.detach().clone())
+        bias = getattr(projection, "bias", None)
+        setattr(
+            module,
+            "_gr00t_errorfold_base_q_bias",
+            bias.detach().clone() if bias is not None else None,
+        )
     with torch.no_grad():
         weight.mul_(scale[:, None])
         bias = getattr(projection, "bias", None)
         if bias is not None:
             bias.mul_(scale)
     setattr(module, "_gr00t_atm_q_weight_folded", True)
+
+
+def _fold_ohb_into_o_projection(module: Attention, beta: float) -> None:
+    """Fold scalar post-attention OHB into to_out[0] rows and bias."""
+    if getattr(module, "_gr00t_ohb_o_weight_folded", False):
+        raise RuntimeError("GR00T OHB o projection was already folded")
+    projection = module.to_out[0] if isinstance(module.to_out, (list, torch.nn.ModuleList)) else module.to_out
+    weight = getattr(projection, "weight", None)
+    if weight is None:
+        raise TypeError("fold_o_weight requires an unwrapped DiT to_out[0] weight")
+    with torch.no_grad():
+        weight.mul_(float(beta))
+        bias = getattr(projection, "bias", None)
+        if bias is not None:
+            bias.mul_(float(beta))
+    setattr(module, "_gr00t_ohb_o_weight_folded", True)
+
+
+def _fold_ohb_perhead_into_o_projection(module: Attention, beta: torch.Tensor) -> None:
+    """Fold pre-concatenation per-head OHB into to_out[0] input columns."""
+    if getattr(module, "_gr00t_ohb_o_perhead_weight_folded", False):
+        raise RuntimeError("GR00T per-head OHB o projection was already folded")
+    projection = module.to_out[0] if isinstance(module.to_out, (list, torch.nn.ModuleList)) else module.to_out
+    weight = getattr(projection, "weight", None)
+    if weight is None:
+        raise TypeError("fold_o_weight_perhead requires an unwrapped DiT to_out[0] weight")
+    heads = int(module.heads)
+    if weight.shape[1] % heads != 0:
+        raise ValueError(f"to_out input width {weight.shape[1]} is not divisible by {heads} heads")
+    head_dim = int(weight.shape[1]) // heads
+    if beta.numel() != heads:
+        raise ValueError(f"OHB beta has {beta.numel()} heads, expected {heads}")
+    scale = beta.to(device=weight.device, dtype=weight.dtype).repeat_interleave(head_dim)
+    with torch.no_grad():
+        weight.mul_(scale[None, :])
+    setattr(module, "_gr00t_ohb_o_perhead_weight_folded", True)
+
+
+def _fold_head_affine_into_o_projection(
+    module: Attention, gain: torch.Tensor, correction_bias: torch.Tensor
+) -> None:
+    """Fold direction-aware head-channel ErrorFold through to_out exactly."""
+    projection = module.to_out[0] if isinstance(
+        module.to_out, (list, torch.nn.ModuleList)
+    ) else module.to_out
+    weight = getattr(projection, "weight", None)
+    if weight is None:
+        raise TypeError("head ErrorFold requires an unfinalized to_out weight")
+    gain = gain.to(device=weight.device, dtype=weight.dtype).reshape(-1)
+    correction_bias = correction_bias.to(
+        device=weight.device, dtype=weight.dtype
+    ).reshape(-1)
+    if weight.shape[1] != gain.numel() or correction_bias.numel() != gain.numel():
+        raise ValueError("head ErrorFold channel count does not match to_out input")
+    if getattr(projection, "_hessian_w4_loaded", False):
+        projection.fold_input_errorfold(gain, correction_bias)
+        setattr(module, "_gr00t_errorfold_head_affine_folded", True)
+        return
+    offline_reuse = os.environ.get("GR00T_ERRORFOLD_OFFLINE_REUSE", "0") not in {
+        "0", "false", "False", ""
+    }
+    if offline_reuse and not hasattr(module, "_gr00t_errorfold_base_o_weight"):
+        setattr(module, "_gr00t_errorfold_base_o_weight", weight.detach().clone())
+        native_bias = getattr(projection, "bias", None)
+        setattr(
+            module,
+            "_gr00t_errorfold_base_o_bias",
+            native_bias.detach().clone() if native_bias is not None else None,
+        )
+    with torch.no_grad():
+        additive = weight @ correction_bias
+        weight.mul_(gain[None, :])
+        if projection.bias is None:
+            projection.bias = torch.nn.Parameter(additive)
+        else:
+            projection.bias.add_(additive)
+    setattr(module, "_gr00t_errorfold_head_affine_folded", True)
+
+
+def reset_errorfold_attention_folds(model: torch.nn.Module) -> None:
+    """Restore adapter attention weights between offline 9x9 candidates."""
+    for _, module in model.named_modules():
+        if not isinstance(module, Attention):
+            continue
+        q_projection = getattr(module, "to_q", None)
+        if hasattr(module, "_gr00t_errorfold_base_q_weight") and not getattr(
+            q_projection, "_hessian_w4_loaded", False
+        ):
+            with torch.no_grad():
+                q_projection.weight.copy_(module._gr00t_errorfold_base_q_weight)
+                base_bias = module._gr00t_errorfold_base_q_bias
+                if base_bias is None:
+                    q_projection.bias = None
+                elif q_projection.bias is None:
+                    q_projection.bias = torch.nn.Parameter(base_bias.clone())
+                else:
+                    q_projection.bias.copy_(base_bias)
+        o_projection = (
+            module.to_out[0]
+            if isinstance(module.to_out, (list, torch.nn.ModuleList))
+            else module.to_out
+        )
+        if hasattr(module, "_gr00t_errorfold_base_o_weight") and not getattr(
+            o_projection, "_hessian_w4_loaded", False
+        ):
+            with torch.no_grad():
+                o_projection.weight.copy_(module._gr00t_errorfold_base_o_weight)
+                base_bias = module._gr00t_errorfold_base_o_bias
+                if base_bias is None:
+                    o_projection.bias = None
+                elif o_projection.bias is None:
+                    o_projection.bias = torch.nn.Parameter(base_bias.clone())
+                else:
+                    o_projection.bias.copy_(base_bias)
+        for attribute in (
+            "_gr00t_atm_q_weight_folded",
+            "_gr00t_ohb_o_weight_folded",
+            "_gr00t_ohb_o_perhead_weight_folded",
+            "_gr00t_errorfold_head_affine_folded",
+            "_atm_alpha_all",
+            "_ohb_beta_perhead",
+            "_ohb_beta_scalar",
+        ):
+            if hasattr(module, attribute):
+                delattr(module, attribute)
 
 
 @dataclass
@@ -577,7 +739,11 @@ def enable_dit_atm_if_configured(model: torch.nn.Module) -> None:
         return
 
     with open(alpha_path, "r", encoding="utf-8") as f:
-        alpha_data = json.load(f)
+        payload = json.load(f)
+    alpha_data = payload.get("layers", payload) if isinstance(payload, dict) else payload
+    metadata = payload.get("meta", {}) if isinstance(payload, dict) else {}
+    if not isinstance(alpha_data, dict):
+        raise ValueError("GR00T ATM/OHB artifact layers must be an object")
 
     scope = os.environ.get(ATM_SCOPE_ENV, "dit")
     ohb_scope = os.environ.get(OHB_SCOPE_ENV, None)
@@ -591,24 +757,39 @@ def enable_dit_atm_if_configured(model: torch.nn.Module) -> None:
     ohb_application = os.environ.get(OHB_APPLICATION_ENV, "runtime_output")
     if atm_application not in {"runtime_query", "fold_q_weight"}:
         raise ValueError(f"unsupported GR00T ATM application: {atm_application!r}")
-    if ohb_application != "runtime_output":
+    if ohb_application not in {"runtime_output", "fold_o_weight", "fold_o_weight_perhead"}:
         raise ValueError(f"unsupported GR00T OHB application: {ohb_application!r}")
     if atm_application == "fold_q_weight":
         if per_step := os.environ.get(ATM_PER_STEP_ENV, "0") not in ("0", "false", "False", ""):
             raise ValueError("fold_q_weight requires static ATM; per-step ATM cannot be folded")
-        _require_uniform_selector_variant("atm")
+    if ohb_application != "runtime_output" and os.environ.get(ATM_PER_STEP_ENV, "0") not in (
+        "0", "false", "False", "",
+    ):
+        raise ValueError("folded OHB requires a static factor; per-step OHB cannot be folded")
 
     ensure_dit_attention_patch(model, scope=scope)
 
     for name, module in model.named_modules():
         if not _is_dit_attention(name, module, scope=scope):
             continue
-        alpha_entry = alpha_data.get(name) or alpha_data.get(name.replace("model.", "model", 1))
+        alpha_entry = (
+            alpha_data.get(name)
+            or alpha_data.get(name.replace("model.", "model", 1))
+            or alpha_data.get(f"{name}::attention_logits")
+        )
         if not alpha_entry:
             beta_value = None
             alpha_values = None
         else:
-            alpha_values = alpha_entry.get("all") or alpha_entry.get("alpha")
+            alpha_values = (
+                alpha_entry.get("all")
+                or alpha_entry.get("alpha")
+                or (
+                    alpha_entry.get("effective_gain")
+                    if alpha_entry.get("kind") == "attention_logits"
+                    else None
+                )
+            )
             beta_value = alpha_entry.get("beta")
 
         # ---- QuantVLA v2 P2-G: per-step tables (GR00T_ATM_PER_STEP=1) ----
@@ -649,17 +830,38 @@ def enable_dit_atm_if_configured(model: torch.nn.Module) -> None:
             summary.total_heads += len(alpha_values)
 
         if ohb_enabled and _is_dit_attention(name, module, scope=ohb_scope):
+            head_entry = alpha_data.get(f"{name}::attention_head_output")
+            if head_entry is not None:
+                if ohb_application != "fold_o_weight_perhead":
+                    raise ValueError("head ErrorFold must be statically folded into to_out")
+                _fold_head_affine_into_o_projection(
+                    module,
+                    torch.tensor(head_entry["effective_gain"], dtype=torch.float32),
+                    torch.tensor(head_entry["effective_bias"], dtype=torch.float32),
+                )
+                ohb_layers += 1
+                continue
             # Check for per-head beta first
             beta_perhead_values = alpha_entry.get("beta_perhead") if alpha_entry else None
             if beta_perhead_values is not None:
-                # Per-head OHB
                 beta_tensor = torch.tensor(beta_perhead_values, dtype=torch.float32)
-                setattr(module, "_ohb_beta_perhead", beta_tensor)
+                if ohb_application == "fold_o_weight_perhead":
+                    _fold_ohb_perhead_into_o_projection(module, beta_tensor)
+                elif ohb_application == "fold_o_weight":
+                    raise ValueError(
+                        "per-head OHB artifact requires fold_o_weight_perhead, not fold_o_weight"
+                    )
+                else:
+                    setattr(module, "_ohb_beta_perhead", beta_tensor)
                 ohb_layers += 1
             else:
-                # Per-layer OHB (fallback)
                 beta = float(beta_value) if beta_value is not None else ohb_fallback
-                setattr(module, "_ohb_beta_scalar", beta)
+                if ohb_application == "fold_o_weight":
+                    _fold_ohb_into_o_projection(module, beta)
+                elif ohb_application == "fold_o_weight_perhead":
+                    raise ValueError("fold_o_weight_perhead requires beta_perhead in every matched layer")
+                else:
+                    setattr(module, "_ohb_beta_scalar", beta)
                 ohb_layers += 1
 
     if summary.matched_layers == 0 and atm_enabled:
@@ -685,6 +887,10 @@ def enable_dit_atm_if_configured(model: torch.nn.Module) -> None:
             "ohb_enabled": ohb_enabled,
             "atm_application": atm_application,
             "ohb_application": ohb_application,
+            "selector_free": bool((payload.get("selection") or {}).get("uses_task_labels") is False)
+            if isinstance(payload, dict)
+            else False,
+            "metric": metadata.get("metric") or (payload.get("metric") if isinstance(payload, dict) else None),
             "artifact_path": os.path.abspath(alpha_path),
             "matched_layers": summary.matched_layers,
             "total_heads": summary.total_heads,

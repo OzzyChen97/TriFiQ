@@ -9,8 +9,8 @@ and byte model.  π0.5-specific code is limited to reading its immutable layer
 inventory and serializing OpenPI-compatible plans.
 
 The emitted primary plan is a proxy-search result only.  ``adjudicated`` stays
-false until every TopK candidate has been run under true mixed deployment and
-the 5%-tie-set D_func rule in ``pi05_topk_scorer.py`` has selected a winner.
+false until true mixed deployment has been scored against original FP16 with
+D_PAC in ``pi05_topk_scorer.py``.
 """
 
 from __future__ import annotations
@@ -79,6 +79,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cs-only", action="store_true")
     parser.add_argument("--group", type=int, default=64)
     parser.add_argument("--row-rot", default="restore", choices=("restore",))
+    parser.add_argument(
+        "--budget-reference",
+        choices=("quantvla-w4", "uniform-w6"),
+        default="quantvla-w4",
+        help="Exact QuantVLA all-W4 bytes (default) or the legacy uniform-W6 budget.",
+    )
+    parser.add_argument(
+        "--target-compression",
+        type=float,
+        default=None,
+        help=(
+            "Target candidate-weight compression FP16_bytes/plan_bytes. Overrides "
+            "--budget-reference and searches the shared binary W4/FP16 space."
+        ),
+    )
     parser.add_argument("--n-perturb", type=int, default=10)
     parser.add_argument("--perturb-sigma", type=float, default=0.25)
     parser.add_argument("--n-topk", type=int, default=10)
@@ -152,6 +167,8 @@ def _openpi_entry(
         "sat_rate": b4.get("sat_rate"),
         "d_func_ref": measurement.get("d_func_b4"),
         "d_func_ref_std": measurement.get("d_func_b4_std"),
+        "d_pac_ref": measurement.get("d_pac_b4"),
+        "d_pac_ref_std": measurement.get("d_pac_b4_std"),
     }
 
 
@@ -214,8 +231,9 @@ def select(args: argparse.Namespace) -> dict[str, Any]:
     scores = final_selector.build_scores(
         sensitivity, names, lambda_cka, lambda_cs, cka_field="cka_dit"
     )
+    unguarded_scores = scores
     weights, weight_log = final_selector.build_weights_with_log(
-        sensitivity, names, metric="d_func"
+        sensitivity, names, metric="d_pac"
     )
 
     thresholds = sensitivity.get("meta", {}).get("guard_thresholds") or {}
@@ -230,24 +248,55 @@ def select(args: argparse.Namespace) -> dict[str, Any]:
     filtered_scores, removed = final_selector.filter_guarded(
         scores, sensitivity, names, tau_rms, tau_sat, bit=4
     )
+    guard_diagnostics = list(removed)
+    exact_quantvla_budget = (
+        args.target_compression is None
+        and args.budget_reference == "quantvla-w4"
+    )
+    if exact_quantvla_budget:
+        filtered_scores = unguarded_scores
+        removed = []
     guarded_names = {row["layer"] for row in removed}
 
     fp16_bytes = sum(
         final_selector.layer_bytes_fp16(shape["out"], shape["in"], shape["has_bias"])
         for shape in shapes.values()
     )
-    uniform_w6 = {
-        name: {"bits": 6, "group": args.group, "skip": False} for name in names
-    }
-    budget = final_selector.plan_total_bytes(uniform_w6, shapes, args.row_rot)
-
-    greedy, greedy_objective = final_selector.greedy_plan(
-        shapes, filtered_scores, weights, budget, args.row_rot
+    minimum_budget = final_selector.quantvla_w4_budget(
+        shapes, args.group, args.row_rot
     )
-    candidates: list[dict[str, Any]] = [
-        {"plan": greedy, "objective": greedy_objective, "source": "greedy"}
-    ]
-    if not args.no_milp:
+    if exact_quantvla_budget:
+        budget = minimum_budget
+        greedy = final_selector.quantvla_w4_plan(shapes, args.group, args.row_rot)
+        greedy_objective = final_selector.plan_objective(greedy, filtered_scores, weights)
+        candidates: list[dict[str, Any]] = [
+            {
+                "plan": greedy,
+                "objective": greedy_objective,
+                "source": "quantvla_full_w4",
+            }
+        ]
+    else:
+        uniform_w6 = {
+            name: {"bits": 6, "group": args.group, "skip": False} for name in names
+        }
+        if args.target_compression is not None:
+            budget, _maximum_compression = (
+                final_selector.budget_from_target_compression(
+                    fp16_bytes, minimum_budget, args.target_compression
+                )
+            )
+        else:
+            budget = final_selector.plan_total_bytes(
+                uniform_w6, shapes, args.row_rot
+            )
+        greedy, greedy_objective = final_selector.greedy_plan(
+            shapes, filtered_scores, weights, budget, args.row_rot
+        )
+        candidates = [
+            {"plan": greedy, "objective": greedy_objective, "source": "greedy"}
+        ]
+    if not exact_quantvla_budget and not args.no_milp:
         milp, milp_objective = final_selector.milp_binary_plan(
             shapes,
             filtered_scores,
@@ -260,42 +309,43 @@ def select(args: argparse.Namespace) -> dict[str, Any]:
             candidates.append(
                 {"plan": milp, "objective": milp_objective, "source": "milp"}
             )
-    candidates.extend(
-        final_selector.perturbed_plans(
-            shapes,
-            filtered_scores,
-            weights,
-            budget,
-            args.row_rot,
-            n=args.n_perturb,
-            sigma=args.perturb_sigma,
-            seed=1,
+    if not exact_quantvla_budget:
+        candidates.extend(
+            final_selector.perturbed_plans(
+                shapes,
+                filtered_scores,
+                weights,
+                budget,
+                args.row_rot,
+                n=args.n_perturb,
+                sigma=args.perturb_sigma,
+                seed=1,
+            )
         )
-    )
-    candidates.extend(
-        final_selector.flip_neighbors_plans(
-            shapes,
-            filtered_scores,
-            weights,
-            budget,
-            args.row_rot,
-            base_plan=greedy,
-            seed=3,
+        candidates.extend(
+            final_selector.flip_neighbors_plans(
+                shapes,
+                filtered_scores,
+                weights,
+                budget,
+                args.row_rot,
+                base_plan=greedy,
+                seed=3,
+            )
         )
-    )
-    candidates.extend(
-        final_selector.lambda_sweep_plans(
-            shapes,
-            sensitivity,
-            names,
-            weights,
-            budget,
-            args.row_rot,
-            pairs=parse_lambda_pairs(args.lambda_pairs),
-            guarded_names=guarded_names,
-            cka_field="cka_dit",
+        candidates.extend(
+            final_selector.lambda_sweep_plans(
+                shapes,
+                sensitivity,
+                names,
+                weights,
+                budget,
+                args.row_rot,
+                pairs=parse_lambda_pairs(args.lambda_pairs),
+                guarded_names=guarded_names,
+                cka_field="cka_dit",
+            )
         )
-    )
 
     for candidate in candidates:
         final_selector.assert_plan_guards(candidate["plan"], guarded_names)
@@ -317,20 +367,28 @@ def select(args: argparse.Namespace) -> dict[str, Any]:
     topk = final_selector.select_diverse(
         candidates, k=args.n_topk, min_hamming=min_hamming
     )
-    if len(topk) < 5:
+    if not exact_quantvla_budget and len(topk) < 5:
         raise RuntimeError(f"diverse TopK collapsed to {len(topk)} candidates")
     primary = min(candidates, key=lambda candidate: candidate["objective"])
     primary_bytes = final_selector.plan_total_bytes(primary["plan"], shapes, args.row_rot)
 
-    bootstrap = final_selector.bootstrap_stability(
-        sensitivity,
-        shapes,
-        filtered_scores,
-        budget,
-        args.row_rot,
-        n=args.n_bootstrap,
-        seed=2,
-    )
+    if exact_quantvla_budget:
+        bootstrap = {
+            "n_draws": 0,
+            "deterministic_full_w4": True,
+            "jaccard": {"mean": 1.0, "p05": 1.0, "p95": 1.0},
+            "spearman_mean": 1.0,
+        }
+    else:
+        bootstrap = final_selector.bootstrap_stability(
+            sensitivity,
+            shapes,
+            filtered_scores,
+            budget,
+            args.row_rot,
+            n=args.n_bootstrap,
+            seed=2,
+        )
     sensitivity_hash = sha256_file(sensitivity_path)
     inventory_hash = sha256_file(inventory_path)
     pack_manifest_hash = sha256_file(manifest_path)
@@ -364,30 +422,44 @@ def select(args: argparse.Namespace) -> dict[str, Any]:
             "lambda": {"cka": lambda_cka, "cs": lambda_cs},
             "cka_to_cs_ratio": None if lambda_cs == 0 else lambda_cka / lambda_cs,
             "score_normalization": "joint min-max over all measured (layer,bit) pairs per term",
-            "weight_metric": "d_func",
+            "weight_metric": "d_pac",
             "weight_log": weight_log,
             "guard_thresholds": {
                 "tau_rms": tau_rms,
                 "tau_sat": tau_sat,
-                "rule": "hard removal from W4 search; retained native FP16",
+                "rule": (
+                    "diagnostic only at exact QuantVLA bytes; full-W4 is adjudicated by FP16-relative D_PAC"
+                    if exact_quantvla_budget
+                    else "hard removal from W4 search; retained native FP16"
+                ),
             },
             "guard_filtered_layers": sorted(guarded_names),
+            "guard_diagnostic_layers": sorted(row["layer"] for row in guard_diagnostics),
             "search_space": "binary native-FP16/W4",
-            "candidate_sources": [
-                "greedy",
-                "milp",
-                "perturbed",
-                "flip8/12/16/20",
-                "lambda-sweep",
-            ],
+            "candidate_sources": (
+                ["quantvla_full_w4"]
+                if exact_quantvla_budget
+                else ["greedy", "milp", "perturbed", "flip8/12/16/20", "lambda-sweep"]
+            ),
             "lambda_pairs": [list(pair) for pair in parse_lambda_pairs(args.lambda_pairs)],
             "topk_size": len(topk),
             "topk_min_hamming": min_hamming,
-            "budget_reference": "uniform_w6_static_bytes",
+            "budget_reference": (
+                "quantvla_all_candidate_w4_static_bytes"
+                if exact_quantvla_budget
+                else (
+                    f"target_candidate_compression_{args.target_compression:g}x"
+                    if args.target_compression is not None
+                    else "uniform_w6_static_bytes"
+                )
+            ),
+            "target_compression": args.target_compression,
+            "achieved_candidate_compression": fp16_bytes / primary_bytes,
+            "search_start": "QuantVLA full W4" if exact_quantvla_budget else "native FP16",
             "budget_semantics": "theoretical packed static weight bytes only",
             "skip_semantics": "native torch.nn.Linear FP16; no wrapper, rotation, or A8",
-            "adjudication_metric": "d_func",
-            "adjudication_rule": "minimum D_func; 5% relative tie set; canonical proxy tie-break",
+            "adjudication_metric": "d_pac_v1",
+            "adjudication_rule": "minimum original-FP16-relative D_PAC after configuration freeze",
             "adjudicated": False,
             "group": args.group,
             "row_rot": args.row_rot,
@@ -404,6 +476,7 @@ def select(args: argparse.Namespace) -> dict[str, Any]:
         "fp16_total_bytes": fp16_bytes,
         "budget_fraction_of_fp16": budget / fp16_bytes,
         "total_bytes": primary_bytes,
+        "achieved_candidate_compression": fp16_bytes / primary_bytes,
         "objective": float(primary["objective"]),
         "primary_source": primary["source"],
         "packdirs": {str(args.group): str(pack_dir)},
@@ -438,6 +511,7 @@ def select(args: argparse.Namespace) -> dict[str, Any]:
                 "skip_layers": list(final_selector.plan_mask(candidate["plan"])),
                 "d_func": None,
                 "d_solver": None,
+                "d_pac": None,
             }
         )
     return payload

@@ -48,13 +48,29 @@ import time
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from pathlib import Path
+
 import numpy as np
+import torch
 import tyro
 
 from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING
 from gr00t.eval.robot import RobotInferenceClient, RobotInferenceServer
 from gr00t.experiment.data_config import load_data_config
 from gr00t.model.policy import Gr00tPolicy
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "tools"))
+from quantvla_cross_model_protocol import (  # noqa: E402
+    adapter_attestation,
+    closed_loop_runtime_protocol,
+    protocol_attestation,
+    validate_quant_plan,
+)
+from quantvla_dynamic_a8_protocol import (  # noqa: E402
+    protocol_attestation as dynamic_a8_protocol_attestation,
+    validate_runtime as validate_dynamic_a8_runtime,
+)
 
 
 @dataclass
@@ -169,6 +185,8 @@ def _maybe_close_a8_calibration(
         ensure_a8_calibrated,
         fixed_calibration_buffer,
     )
+    from quantvla_cross_model_protocol import protocol_artifact
+    from quantvla_model_adapters import gr00t_rollout_inputs, load_model_records
 
     act_dynamic = os.environ.get("GR00T_DUQUANT_ACT_DYNAMIC", "0") not in ("0", "false", "False")
     if act_dynamic or not static_calibrators_required(policy.model):
@@ -182,9 +200,18 @@ def _maybe_close_a8_calibration(
     # start, so the sha256 + sidecar prove the scales match the experiment.
     # v1.4 Stage D: GR00T_OBS_FORMAT=robocasa365 for the RoboCasa365 checkpoints
     fmt = os.environ.get("GR00T_OBS_FORMAT", "libero")
-    warm_obs, warm_noises, sha = fixed_calibration_buffer(
-        0, calib_steps * batch_size, horizon, action_dim, fmt=fmt
-    )
+    source_buffer_path = None
+    if fmt == "robocasa365":
+        source_buffer_path = protocol_artifact("calibration_buffer")
+        records, provenance = load_model_records(
+            source_buffer_path, calib_steps * batch_size, model="gr00t"
+        )
+        warm_obs, warm_noises = gr00t_rollout_inputs(records)
+        sha = provenance["sha256"]
+    else:
+        warm_obs, warm_noises, sha = fixed_calibration_buffer(
+            0, calib_steps * batch_size, horizon, action_dim, fmt=fmt
+        )
     import hashlib as _hl
 
     plan_path = os.environ.get("GR00T_DUQUANT_PLAN")
@@ -207,8 +234,42 @@ def _maybe_close_a8_calibration(
         "checkpoint_path": checkpoint_path,
         "wrapped_layers": count_wrapped_layers(policy.model),
     }
+    if source_buffer_path is not None:
+        act_meta.update(
+            {
+                "source_buffer_sha256": sha,
+                "source_buffer_path": str(source_buffer_path),
+            }
+        )
+    if os.environ.get("GR00T_DUQUANT_HESSIAN_W4_PATH"):
+        # The v3 A8 artifact has one prefix table and four deterministic DiT
+        # tables and therefore uses the shared schema, not the legacy
+        # seed/path sidecar.  Requiring legacy-only fields here would reject a
+        # valid v3 artifact after the expensive server model load.
+        from quantvla_cross_model_protocol import PROTOCOL_SHA256
+
+        act_meta = {
+            "schema_version": 3,
+            "kind": "v3_per_flow_step_a8",
+            "protocol_sha256": PROTOCOL_SHA256,
+            "plan_sha256": plan_sha,
+            "calibration_buffer_sha256": sha,
+            "source_buffer_sha256": sha,
+            "wrapped_layers": count_wrapped_layers(policy.model),
+            "act_percentile": float(
+                os.environ.get("GR00T_DUQUANT_ACT_PCT", "99.9")
+            ),
+            "calib_batches": calib_steps,
+            "denoising_steps": int(
+                os.environ.get(
+                    "GR00T_DENOISING_STEPS", str(policy.denoising_steps)
+                )
+            ),
+            "prefix_llm_tables": 1,
+            "dit_flow_step_tables": 4,
+        }
     print(f"[inference] static A8 calibration warmup: {calib_steps * batch_size} "
-          f"synthetic obs (buffer sha256 {sha[:16]}...; plan {plan_sha})", flush=True)
+          f"shared obs (buffer sha256 {sha[:16]}...; plan {plan_sha})", flush=True)
     t0 = time.time()
     ensure_a8_calibrated(
         policy, warm_obs, warm_noises, batch_size,
@@ -372,6 +433,7 @@ def _runtime_info(policy) -> dict:
     atm_runtime = getattr(policy.model, "_gr00t_atm_runtime", {"enabled": False})
     plan_path = os.environ.get("GR00T_DUQUANT_PLAN")
     act_scale_path = os.environ.get("GR00T_DUQUANT_ACT_SCALE_PATH")
+    hessian_runtime = getattr(policy.model, "_gr00t_duquant_runtime", {})
     if gptq_layers:
         weight_bits = {int(layer.weight_bits) for layer in gptq_layers}
         activation_bits = {
@@ -407,6 +469,14 @@ def _runtime_info(policy) -> dict:
             "claim_scope": "algorithmic W4A4; fake-quantized FP matmul runtime",
         }
     elif quant_layers:
+        plan_target_layers = 0
+        if plan_path:
+            plan_target_layers = len(
+                (json.loads(Path(plan_path).read_text(encoding="utf-8")).get("layers") or {})
+            )
+        mixed_static_profile = bool(
+            plan_target_layers and len(quant_layers) < plan_target_layers
+        )
         weight_bits = {int(layer.weight_bits) for layer in quant_layers}
         if len(weight_bits) != 1:
             raise RuntimeError(
@@ -416,30 +486,78 @@ def _runtime_info(policy) -> dict:
         if len(fused_values) != 1:
             raise RuntimeError("GR00T aligned quantization cannot mix eager and fused execution")
         fused = next(iter(fused_values))
+        residency = getattr(policy.model, "_quantvla_real_quant_residency", {})
+        packed_residency = bool(
+            fused
+            and residency.get("packed_low_bit_residency")
+            and all(layer._inference_only_ready for layer in quant_layers)
+        )
         quantization_contract = {
-            "logical_profile": "gdsq_vla",
-            "quantization_method": "duquant_fake_quant",
-            "layer_selection_policy": "architecture_specific_gdsq_sensitivity_plan",
-            "weight_quantizer": "signed_symmetric_per_output_channel",
+            "logical_profile": (
+                "quantvla_adapter_only_w4a8"
+                if os.environ.get("QUANTVLA_ADAPTER_ONLY", "0")
+                not in ("0", "false", "False", "")
+                else "gdsq_vla"
+            ),
+            "quantization_method": (
+                "real_quant_packed_w4_dequant_fp16_gemm"
+                if packed_residency else "duquant_fake_quant"
+            ),
+            "layer_selection_policy": (
+                "shared_static_compression_profile_over_model_adapter_bound_layers"
+                if mixed_static_profile
+                else "all_model_adapter_bound_target_linear_layers_uniform_w4"
+                if os.environ.get("QUANTVLA_ADAPTER_ONLY", "0")
+                not in ("0", "false", "False", "")
+                else "architecture_specific_gdsq_sensitivity_plan"
+            ),
+            "weight_quantizer": (
+                "hessian_aware_gptq_feedback_signed_group64"
+                if hessian_runtime.get("hessian_w4_loaded")
+                else "signed_symmetric_per_output_channel"
+            ),
             "activation_quantizer": "signed_symmetric_per_input_channel",
             "execution_backend": (
-                "triton_w4_dequant_fp16_gemm" if fused else "fake_quant_fp16_gemm"
+                "triton_w4_nibble_dequant_fp16_gemm"
+                if fused else "fake_quant_fp16_gemm"
             ),
             "integer_gemm": False,
-            "packed_low_bit_residency": fused,
+            "packed_low_bit_residency": packed_residency,
+            "packed_weight_bytes": int(residency.get("packed_weight_bytes", 0)),
+            "dequant_scale_bytes": int(residency.get("dequant_scale_bytes", 0)),
+            "input_gain_bytes": int(residency.get("input_gain_bytes", 0)),
+            "activation_scale_bytes": int(
+                residency.get("activation_scale_bytes", 0)
+            ),
+            "bias_bytes": int(residency.get("bias_bytes", 0)),
+            "auxiliary_static_bytes": int(
+                residency.get("auxiliary_static_bytes", 0)
+            ),
+            "fp_weight_sized_buffers": int(
+                residency.get("fp_weight_sized_buffers", len(quant_layers))
+            ),
             "weight_bits": next(iter(weight_bits)),
             "activation_bits": int(uniform_value(quant_layers, "act_bits")),
             "block_in": int(uniform_value(quant_layers, "block_size")),
             "block_out": int(uniform_value(quant_layers, "block_out_size")),
             "lambda_smooth": float(uniform_value(quant_layers, "lambda_smooth")),
             "activation_percentile": float(uniform_value(quant_layers, "act_percentile")),
-            "calibration_policy": "offline_static_per_channel_percentile",
+            "calibration_policy": (
+                "online_dynamic_per_forward_per_channel_amax"
+                if bool(uniform_value(quant_layers, "act_dynamic"))
+                else (
+                    "offline_static_prefix_single_dit_per_flow_step"
+                    if hessian_runtime.get("hessian_w4_loaded")
+                    else "offline_static_per_channel_percentile"
+                )
+            ),
             "calibration_batches": int(uniform_value(quant_layers, "calib_batches")),
             "calibration_batch_size": 8,
             "calibration_samples": int(uniform_value(quant_layers, "calib_batches")) * 8,
             "permutation": bool(uniform_value(quant_layers, "enable_permute")),
             "row_rotation": str(uniform_value(quant_layers, "row_rot_mode")),
-            "static_activation_scales": not bool(uniform_value(quant_layers, "act_dynamic")),
+            "static_activation_scales": not bool(uniform_value(quant_layers, "act_dynamic"))
+            and int(uniform_value(quant_layers, "act_bits")) > 0,
             "activation_scales_ready": bool(static_scales_ready(policy.model)),
             "denoising_steps": int(policy.denoising_steps),
             "n_action_steps": 16,
@@ -453,7 +571,11 @@ def _runtime_info(policy) -> dict:
             "correction_application": (
                 "request_context_runtime"
                 if selector_metadata.get("enabled") is True
-                else "static_configuration"
+                else (
+                    "fold_affine_into_dequant_scale_and_bias"
+                    if hessian_runtime.get("errorfold_path")
+                    else "static_configuration"
+                )
             ),
             "atm_application": atm_runtime.get("atm_application", "runtime_query"),
             "ohb_application": atm_runtime.get("ohb_application", "runtime_output"),
@@ -478,6 +600,11 @@ def _runtime_info(policy) -> dict:
         "omega_calibration": getattr(policy.model, "_omega_qvla_calibration", None),
         "act_scale_path": act_scale_path,
         "act_scale_sha256": sha256_path(act_scale_path),
+        "hessian_w4_path": hessian_runtime.get("hessian_w4_path"),
+        "hessian_w4_sha256": hessian_runtime.get("hessian_w4_sha256"),
+        "hessian_group_size": hessian_runtime.get("hessian_group_size"),
+        "errorfold_path": hessian_runtime.get("errorfold_path"),
+        "errorfold_sha256": sha256_path(hessian_runtime.get("errorfold_path")),
         "atm_enabled": atm_runtime.get("atm_enabled", False),
         "ohb_enabled": atm_runtime.get("ohb_enabled", False),
         "atm_path": atm_runtime.get("artifact_path") or os.environ.get("GR00T_ATM_ALPHA_PATH"),
@@ -490,7 +617,36 @@ def _runtime_info(policy) -> dict:
         "quantization_contract": quantization_contract,
         "quantization_contract_sha256": contract_sha256,
         "runtime_selector": selector_metadata,
+        "cross_model_protocol": protocol_attestation(),
+        "model_adapter": adapter_attestation(
+            "gr00t",
+            native_action_horizon=int(policy.model.action_head.config.action_horizon),
+        ),
+        "protocol": closed_loop_runtime_protocol(),
     }
+    if quant_layers and bool(uniform_value(quant_layers, "act_dynamic")):
+        validate_dynamic_a8_runtime(
+            quantization_contract, source="GR00T quantization contract"
+        )
+        payload["dynamic_a8_protocol"] = dynamic_a8_protocol_attestation()
+    if torch.cuda.is_available():
+        device = next(policy.model.parameters()).device
+        payload["gpu_memory_bytes"] = {
+            "allocated": int(torch.cuda.memory_allocated(device)),
+            "reserved": int(torch.cuda.memory_reserved(device)),
+            "peak_allocated": int(torch.cuda.max_memory_allocated(device)),
+            "peak_reserved": int(torch.cuda.max_memory_reserved(device)),
+        }
+    if quant_layers and os.environ.get("QUANTVLA_ADAPTER_ONLY", "0") not in (
+        "0", "false", "False", ""
+    ):
+        if not plan_path:
+            raise RuntimeError("adapter-only quantized runtime requires a plan")
+        payload["quantization_selection"] = validate_quant_plan(
+            json.loads(Path(plan_path).read_text(encoding="utf-8")),
+            model="gr00t",
+            source=str(Path(plan_path).resolve()),
+        )
     encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     payload["metadata_sha256"] = hashlib.sha256(encoded).hexdigest()
     return payload
@@ -530,6 +686,16 @@ def main(args: ArgsConfig):
         _maybe_close_a8_calibration(
             policy, data_config=args.data_config, model_path=args.model_path
         )
+        if os.environ.get("QUANTVLA_ADAPTER_ONLY", "0") not in (
+            "0", "false", "False", ""
+        ) and os.environ.get("GR00T_DUQUANT_PLAN"):
+            from gr00t.quantization import finalize_real_quant
+
+            residency = finalize_real_quant(policy.model)
+            setattr(policy.model, "_quantvla_real_quant_residency", residency)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            print(f"[inference] real-quant finalized: {residency}", flush=True)
         _maybe_close_omega_qvla_calibration(policy)
 
         from gr00t.atm import configure_runtime_selector_from_env

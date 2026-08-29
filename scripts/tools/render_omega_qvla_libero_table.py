@@ -12,7 +12,7 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PAPER_DIR = REPO_ROOT / "docs/gdsq_vla_cvpr2026"
+PAPER_DIR = REPO_ROOT / "docs/gdsq_vla_iclr2027"
 REGISTRY = PAPER_DIR / "experiment_registry.json"
 SOURCE = REPO_ROOT / "runs/gdsq_extension_preregistered_v1/omega_qvla_table1/source_record.json"
 OUTPUT = PAPER_DIR / "tables/omega_qvla_libero.tex"
@@ -92,7 +92,7 @@ def build() -> tuple[str, dict[str, Any]]:
     registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
     local, local_audit = local_results(registry)
     lines = [
-        r"\begin{table*}[t]",
+        r"\begin{table}[t]",
         r"\centering",
         r"\caption{LIBERO local comparison under the $\Omega$-QVLA Table~1 protocol (success rate, \%).}",
         r"\label{tab:omega_qvla_libero}",
@@ -136,7 +136,7 @@ def build() -> tuple[str, dict[str, Any]]:
         r"\end{tabular}",
         r"\vspace{2pt}",
         r"\parbox{0.99\textwidth}{\footnotesize Four official suites, ten tasks per suite, and ten held-out trials per task. All cells remain pending until the joint five-configuration manifest reaches exactly 4,000 valid local episodes; no author-reported values are imported. The official $\Omega$-QVLA W4A4 packs are pinned. QuantVLA, Uniform W6, and GDSQ-VLA are independently calibrated on LIBERO; the GDSQ selector is model-specific, with no RoboCasa artifact reuse or test-set retuning.}",
-        r"\end{table*}",
+        r"\end{table}",
         "",
     ])
     audit = {

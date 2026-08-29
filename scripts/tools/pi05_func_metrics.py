@@ -1,135 +1,54 @@
 #!/usr/bin/env python3
-"""GR00T-final functional metric with the minimal pi0.5 action adapter.
+"""Historical import tombstone for the removed π0.5-only metric path.
 
-The metric itself is not reimplemented here.  The authoritative
-``gr00t_func_metrics.d_func`` function is called directly after adapting the
-pi0.5 trajectory to the action chunk that is actually deployed by the frozen
-RoboCasa protocol:
-
-* first 16 of pi0.5's 50 predicted actions (execute-16),
-* first 12 action dimensions (the environment action, excluding 20 padding
-  dimensions), and
-* the embodiment-specific gripper slice ``6:7``.
-
-The 12-D vector is deliberately retained for GR00T's final-action and tail
-terms, so mobile-base/torso and control-mode deviations are not discarded.
-They do not receive new hand-written kinematic or discrete penalties: the
-only embodiment adaptation inside the GR00T formula is that pi0.5 has one
-gripper dimension rather than GR00T's default two.  In particular, there is
-no chunk-50 auxiliary loss and no ``16/50`` multiplier.
+New calibration, sensitivity, mask selection, and formal evaluation code must
+call :func:`quantvla_metric_protocol.summarize_pair` on inverse-normalized
+physical actions.  Keeping this tiny module makes old artifact readers able to
+resolve formula constants while failing closed if they attempt the obsolete
+native-trajectory metric calls.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import NoReturn
 
-import torch
+from quantvla_metric_protocol import (
+    ACTION_HORIZON as EXECUTED_ACTIONS,
+    FUNCTIONAL_FORMULA_ID,
+    PAC_FORMULA_ID,
+    summarize_pair,
+)
 
-from gr00t_func_metrics import d_func as gr00t_final_d_func
 
-
-ACTION_DIM = 12
 ACTION_HORIZON = 50
-EXECUTED_ACTIONS = 16
 FLOW_STEPS = 4
-GR00T_LAYOUT = {"trans": (0, 3), "rot": (3, 6), "grip": (6, 7)}
-GR00T_WEIGHTS = {"final": 1.0, "kin": 1.0, "grip": 1.0, "tail": 2.0}
-FUNCTIONAL_FORMULA_ID = "gr00t_final_v1_4_execute16_deployed12_grip6to7"
+HISTORICAL_ONLY = True
 
 
-def adapt_trajectory(trajectory: torch.Tensor) -> torch.Tensor:
-    """Map a pi0.5 flow trajectory to GR00T-final action-chunk semantics."""
-    if trajectory.ndim != 4:
-        raise ValueError(
-            f"trajectory must be (T+1,B,H,D), got {tuple(trajectory.shape)}"
-        )
-    if trajectory.shape[0] != FLOW_STEPS + 1:
-        raise ValueError(
-            f"formal pi0.5 metric requires {FLOW_STEPS} flow steps, "
-            f"got trajectory length {trajectory.shape[0] - 1}"
-        )
-    if trajectory.shape[-2] != ACTION_HORIZON:
-        raise ValueError(
-            f"formal pi0.5 metric requires action horizon {ACTION_HORIZON}, "
-            f"got {trajectory.shape[-2]}"
-        )
-    if trajectory.shape[-1] < ACTION_DIM:
-        raise ValueError(
-            f"trajectory action dimension {trajectory.shape[-1]} is smaller "
-            f"than deployed dimension {ACTION_DIM}"
-        )
-    return trajectory[..., :EXECUTED_ACTIONS, :ACTION_DIM].float()
-
-
-def d_func(
-    reference: torch.Tensor,
-    candidate: torch.Tensor,
-    gamma: float = 1.2,
-) -> dict[str, Any]:
-    """Apply the authoritative GR00T-final metric after layout adaptation."""
-    adapted_reference = adapt_trajectory(reference)
-    adapted_candidate = adapt_trajectory(candidate)
-    if adapted_reference.shape != adapted_candidate.shape:
-        raise ValueError(
-            "paired trajectory shape mismatch after adaptation: "
-            f"{tuple(adapted_reference.shape)} != {tuple(adapted_candidate.shape)}"
-        )
-    result = gr00t_final_d_func(
-        adapted_reference,
-        adapted_candidate,
-        gamma=gamma,
-        layout=GR00T_LAYOUT,
-        weights=GR00T_WEIGHTS,
+def _removed() -> NoReturn:
+    raise RuntimeError(
+        "pi05_func_metrics was removed: inverse-normalize final actions in the "
+        "pi0.5 adapter and call quantvla_metric_protocol.summarize_pair"
     )
-    # Provenance only; no pi0.5-specific term is added to the scalar metric.
-    result["adapter"] = {
-        "formula_id": FUNCTIONAL_FORMULA_ID,
-        "source_horizon": ACTION_HORIZON,
-        "executed_actions": EXECUTED_ACTIONS,
-        "deployed_action_dim": ACTION_DIM,
-        "layout": dict(GR00T_LAYOUT),
-        "excluded_horizon": [EXECUTED_ACTIONS, ACTION_HORIZON],
-        "excluded_padding_dims": [ACTION_DIM, int(reference.shape[-1])],
-    }
-    return result
+
+
+def d_func(*_args, **_kwargs) -> NoReturn:
+    _removed()
+
+
+def d_pac_sequence(*_args, **_kwargs) -> NoReturn:
+    _removed()
 
 
 def selftest() -> None:
-    generator = torch.Generator().manual_seed(0)
-    reference = torch.randn(5, 8, 50, 32, generator=generator)
-
-    same = d_func(reference, reference)
-    assert same["d_func"] == 0.0 and same["d_solver"] == 0.0
-
-    candidate = reference.clone()
-    candidate[..., :EXECUTED_ACTIONS, :ACTION_DIM] *= 2.0
-    direct = gr00t_final_d_func(
-        adapt_trajectory(reference),
-        adapt_trajectory(candidate),
-        gamma=1.2,
-        layout=GR00T_LAYOUT,
-        weights=GR00T_WEIGHTS,
-    )
-    adapted = d_func(reference, candidate)
-    for key in ("d_func", "d_final", "d_kin", "d_grip", "d_solver"):
-        assert adapted[key] == direct[key], (key, adapted[key], direct[key])
-
-    nonexecuted = reference.clone()
-    nonexecuted[..., EXECUTED_ACTIONS:, :ACTION_DIM] *= 100.0
-    assert d_func(reference, nonexecuted)["d_func"] == 0.0
-
-    padding = reference.clone()
-    padding[..., ACTION_DIM:] *= 100.0
-    assert d_func(reference, padding)["d_func"] == 0.0
-
-    base_only = reference.clone()
-    base_only[-1, ..., :EXECUTED_ACTIONS, 7:11] *= 2.0
-    base_result = d_func(reference, base_only)
-    assert base_result["d_final"] > 0.0
-    assert base_result["d_kin"] == 0.0
-    assert base_result["d_grip"] == 0.0
-
-    print("[pi05_func_metrics] selftest OK (exact GR00T authority + layout adapter)")
+    assert summarize_pair is not None
+    try:
+        d_func(None, None)
+    except RuntimeError as error:
+        assert "summarize_pair" in str(error)
+    else:
+        raise AssertionError("obsolete π0.5 metric path did not fail closed")
+    print("[pi05_func_metrics] historical path removed; shared summarize_pair required")
 
 
 if __name__ == "__main__":

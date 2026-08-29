@@ -1,0 +1,20 @@
+{
+  "created_utc": "2026-08-28T18:28:25.105575+00:00",
+  "endpoint": {
+    "host": "di2lab.zeabur.app",
+    "path": "/v1/images/generations",
+    "scheme": "https"
+  },
+  "http_status": 200,
+  "kind": "gdsq_vla_architecture_candidate",
+  "model": "gpt-image-2",
+  "output": "docs/gdsq_vla_iclr2027/figures/d_pac_softfold/05_dpac_softfold_closeup.png",
+  "output_bytes": 1455855,
+  "output_sha256": "54e77020d601a67d23dde7d591f221cf6d46fee1e2c38e74e71cbed020acfcf0",
+  "prompt": "docs/gdsq_vla_iclr2027/figures/d_pac_softfold/prompts/05_dpac_softfold_closeup.txt",
+  "prompt_sha256": "560c7433405fb4a829955d45daf0c345516d16918ebf597d52be19d1866766ce",
+  "quality": "high",
+  "requested_size": "2048x1152",
+  "response_field": "data[0].b64_json",
+  "schema_version": 1
+}

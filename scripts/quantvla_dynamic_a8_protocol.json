@@ -1,0 +1,65 @@
+{
+  "schema_version": 5,
+  "method_id": "quantvla-dpac-errorfold-dyrange-v5",
+  "method_revision": "selector_free_dynamic_range_a8",
+  "base_cross_model_protocol": {
+    "protocol_id": "quantvla-gr00t-pi05-errorfold-v4",
+    "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+    "inheritance": "all fields except activation scale policy remain byte-for-byte frozen"
+  },
+  "models": [
+    "gr00t",
+    "pi05"
+  ],
+  "only_allowed_model_difference": "model_adapter",
+  "teacher": "original_native_fp16_checkpoint",
+  "activation_quantization": {
+    "name": "DyRange-A8",
+    "bits": 8,
+    "signed_qmax": 127,
+    "scale_scope": "each_target_linear_each_forward_call_each_input_channel",
+    "reduction_axes": "all_input_axes_except_last_channel",
+    "statistic": "amax_abs",
+    "formula": "scale_c=max(max_abs(x[...,c])/127,1e-6)",
+    "rounding": "nearest_then_clip_signed_int8",
+    "scale_dtype": "input_dtype",
+    "calibration_table": false,
+    "calibration_buffer_consumed": false,
+    "flow_step_selector": false,
+    "task_selector": false,
+    "candidate_branch": false,
+    "deterministic": true,
+    "shared_formula_across_models": true
+  },
+  "weight_quantization": {
+    "inherit": "base_cross_model_protocol.hessian_w4a8 weight fields",
+    "format": "signed_nibble_group64",
+    "residency": "real_quant_inference_only",
+    "fp_weight_sized_buffers": 0
+  },
+  "errorfold": {
+    "inherit": "base_cross_model_protocol.errorfold and softfold",
+    "runtime_selector": false,
+    "identity_correction_is_valid": true,
+    "fit_must_match_activation_policy": "DyRange-A8"
+  },
+  "compression_control": {
+    "parameter_cli": [
+      "--target-compression",
+      "--target-model-compression"
+    ],
+    "candidate_scope_formula": "fp16_candidate_weight_bytes/deployed_candidate_weight_bytes",
+    "model_scope_formula": "(fixed_model_bytes+fp16_candidate_bytes)/(fixed_model_bytes+deployed_candidate_bytes)",
+    "selection_signal": "single_layer_D_PAC_v2_OutputImpact_measured_with_DyRange-A8",
+    "static_plan": true,
+    "runtime_selector": false
+  },
+  "selection_and_evaluation": {
+    "teacher_data_metrics_softfold_statistics_closed_loop": "inherit_unchanged_from_base_cross_model_protocol",
+    "selection_noise": "A",
+    "heldout_noise": "B_audit_only",
+    "success_labels_used_for_selection": false,
+    "gradients": false,
+    "extra_training_data": false
+  }
+}

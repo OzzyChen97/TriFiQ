@@ -1,0 +1,185 @@
+{
+  "openpi_runtime": {
+    "atm_ohb": {
+      "enabled": false,
+      "matched_layers": 0
+    },
+    "checkpoint_dir": "/home1/gyy/vla/QuantVLA/checkpoints/robocasa/pi05_pretrain_human300_pytorch",
+    "checkpoint_sha256": "4174133479c6a51d79cac90d6a1739f32f928624eb529bf791cd5be942afdf1c",
+    "config_id": "full_context_w4a8_dynamic_profile",
+    "cross_model_protocol": {
+      "only_allowed_model_difference": "model_adapter",
+      "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_cross_model_protocol.json",
+      "protocol_file_sha256": "7bf9c89d2925a506d5dcd32a5ae8066e93651e8c46b6b6becf30c27d3c1498a6",
+      "protocol_id": "quantvla-gr00t-pi05-errorfold-v4",
+      "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea"
+    },
+    "cross_model_quantization_contract": {
+      "activation_bits": 8,
+      "activation_percentile": 99.9,
+      "activation_quantizer": "signed_symmetric_per_input_channel",
+      "activation_scale_bytes": 0,
+      "activation_scales_ready": true,
+      "atm_application": "runtime_query",
+      "auxiliary_static_bytes": 66355200,
+      "bias_bytes": 0,
+      "block_in": 64,
+      "block_out": 64,
+      "calibration_batch_size": 8,
+      "calibration_batches": 32,
+      "calibration_policy": "online_dynamic_per_forward_per_channel_amax",
+      "calibration_samples": 256,
+      "correction_application": "static_configuration",
+      "denoising_steps": 10,
+      "dequant_scale_bytes": 66355200,
+      "execution_backend": "triton_w4_nibble_dequant_fp16_gemm",
+      "fp_weight_sized_buffers": 0,
+      "input_gain_bytes": 0,
+      "integer_gemm": false,
+      "lambda_smooth": 0.15,
+      "layer_selection_policy": "shared_static_compression_profile_over_model_adapter_bound_layers",
+      "logical_profile": "quantvla_adapter_only_w4a8",
+      "n_action_steps": 16,
+      "ohb_application": "runtime_output",
+      "packed_low_bit_residency": true,
+      "packed_weight_bytes": 1061683200,
+      "paired_noise": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+      "permutation": false,
+      "quantization_method": "real_quant_packed_w4_dequant_fp16_gemm",
+      "replan_steps": 16,
+      "row_rotation": "0",
+      "selector_loads_atm_and_ohb_superset": false,
+      "static_activation_scales": false,
+      "weight_bits": 4,
+      "weight_quantizer": "hessian_aware_gptq_feedback_signed_group64"
+    },
+    "cross_model_quantization_contract_sha256": "311ac454b966b39a6e37e2645ec16683b1714d951c6c3719cd8acd0530d4c1e5",
+    "duquant": {
+      "act_bits": 8,
+      "act_dynamic": true,
+      "act_percentile": 99.9,
+      "act_scale_path": null,
+      "act_scales_ready": true,
+      "activation_scale_bytes": 0,
+      "auxiliary_static_bytes": 66355200,
+      "bias_bytes": 0,
+      "block_in": 64,
+      "block_out": 64,
+      "calib_batches": 32,
+      "candidate_inventory_sha256": "3390bda52ad443a1b89776d9245ab2f9f9545890c631760638f2f4b55419cae4",
+      "candidate_layers": 180,
+      "denoising_steps": 10,
+      "dequant_scale_bytes": 66355200,
+      "enabled": true,
+      "errorfold_path": null,
+      "execution_backend": "triton_w4_nibble_dequant_fp16_gemm",
+      "fp_weight_sized_buffers": 0,
+      "hessian_group_size": 64,
+      "hessian_w4_loaded": 172,
+      "hessian_w4_path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/deployment/hessian_w4.npz",
+      "hessian_w4_sha256": "65259685f3f356dd83a9d3a41f58b5b1ed4c0d886ad10d9289c2459d42d592ab",
+      "input_gain_bytes": 0,
+      "integer_gemm": false,
+      "packed_low_bit_residency": true,
+      "packed_weight_bytes": 1061683200,
+      "plan_path": "/home1/gyy/vla/QuantVLA/runs/full_context_v1/pi05/round1/pi05_full_context_round1_frozen.json",
+      "plan_sha256": "87cd9266b01c5aef2c95aeee811d4976b01071c8065b027747df0cdfb6d8f8de",
+      "selector_free": true,
+      "weight_bits": 4,
+      "wrapped_layers": 172
+    },
+    "dynamic_a8_protocol": {
+      "base_protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+      "method_id": "quantvla-dpac-errorfold-dyrange-v5",
+      "only_allowed_model_difference": "model_adapter",
+      "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_dynamic_a8_protocol.json",
+      "protocol_file_sha256": "5a6df3838937fc345e3477edb8c6f71b0b614b825d33a6f03d18d84b06c9e30d",
+      "protocol_sha256": "a276b5ddf943b3cfed9fc27d074e6083424e7c22c0697155262005a53b424854"
+    },
+    "errorfold": {
+      "artifact_path": null,
+      "enabled": false,
+      "errorfold_application": "fold_affine_into_weight_dequant_scale_and_bias",
+      "selector_free": true
+    },
+    "full_context_protocol": {
+      "formal_statistics_sha256": "7dba6c94398c1c9702f6a5b38309a598c5226e022f9cb7622edb0bd6d806eb40",
+      "method_id": "full_context_fp16_protection_v1",
+      "metric_core_sha256": "deb69b98a63ebda8f08b13f710e76565c3c40831f4a8c756a07a0d882638d2be",
+      "protocol_file": "/home1/gyy/vla/QuantVLA/scripts/quantvla_full_context_protocol.json",
+      "protocol_file_sha256": "0da2356fca7883d64ff60c20425f9198d09c4b5b9345cb2bd44375ff713f2e00",
+      "protocol_sha256": "71319d8076317f4027649961e87973909e5863c68bd37c27fda5d60194254635",
+      "quick_statistics_sha256": "43bde08e09126bc931dc774510e032ab7de65776269922c58838a9cdaf490f61",
+      "selection_core_sha256": "8500a0f6f9eed9b21499edccda4c3c759a533a98559dbd4715e495c99a880541"
+    },
+    "gpu_memory_bytes": {
+      "allocated": 4127035392,
+      "peak_allocated": 12688691200,
+      "peak_reserved": 12738101248,
+      "reserved": 5683281920
+    },
+    "model_adapter": {
+      "allowed_fields": [
+        "checkpoint_and_native_model_loader",
+        "observation_preprocessing",
+        "native_action_horizon",
+        "native_final_chunk_inverse_normalization",
+        "native_physical_action_to_canonical_action",
+        "module_name_and_hook_location",
+        "quantized_module_binding",
+        "native_real_quant_kernel_binding"
+      ],
+      "boundary": "model_adapter",
+      "canonical_action_dimension": 12,
+      "canonical_action_horizon": 16,
+      "model": "pi05",
+      "native_action_horizon": 50
+    },
+    "model_dtype": {
+      "linear_layers_by_weight_dtype": {
+        "float16": 458
+      },
+      "matmul_allow_tf32": true,
+      "parameter_elements_by_dtype": {
+        "float16": 3616681744,
+        "float32": 75776
+      },
+      "requested": "float16",
+      "resolved": "float16"
+    },
+    "omega_qvla": {
+      "enabled": false,
+      "wrapped_layers": 0
+    },
+    "protocol": {
+      "action_horizon": 16,
+      "cross_model_protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+      "flow_steps": 10,
+      "fresh_environment_per_episode": true,
+      "n_action_steps": 16,
+      "official_task_horizon": true,
+      "paired_noise": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+      "render": true,
+      "replan_steps": 16,
+      "split": "target"
+    },
+    "pytorch_compile_mode": "max-autotune",
+    "pytorch_device": "cuda",
+    "quantization_selection": {
+      "achieved_compression": 3.237354085603113,
+      "budget_reference": "model_native_candidate_scope_static_weight_bytes",
+      "model": "pi05",
+      "profile": "target_compression",
+      "protocol_sha256": "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+      "quantized_w4_layers": 172,
+      "retained_fp16_target_layers": 8,
+      "rule": "shared_static_compression_profile_over_model_adapter_bound_layers",
+      "target_compression": 3.2323232332694722,
+      "target_compression_scope": "candidate",
+      "target_layers": 180
+    },
+    "runtime_selector": {
+      "enabled": false
+    }
+  }
+}

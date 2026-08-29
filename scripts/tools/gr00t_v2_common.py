@@ -164,7 +164,7 @@ def chunked(obs_list: List[Dict[str, Any]], noises: List[torch.Tensor], batch_si
 def strip_quant_env() -> Dict[str, str]:
     backup = {}
     for key in list(os.environ.keys()):
-        if key.startswith(("GR00T_DUQUANT_", "GR00T_ATM_", "GR00T_OHB_")):
+        if key.startswith(("GR00T_DUQUANT_", "GR00T_ATM_", "GR00T_OHB_")) or key == "GR00T_ERRORFOLD_PATH":
             backup[key] = os.environ.pop(key)
     return backup
 

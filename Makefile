@@ -50,6 +50,6 @@ test-openpi:
 		tools/test_pi05_formal_protocol.py
 
 test-paper:
-	$(MAKE) -C docs/gdsq_vla_cvpr2026 check
+	$(MAKE) -C docs/gdsq_vla_iclr2027 check
 
 test-gdsq: test-robocasa test-gr00t test-openpi test-paper

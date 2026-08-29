@@ -1,0 +1,20 @@
+{
+  "created_utc": "2026-08-23T13:46:09.270156+00:00",
+  "endpoint": {
+    "host": "di2lab.zeabur.app",
+    "path": "/v1/images/generations",
+    "scheme": "https"
+  },
+  "http_status": 200,
+  "kind": "gdsq_vla_architecture_candidate",
+  "model": "gpt-image-2",
+  "output": "docs/gdsq_vla_iclr2027/figures/candidates/gdsq-e-offline-runtime.png",
+  "output_bytes": 1092917,
+  "output_sha256": "d8455bacfbb1da0b0c2d9f67a31e235180e02f14894cacad82cfb1d974347a40",
+  "prompt": "docs/gdsq_vla_iclr2027/figures/prompts/variant-e-offline-runtime.txt",
+  "prompt_sha256": "59638fb66a8f04d0eca6ae3b7fdbed3a06ad9ce6855ddd6f00196097751015cf",
+  "quality": "high",
+  "requested_size": "2048x1152",
+  "response_field": "data[0].b64_json",
+  "schema_version": 1
+}

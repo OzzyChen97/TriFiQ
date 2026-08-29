@@ -19,10 +19,10 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_REGISTRY = REPO_ROOT / "docs/gdsq_vla_cvpr2026/experiment_registry.json"
+DEFAULT_REGISTRY = REPO_ROOT / "docs/gdsq_vla_iclr2027/experiment_registry.json"
 MAIN_PAPER_GLOBS = (
-    "docs/gdsq_vla_cvpr2026/sections/*.tex",
-    "docs/gdsq_vla_cvpr2026/tables/*.tex",
+    "docs/gdsq_vla_iclr2027/sections/*.tex",
+    "docs/gdsq_vla_iclr2027/tables/*.tex",
 )
 
 

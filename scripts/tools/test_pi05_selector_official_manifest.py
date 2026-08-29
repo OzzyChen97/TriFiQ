@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-REGISTRY = REPO_ROOT / "docs/gdsq_vla_cvpr2026/experiment_registry.json"
+REGISTRY = REPO_ROOT / "docs/gdsq_vla_iclr2027/experiment_registry.json"
 MANIFEST = (
     REPO_ROOT
     / "runs/gdsq_week1_preregistered_v1/pi05_selector_official50/manifest.json"

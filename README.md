@@ -2,7 +2,7 @@
 
 ### Geometry- and Distribution-Sensitive Layer Selection for Post-Training Quantization of Vision-Language-Action Models
 
-[Under review — CVPR 2026 anonymous submission] · [Apache-2.0](LICENSE)
+[Under review — ICLR 2027 anonymous submission] · [Apache-2.0](LICENSE)
 
 **GDSQ-VLA** is a training-free, mixed-precision post-training quantization (PTQ) framework for
 vision-language-action (VLA) policies. It decides *where* to quantize (which Linear layers become
@@ -10,7 +10,7 @@ W4A8 and which stay FP16) and *whether* a runtime correction is warranted — wi
 without task identity, and without rollout feedback. The pipeline is evaluated on **GR00T N1.5**
 and **π0.5** over the RoboCasa365 benchmark.
 
-![Pipeline](docs/gdsq_vla_cvpr2026/figures/gdsq_pipeline.png)
+![Pipeline](docs/gdsq_vla_iclr2027/figures/gdsq_pipeline.png)
 
 ## Abstract
 
@@ -95,7 +95,7 @@ code/pi05/openpi/        # vendored openpi source (local PATCHES marked in-tree)
 scripts/                 # launch/eval/ops scripts (servers, LIBERO/RoboCasa clients, plan tools)
 scripts/tools/           # sensitivity probe, W4/FP16 plan selector, ATM/OHB calibration,
                          #   Top-K D_solver adjudicator, metric audit, baselines
-docs/gdsq_vla_cvpr2026/  # paper source (LaTeX), figures, tables, experiment_registry.json,
+docs/gdsq_vla_iclr2027/  # paper source (LaTeX), figures, tables, experiment_registry.json,
                          #   claim--evidence audit (§: claim gate), reference_audit.md
 docs/paper/              # referenced papers
 docs/getting_started/    # setup notebooks and walkthroughs
@@ -105,7 +105,7 @@ tests/                   # unit tests + gating entrypoints
 ```
 
 Model checkpoints, calibration packs, datasets, rollout outputs and the vendored simulators are
-**not** committed (see `docs/gdsq_vla_cvpr2026/` and the notes below).
+**not** committed (see `docs/gdsq_vla_iclr2027/` and the notes below).
 
 ## Quick Start
 
@@ -155,8 +155,8 @@ CUDA_VISIBLE_DEVICES=5 python scripts/serve_pi05_quant_policy.py --env LIBERO --
 
 ## Reproducibility & Claim–Evidence Gate
 
-Formal numbers come from `docs/gdsq_vla_cvpr2026/experiment_registry.json` and the frozen summary
-artifacts; do not hand-edit `docs/gdsq_vla_cvpr2026/tables/main_results.tex` (it is
+Formal numbers come from `docs/gdsq_vla_iclr2027/experiment_registry.json` and the frozen summary
+artifacts; do not hand-edit `docs/gdsq_vla_iclr2027/tables/main_results.tex` (it is
 auto-generated). Every result row binds checkpoint, plan, calibration, selector, launcher,
 evaluator, environment, task list, and seed coverage by SHA-256.
 
@@ -165,7 +165,7 @@ make test-robocasa   # RoboCasa gating tests
 make test-gr00t      # GR00T gating tests
 make test-openpi     # openpi/π0.5 gating tests
 make test-paper      # regenerate PDF + claim--evidence hash, main-table source, reference,
-                     #   overfull-box, and 8-page-limit audits
+                     #   overfull-box, and ICLR 9-page-limit audits
 make test-gdsq       # full GDSQ gate
 ```
 
@@ -174,8 +174,8 @@ hash-audited experiments can enable paper claims.
 
 ## Paper
 
-- Paper source (LaTeX, figures, tables, audit registry): [`docs/gdsq_vla_cvpr2026/`](docs/gdsq_vla_cvpr2026/)
-- Status: **anonymous submission under review (CVPR 2026)**. Citation will be added upon acceptance.
+- Paper source (LaTeX, figures, tables, audit registry): [`docs/gdsq_vla_iclr2027/`](docs/gdsq_vla_iclr2027/)
+- Status: **anonymous submission under review (ICLR 2027)**. Citation will be added upon acceptance.
 
 ## Notes
 
@@ -184,7 +184,7 @@ hash-audited experiments can enable paper claims.
   (`data/`), rollout outputs (`runs/`, `code/pi05/rollouts/`), and the vendored simulators /
   third-party stacks (`code/robocasa/`, `code/LIBERO/`, `code/third_party/`,
   `code/pi05/openpi/third_party/`, `.venv`s). Pin the public upstream releases referenced in
-  `docs/gdsq_vla_cvpr2026/` and apply the PATCHED markers in-tree.
+  `docs/gdsq_vla_iclr2027/` and apply the PATCHED markers in-tree.
 - The method is data-free: all calibration uses synthetic observations and paired noise.
 - Runtime limitation: the current execution path is eager fake quantization; no latency or
   live-memory compression claim is made (see the paper's efficiency section).

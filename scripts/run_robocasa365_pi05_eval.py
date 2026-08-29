@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import random
+import sys
 import time
 
 import robocasa  # noqa: F401 -- must precede repository path additions
@@ -18,14 +19,29 @@ from robocasa.utils.dataset_registry_utils import get_task_horizon
 from robocasa.utils.env_utils import convert_action
 from robocasa.wrappers.gym_wrapper import RoboCasaGymEnv
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "tools"))
+
 import numpy as np
 from openpi_client import image_tools
 from openpi_client.paired_noise import PROTOCOL as ACTION_NOISE_PROTOCOL
 from openpi_client.paired_noise import paired_action_noise
+from quantvla_cross_model_protocol import (  # noqa: E402
+    closed_loop_row_protocol,
+    closed_loop_runtime_protocol,
+    require_protocol_attestation,
+)
+from quantvla_dynamic_a8_protocol import (  # noqa: E402
+    require_protocol_attestation as require_dynamic_a8_protocol_attestation,
+    validate_runtime as validate_dynamic_a8_runtime,
+)
+from quantvla_full_context import (  # noqa: E402
+    PROTOCOL as FULL_CONTEXT_PROTOCOL,
+    require_protocol_attestation as require_full_context_protocol_attestation,
+)
 from openpi_client.websocket_client_policy import WebsocketClientPolicy
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 FORMAL_SPLIT = "target"
 FORMAL_N_ACTION_STEPS = 16
 FORMAL_FLOW_STEPS = 4
@@ -75,6 +91,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trial-seeds", default="0-49")
     parser.add_argument("--split", default=FORMAL_SPLIT)
     parser.add_argument("--replan-steps", type=int, default=FORMAL_N_ACTION_STEPS)
+    parser.add_argument("--flow-steps", type=int, default=FORMAL_FLOW_STEPS)
     parser.add_argument(
         "--action-noise-mode",
         choices=("paired", "native"),
@@ -374,13 +391,14 @@ def run_trial(
             "replan_steps": replan_steps,
             "n_action_steps": replan_steps,
             "flow_steps": flow_steps,
-            "action_horizon": 50,
+            "native_action_horizon": 50,
             "paired_action_noise": action_noise_mode == "paired",
             "action_noise_protocol": (
                 ACTION_NOISE_PROTOCOL if action_noise_mode == "paired" else "policy-native-rng"
             ),
             "environment_seed_protocol": ENVIRONMENT_SEED_PROTOCOL,
             "fresh_environment": True,
+            **{**closed_loop_row_protocol(), "flow_steps": int(flow_steps)},
             "render_enabled": True,
             "termination": termination,
             "egl_device": egl_device,
@@ -414,6 +432,8 @@ def main() -> None:
             f"formal π0.5 evaluation requires --replan-steps {FORMAL_N_ACTION_STEPS}"
         )
     if args.action_noise_mode != "paired":
+        raise SystemExit("cross-model formal evaluation requires paired action noise")
+    if args.action_noise_mode != "paired":
         raise SystemExit("formal π0.5 evaluation requires GR00T-aligned paired action noise")
     seeds = parse_seed_spec(args.trial_seeds)
     registered = list(TASK_SET_REGISTRY[args.task_set])
@@ -436,25 +456,39 @@ def main() -> None:
     client = WebsocketClientPolicy(args.host, args.port)
     server_metadata = client.get_server_metadata()
     metadata_hash = canonical_hash(server_metadata)
-    server_protocol = ((server_metadata.get("openpi_runtime") or {}).get("protocol") or {})
-    expected_protocol = {
-        "action_horizon": 50,
-        "n_action_steps": FORMAL_N_ACTION_STEPS,
-        "replan_steps": FORMAL_N_ACTION_STEPS,
-        "flow_steps": FORMAL_FLOW_STEPS,
-        "split": FORMAL_SPLIT,
-        "fresh_environment_per_episode": True,
-        "official_task_horizon": True,
-        "render": True,
-        "paired_noise": ACTION_NOISE_PROTOCOL,
-    }
+    server_runtime = server_metadata.get("openpi_runtime") or {}
+    require_protocol_attestation(server_runtime, source="pi0.5 runtime")
+    server_quant_contract = server_runtime.get("cross_model_quantization_contract") or {}
+    if server_quant_contract.get("static_activation_scales") is False:
+        require_dynamic_a8_protocol_attestation(server_runtime, source="pi0.5 runtime")
+        validate_dynamic_a8_runtime(
+            server_quant_contract, source="pi0.5 runtime contract"
+        )
+    if (server_runtime.get("model_adapter") or {}).get("model") != "pi05":
+        raise SystemExit("pi0.5 server adapter attestation is missing")
+    server_protocol = server_runtime.get("protocol") or {}
+    expected_protocol = closed_loop_runtime_protocol()
+    expected_protocol["flow_steps"] = int(args.flow_steps)
     protocol_mismatches = {
         key: (server_protocol.get(key), value)
         for key, value in expected_protocol.items()
         if server_protocol.get(key) != value
     }
     if protocol_mismatches:
-        raise SystemExit(f"server is not GR00T N1.5 aligned: {protocol_mismatches}")
+        raise SystemExit(f"server cross-model protocol mismatch: {protocol_mismatches}")
+    if int(args.flow_steps) != FORMAL_FLOW_STEPS:
+        expected_steps = int(
+            FULL_CONTEXT_PROTOCOL["model_hyperparameters"]["pi05"][
+                "table1_flow_steps"
+            ]
+        )
+        if int(args.flow_steps) != expected_steps:
+            raise SystemExit(
+                f"unsupported pi0.5 full-context flow steps: {args.flow_steps}"
+            )
+        require_full_context_protocol_attestation(
+            server_runtime, source="pi0.5 full-context runtime"
+        )
     runtime_selector_metadata = ((server_metadata.get("openpi_runtime") or {}).get("runtime_selector") or {})
     if args.expect_runtime_selector and not runtime_selector_metadata.get("enabled"):
         raise SystemExit(f"server runtime selector is not enabled: {runtime_selector_metadata}")
@@ -493,7 +527,7 @@ def main() -> None:
                 max_steps_override=args.max_steps,
                 server_metadata_sha256=metadata_hash,
                 action_noise_mode=args.action_noise_mode,
-                flow_steps=FORMAL_FLOW_STEPS,
+                flow_steps=int(args.flow_steps),
                 expect_runtime_selector=args.expect_runtime_selector,
             )
             committed[key] = row

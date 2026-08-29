@@ -91,9 +91,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--selection",
-        choices=("early", "tail", "all"),
+        choices=("early", "tail", "all", "window"),
         default="early",
         help="Which on-policy replan states to persist from each trial.",
+    )
+    parser.add_argument(
+        "--window-start",
+        type=int,
+        default=0,
+        help="First replan index for --selection window (e.g. 0/4/8 for early/middle/late).",
     )
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--force", action="store_true")
@@ -139,6 +145,7 @@ def collect_trial(
     max_replans: int,
     selection: str,
     egl_device: int,
+    window_start: int = 0,
 ) -> tuple[list[dict], dict]:
     env = None
     rows: list[dict] = []
@@ -147,7 +154,7 @@ def collect_trial(
     terminated = False
     truncated = False
     try:
-        env, construct_s = construct_env(task, split, egl_device)
+        env, construct_s = construct_env(task, split, egl_device, seed)
         obs, _ = env.reset(seed=seed)
         horizon = get_task_horizon(task)
         candidates: list[dict] = []
@@ -186,6 +193,8 @@ def collect_trial(
             rows = candidates
         elif selection == "tail":
             rows = candidates[-replans_per_trial:]
+        elif selection == "window":
+            rows = candidates[window_start : window_start + replans_per_trial]
         else:
             rows = candidates[:replans_per_trial]
         return rows, {
@@ -226,9 +235,18 @@ def main() -> None:
         raise ValueError("replan counts must be positive")
     if args.replans_per_trial > max_replans and args.selection != "all":
         raise ValueError("--replans-per-trial cannot exceed --max-replans")
-    missing = [task for task in tasks if task not in TASK_SET_REGISTRY["atomic_seen"]]
+    if args.selection == "window" and args.window_start + args.replans_per_trial > max_replans:
+        raise ValueError("--window-start + --replans-per-trial cannot exceed --max-replans")
+    if args.selection != "window" and args.window_start != 0:
+        raise ValueError("--window-start only applies with --selection window")
+    registered = (
+        set(TASK_SET_REGISTRY["atomic_seen"])
+        | set(TASK_SET_REGISTRY["composite_seen"])
+        | set(TASK_SET_REGISTRY["composite_unseen"])
+    )
+    missing = [task for task in tasks if task not in registered]
     if missing:
-        raise ValueError(f"tasks are not in atomic_seen registry: {missing}")
+        raise ValueError(f"tasks are not in the RoboCasa365 target registry: {missing}")
     output = Path(args.out).expanduser().resolve()
     sidecar = Path(str(output) + ".json")
     if (output.exists() or sidecar.exists()) and not args.force:
@@ -254,6 +272,7 @@ def main() -> None:
                 max_replans=max_replans,
                 selection=args.selection,
                 egl_device=args.egl_device,
+                window_start=args.window_start,
             )
             rows.extend(trial_rows)
             trials.append(summary)
@@ -296,6 +315,7 @@ def main() -> None:
         "replans_per_trial": args.replans_per_trial,
         "max_replans": max_replans,
         "selection": args.selection,
+        "window_start": args.window_start if args.selection == "window" else None,
         "n_obs": len(rows),
         "stored_rows": len(stored_rows),
         "noise_protocol": NOISE_PROTOCOL,

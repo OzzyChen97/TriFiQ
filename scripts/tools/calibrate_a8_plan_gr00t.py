@@ -14,12 +14,17 @@ from gr00t_v2_common import (
     DEFAULT_INCLUDE,
     ensure_a8_calibrated,
     ensure_flash_attn_rpath,
-    fixed_calibration_buffer,
     load_policy,
     resolve_data_config,
     set_quant_env,
     strip_quant_env,
 )
+from quantvla_cross_model_protocol import (
+    protocol_artifact,
+    protocol_attestation,
+    validate_quant_plan,
+)
+from quantvla_model_adapters import gr00t_rollout_inputs, load_model_records
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,6 +41,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--calib-steps", type=int, default=32)
     p.add_argument("--calibration-seed", type=int, default=0)
+    p.add_argument(
+        "--buffer", default=str(protocol_artifact("calibration_buffer", verify=False))
+    )
     p.add_argument("--act-pct", type=float, default=99.9)
     p.add_argument("--group", type=int, default=64)
     p.add_argument("--ls", type=float, default=0.15)
@@ -52,6 +60,9 @@ def main() -> None:
     model_path = Path(args.model_path).resolve()
     out_path = Path(args.out).resolve()
     plan = json.loads(plan_path.read_text())
+    quant_selection = validate_quant_plan(
+        plan, model="gr00t", source=str(plan_path)
+    )
     expected_wrapped = sum(
         1 for value in (plan.get("layers") or {}).values() if not value.get("skip")
     )
@@ -77,11 +88,17 @@ def main() -> None:
     horizon = int(policy.model.action_head.config.action_horizon)
     action_dim = int(policy.model.action_head.config.action_dim)
     n_obs = args.calib_steps * args.batch_size
-    obs, noises, buffer_sha = fixed_calibration_buffer(
-        args.calibration_seed, n_obs, horizon, action_dim, fmt=args.obs_format
+    if args.obs_format != "robocasa365":
+        raise ValueError("adapter-only A8 calibration is restricted to RoboCasa365")
+    records, buffer_provenance = load_model_records(
+        args.buffer, n_obs, model="gr00t"
     )
+    obs, noises = gr00t_rollout_inputs(records)
+    buffer_sha = buffer_provenance["sha256"]
     meta = {
         "buffer_sha256": buffer_sha,
+        "source_buffer_sha256": buffer_sha,
+        "source_buffer_path": str(Path(args.buffer).expanduser().resolve()),
         "calibration_seed": args.calibration_seed,
         "data_config": args.data_config,
         "obs_format": args.obs_format,
@@ -91,6 +108,8 @@ def main() -> None:
         "plan_sha256": plan_sha,
         "checkpoint_path": str(model_path),
         "wrapped_layers": expected_wrapped,
+        "cross_model_protocol": protocol_attestation(),
+        "quantization_selection": quant_selection,
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
     ensure_a8_calibrated(

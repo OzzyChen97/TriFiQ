@@ -1,0 +1,367 @@
+{
+  "schema_version": 4,
+  "protocol_id": "quantvla-gr00t-pi05-errorfold-v4",
+  "method_revision": "coverage_complete_bounded_cross_validated_errorfold",
+  "models": [
+    "gr00t",
+    "pi05"
+  ],
+  "only_allowed_model_difference": {
+    "boundary": "model_adapter",
+    "fields": [
+      "checkpoint_and_native_model_loader",
+      "observation_preprocessing",
+      "native_action_horizon",
+      "native_final_chunk_inverse_normalization",
+      "native_physical_action_to_canonical_action",
+      "module_name_and_hook_location",
+      "quantized_module_binding",
+      "native_real_quant_kernel_binding"
+    ]
+  },
+  "teacher": {
+    "definition": "original_native_fp16_checkpoint",
+    "wrapped_zero_bit_is_teacher": false,
+    "quantization_enabled": false,
+    "correction_enabled": false,
+    "paired_observation_and_noise": true,
+    "checkpoint_identity": "model_adapter"
+  },
+  "data": {
+    "benchmark": "RoboCasa365",
+    "split": "target",
+    "selection_buffer": {
+      "path": "runs/pi05_gdsq_gr00t_aligned/diagnostics/fp16_onpolicy_probe/fp16_onpolicy_target_4tasks_s0-1_r4_n32.npz",
+      "sha256": "c221532ef7d79ef29ba2724f33f695ea1f946b7b963255b0dd760cef8a6e3be7",
+      "observations": 32,
+      "index_rule": "first_32",
+      "selection_noise": "A",
+      "primary_noise_index_rule": "same_row",
+      "heldout_audit_noise": "B",
+      "secondary_noise_index_rule": "row_plus_32",
+      "secondary_noise_usage": "frozen_candidate_offline_generalization_audit_only"
+    },
+    "calibration_buffer": {
+      "path": "runs/pi05_gdsq_gr00t_aligned/calibration/pi05_robocasa365_seed0_n256.npz",
+      "sha256": "c4de41b304d33b15240538a45006f1cf560fb050d0641610a9d38ede91d1999c",
+      "observations": 256
+    },
+    "observation_schema": [
+      "left_image_uint8",
+      "right_image_uint8",
+      "wrist_image_uint8",
+      "robocasa_state16_float32",
+      "prompt",
+      "task",
+      "environment_seed",
+      "environment_step",
+      "replan_index"
+    ],
+    "noise": {
+      "dtype": "float32",
+      "canonical_shape": [
+        50,
+        32
+      ],
+      "distribution": "torch_cpu_standard_normal",
+      "pairing": "same_archive_row_for_fp16_and_every_candidate",
+      "native_shape_conversion": "model_adapter_prefix_only"
+    }
+  },
+  "metrics": {
+    "canonical_action": {
+      "space": "physical_post_native_inverse_normalization",
+      "source": "final_action_chunk_only",
+      "solver_trajectory_role": "model_internal_diagnostic_only",
+      "horizon": 16,
+      "dimension": 12,
+      "layout": {
+        "translation": [
+          0,
+          3
+        ],
+        "rotation": [
+          3,
+          6
+        ],
+        "gripper": [
+          6,
+          7
+        ],
+        "other_deployed": [
+          7,
+          12
+        ]
+      }
+    },
+    "d_func": {
+      "formula_id": "d_func_v1_physical_execute16_deployed12",
+      "gamma": 1.2,
+      "weights": {
+        "final": 1.0,
+        "kin": 1.0,
+        "grip": 1.0,
+        "tail": 2.0
+      },
+      "tail_quantile": 0.9
+    },
+    "d_pac": {
+      "formula_id": "d_pac_v2_physical_execute16_deployed12",
+      "weights": {
+        "local": 1.0,
+        "prefix": 1.0,
+        "pose": 1.0,
+        "stitch": 1.0,
+        "grip": 1.0
+      },
+      "robust_penalty": "2*(sqrt(1+z^2)-1)",
+      "scale": {
+        "scope": "entire_fp16_selection_buffer_once",
+        "r": "max(1.4826*MAD,0.1*RMS)",
+        "s": "max(r,0.05*median(r),1e-4)",
+        "per_sequence_reestimation": false
+      },
+      "prefix_normalization": "cumulative_error_div_sqrt_n",
+      "pose": "SE3_composed_relative_pose_drift",
+      "gripper": "soft_state_and_event_timing",
+      "sequence_grouping": "task_seed_ordered_unique_replan",
+      "outer_cvar_alpha": 0.9,
+      "outer_cvar_weight": 1.0,
+      "component_weighting": "five_equal_normalized_components",
+      "model_specific_auxiliary_terms": false,
+      "pi05_forecast_overlap": false
+    },
+    "representation": {
+      "cka": "centered_biased_linear_cka",
+      "cs": "reference_bandwidth_gaussian_kde_cauchy_schwarz_divergence",
+      "pooling": "position_stratified_front_back_equal_caps_reference_shared_padding_mask",
+      "bandwidth": "fp16_median_pairwise_distance_floor_1e-3",
+      "max_tokens": 256,
+      "cka_location": "action_generator_final_hidden_pre_output_projection",
+      "cs_location": "intervened_target_linear_output",
+      "role": "fp16_relative_diagnostic_and_correction_analysis_only_not_model_specific_layer_retention"
+    }
+  },
+  "quantization_selection": {
+    "rule": "shared_static_compression_profile_over_model_adapter_bound_layers",
+    "default_profile": "all_target_layers_uniform_w4",
+    "adjustable_profile": "binary_native_fp16_or_group64_w4_under_target_candidate_compression",
+    "compression_parameter": "target_compression_equals_candidate_fp16_bytes_divided_by_plan_bytes",
+    "budget_reference": "model_native_candidate_scope_static_weight_bytes",
+    "uses_cka": false,
+    "uses_cs": false,
+    "retained_fp16_target_layers": "zero_in_default_profile_optional_in_adjustable_profile",
+    "architecture_specific_layer_names_and_counts": "model_adapter",
+    "complete_plan_required": true
+  },
+  "hessian_w4a8": {
+    "weight_format": "signed_nibble_group64",
+    "target_layers": "all_model_adapter_bound_linear_layers",
+    "calibration_observations": 256,
+    "input_second_order_statistics": "fp16_XtX",
+    "clipping_ratios": [
+      0.85,
+      0.9,
+      0.95,
+      0.975,
+      1.0
+    ],
+    "weight_quantizer": "GPTQ_style_sequential_error_feedback_per_group",
+    "selection_metric": "fp16_layer_output_reconstruction",
+    "tie_break": "less_clipping_then_closer_to_identity",
+    "gradient_updates": false,
+    "fp16_weight_updates": false,
+    "capture_sampling": {
+      "strategy": "deterministic_stratified_rows_per_observation",
+      "rows_per_observation_per_call": 1,
+      "rank2_rows_per_call": 8,
+      "minimum_prefix_rows_per_layer": 256,
+      "minimum_rows_per_flow_step_per_layer": 256
+    },
+    "activation": {
+      "bits": 8,
+      "prefix_llm_tables": 1,
+      "dit_flow_step_tables": 4,
+      "step_schedule": "deterministic_fixed_flow_step_index"
+    }
+  },
+  "errorfold": {
+    "fit_buffer": "shared_calibration_buffer",
+    "fit_pair": "original_fp16_vs_complete_quantized_network",
+    "linear_affine": "per_output_channel_ridge_yF_approximately_a_times_yQ_plus_b",
+    "attention_logits": "same_ridge_affine_ATM",
+    "attention_head_output": "direction_aware_per_output_affine",
+    "folds": 8,
+    "reliability": "coefficient_jackknife_times_positive_correlation_times_cross_validated_improvement",
+    "coefficient_reliability": "theta^2/(theta^2+SE(theta)^2+epsilon)",
+    "ridge": 0.01,
+    "epsilon": 1e-12,
+    "minimum_channel_correlation": 0.25,
+    "minimum_cv_relative_mse_improvement": 0.01,
+    "full_cv_relative_mse_improvement": 0.1,
+    "maximum_gain_ratio": 1.25,
+    "maximum_bias_teacher_std": 0.25,
+    "gain_parameterization": "positive_log_gain_clipped_then_reliability_shrunk",
+    "bias_parameterization": "teacher_std_clipped_then_reliability_shrunk",
+    "runtime_selector": false,
+    "task_mapping": false,
+    "runtime_candidate_branch": false,
+    "fold_targets": [
+      "weight",
+      "dequant_scale",
+      "bias"
+    ]
+  },
+  "softfold": {
+    "grid": {
+      "gate_atm": [
+        0.0,
+        0.125,
+        0.25,
+        0.375,
+        0.5,
+        0.625,
+        0.75,
+        0.875,
+        1.0
+      ],
+      "gate_errorfold": [
+        0.0,
+        0.125,
+        0.25,
+        0.375,
+        0.5,
+        0.625,
+        0.75,
+        0.875,
+        1.0
+      ]
+    },
+    "interpolation": "identity_centered_bounded_affine_times_global_gate_and_cross_validated_reliability",
+    "selection_rule": "paired_one_standard_error_then_minimum_correction_norm_gate_sum_interaction",
+    "selection_objective_d_pac": "sequence_mean_plus_cvar_0.9",
+    "standard_error": "sample_standard_error_of_per_sequence_mean_plus_cvar_contribution_candidate_minus_best_candidate",
+    "lambda_identity": 0.0,
+    "lambda_interaction": 0.0,
+    "uses_task_labels": false,
+    "uses_rollout_success": false,
+    "complete_grid_required": true
+  },
+  "deployment": {
+    "weight_bits": 4,
+    "activation_bits": 8,
+    "block_in": 64,
+    "block_out": 64,
+    "lambda_smooth": 0.15,
+    "activation_percentile": 99.9,
+    "calibration_batches": 32,
+    "calibration_batch_size": 8,
+    "permutation": false,
+    "row_rotation": "identity_for_hessian_w4",
+    "static_activation_scales": true,
+    "prefix_llm_activation_scale_tables": 1,
+    "dit_activation_scale_tables": 4,
+    "selector_free": true,
+    "runtime_branch": false,
+    "atm_application": "fold_q_weight",
+    "errorfold_application": "fold_affine_into_weight_dequant_scale_and_bias",
+    "correction_application": "static_reliability_shrunk_configuration",
+    "quantized_module_residency": "real_quant_inference_only",
+    "quantized_wrappers_retain_fp_weight": false,
+    "unselected_fp16_modules": "only_modules_outside_the_model_adapter_quantization_target_set"
+  },
+  "closed_loop": {
+    "split": "target",
+    "tasks": {
+      "atomic_seen": [
+        "CloseBlenderLid",
+        "CloseFridge",
+        "CloseToasterOvenDoor",
+        "NavigateKitchen",
+        "OpenDrawer"
+      ],
+      "composite_seen": [
+        "DeliverStraw",
+        "KettleBoiling",
+        "LoadDishwasher",
+        "PrepareCoffee",
+        "WashLettuce"
+      ],
+      "composite_unseen": [
+        "ArrangeBreadBasket",
+        "MakeIceLemonade",
+        "WaffleReheat",
+        "WashFruitColander",
+        "WeighIngredients"
+      ]
+    },
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19
+    ],
+    "canonical_action_horizon": 16,
+    "n_action_steps": 16,
+    "replan_steps": 16,
+    "flow_steps": 4,
+    "paired_action_noise": true,
+    "action_noise_protocol": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+    "environment_seed_protocol": "python-random/numpy-global/robocasa-constructor-and-reset-v1",
+    "fresh_environment_per_episode": true,
+    "official_task_horizon": true,
+    "render": true,
+    "termination": "success_or_terminated_or_truncated_or_official_horizon"
+  },
+  "evaluation_matrix": {
+    "configs": [
+      {
+        "id": "fp16",
+        "method": "original_native_fp16"
+      },
+      {
+        "id": "quantvla_w4a8_paper",
+        "method": "paper_faithful_quantvla_w4a8"
+      },
+      {
+        "id": "errorfold_dfunc",
+        "method": "hessian_w4a8_errorfold",
+        "selection_metric": "d_func_v1_physical_execute16_deployed12"
+      },
+      {
+        "id": "errorfold_dpac_v2",
+        "method": "hessian_w4a8_errorfold",
+        "selection_metric": "d_pac_v2_physical_execute16_deployed12"
+      }
+    ],
+    "episodes_per_model_per_config": 300,
+    "closed_loop_success_used_for_selection": false,
+    "old_v1_results": "noncompliant_historical_diagnostic_only"
+  },
+  "statistics": {
+    "unit": "paired_task_seed_episode",
+    "primary_rate": "micro_success_rate_over_300_episodes",
+    "task_summary": "per_task_success_rate_and_unweighted_task_macro_mean",
+    "paired_test": "exact_two_sided_mcnemar",
+    "preregistered_multiple_comparisons": "Holm",
+    "offline_selection_generalization": "noise_B_reported_after_noise_A_selection_is_frozen",
+    "missing_episode_policy": "hard_error",
+    "duplicate_episode_policy": "hard_error"
+  }
+}
