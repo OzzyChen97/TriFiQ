@@ -1,6 +1,16 @@
 {
   "gr00t": {
     "compression": 2.223893051771117,
+    "core_mechanism_evidence": {
+      "beneficial_one_layer_flips": 0,
+      "dynamic_a8_objective": 0.5178887111755559,
+      "eligible_structured_alternatives": 0,
+      "one_layer_flips_tested": 116,
+      "static_a8_objective": 467.5204744598872,
+      "structured_alternatives_tested": 5,
+      "structured_objective_max": 6.865465599405064,
+      "structured_objective_min": 3.971455774253541
+    },
     "episodes": 2500,
     "fp16_layers": 16,
     "ours_successes": 1350,
@@ -22,23 +32,23 @@
       "delta": -0.01079999999999992,
       "holm_p": 0.29286269346886834,
       "losses": 319,
-      "status": "statistically_tied",
+      "status": "difference_not_significant_no_equivalence_claim",
       "wins": 292
     },
-    "versus_gdsq": {
+    "versus_quantvla": {
       "bootstrap": {
-        "ci95_high": 0.06040000000000001,
-        "ci95_low": 0.0048,
+        "ci95_high": 0.27999999999999997,
+        "ci95_low": 0.19119999999999998,
         "draws": 10000,
-        "mean_delta": 0.0322598,
+        "mean_delta": 0.23528427999999998,
         "seed": 0
       },
-      "delta": 0.032400000000000095,
-      "holm_p": 0.003619369860097224,
-      "losses": 289,
-      "mcnemar_p": 0.001809684930048612,
+      "delta": 0.23560000000000003,
+      "holm_p": 1.8894854853781264e-98,
+      "losses": 132,
+      "mcnemar_p": 6.298284951260421e-99,
       "status": "formal_superiority",
-      "wins": 370
+      "wins": 721
     },
     "w4_layers": 100
   },
@@ -50,7 +60,7 @@
   },
   "pi05": {
     "candidate_successes": 29,
-    "claim_status": "not_superior_to_gdsq_main",
+    "claim_status": "quick_screen_does_not_support_success_superiority",
     "compression": 2.701569421338518,
     "episodes_per_configuration": 100,
     "fp16_layers": 59,
@@ -61,6 +71,10 @@
   },
   "schema_version": 1,
   "sources": {
+    "activation_attribution": {
+      "path": "runs/full_context_v2/p2/activation_attribution.json",
+      "sha256": "3c59f27bf648b575bf87864ba9ed4a44590d077d8a57c298d841e6ff4bd879b9"
+    },
     "gr00t_aggregate": {
       "path": "runs/full_context_v2/table1/aggregate.json",
       "sha256": "cbb59547a6149456f9ae8fc0bac0fedea1267e5ff5f4d144448112f15b0f459e"

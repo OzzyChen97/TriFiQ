@@ -3,13 +3,13 @@
 
 \subsection{Frozen GR00T Decision Record}
 
-The GR00T search starts from the previous 100-W4/16-FP16 mask. All 116 valid one-layer flips have non-positive benefit under the cross-context score. The exact dynamic program therefore emits no beneficial half- or full-budget combination, and all five additional structured proposals plus the context baseline are evaluated as complete networks. Every alternative has a positive paired minimax objective or violates pose, stitch, or gripper safety. The frozen fallback is the unchanged context baseline. These facts support local optimality only within the declared counterfactual neighborhood.
+The GR00T search starts from an initialized 100-W4/16-FP16 mask. All 116 valid one-layer flips have non-positive benefit under the cross-context score. The exact dynamic program therefore emits no beneficial half- or full-budget combination, and five additional structured proposals are evaluated as complete networks alongside the context baseline. Every alternative has a positive paired minimax objective or violates pose, stitch, or gripper safety. The frozen fallback is the unchanged context baseline. These facts support local optimality only within the declared counterfactual neighborhood.
 
 The final plan uses signed-nibble group-64 weights, identity row rotation, per-forward dynamic A8, and no ATM, OHB, error-folding, calibration bypass, or runtime selector. Its SHA-256 is recorded in the artifact registry and checked before table generation.
 
 \subsection{Paired Statistical Detail}
 
-For ours versus GDSQ-VLA, 1,841 of 2,500 episodes are tied, 370 favor ours, and 289 favor GDSQ-VLA. Exact two-sided McNemar testing gives $p=0.0018097$; Holm adjustment over the registered comparisons gives $p=0.0036194$. The task-then-seed hierarchical bootstrap interval for the success-rate difference is $[0.0048,0.0604]$. Against FP16, the corresponding counts are 1,889 ties, 292 wins, and 319 losses, with $p=0.2929$ and interval $[-0.0388,0.0176]$.
+Against QuantVLA W4A8, 1,647 of 2,500 episodes are tied, 721 favor ours, and 132 favor QuantVLA. Exact two-sided McNemar testing gives $p=6.30\times10^{-99}$; Holm adjustment over the registered comparison family gives $p=1.89\times10^{-98}$. The task-then-seed hierarchical bootstrap interval for the success-rate difference is $[0.1912,0.2800]$. Against FP16, the corresponding counts are 1,889 ties, 292 wins, and 319 losses, with $p=0.2929$ and interval $[-0.0388,0.0176]$.
 
 \subsection{Storage Accounting}
 
@@ -19,4 +19,18 @@ These values are static packed estimates. Activations, CUDA workspaces, simulato
 
 \subsection{$\pi_{0.5}$ Claim Guard}
 
-The $\pi_{0.5}$ combined screen uses two ten-seed waves over five tasks, for 100 paired episodes per configuration. The previous 80-W4 plan succeeds in 33 episodes and the 121-W4 candidate in 29; there are seven candidate wins and eleven losses. Since this screen neither advances to the 2,500-episode matrix nor passes a superiority gate, it supports only the observed storage point. The artifact labels the status \texttt{not\_superior\_to\_gdsq\_main}.
+The $\pi_{0.5}$ combined screen uses two ten-seed waves over five tasks, for 100 paired episodes per configuration. The 80-W4 reference plan succeeds in 33 episodes and the 121-W4 candidate in 29; there are seven candidate wins and eleven losses. Since this screen neither advances to the 2,500-episode matrix nor passes a superiority gate, it supports only the observed storage point. The paper registry records the generic status \texttt{quick\_screen\_does\_not\_support\_success\_superiority}.
+
+\subsection{Extended Ablation Protocol}
+\label{sec:extended_ablations}
+
+\input{tables/extended_ablation_plan}
+
+Table~\ref{tab:extended_ablation_plan} contains planned lower-priority diagnostics that refine the mechanism but are not necessary to test the three central claims. Every selection ablation will be rerun from the same FP16 checkpoint and frozen context buffer. It keeps the exact-byte accounting rule, reports the resulting mask rather than forcing equal layer counts, and measures mask overlap, $\dpac$, $\dfunc$, pose, stitch, and gripper upper bounds. Only variants that pass the simulator preflight proceed to the paired 50-task rollout; failures and excluded episodes are reported without imputation. Budget-curve points use independent selection runs and are not treated as repeated measurements of the headline plan.
+
+\subsection{Protocol-Registered LIBERO Extension}
+\label{sec:libero_comparison}
+
+\input{tables/omega_qvla_libero}
+
+Table~\ref{tab:omega_qvla_libero} is moved to the appendix because the joint five-configuration, 4,000-episode local manifest has not passed the completion gate. Every cell is therefore marked pending, no author-reported number is imported, and the table supports no empirical claim in the current paper.

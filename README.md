@@ -24,21 +24,23 @@ not break; the manuscript identity and all active labels are **DyPAC-VLA**.
 3. **Dynamic-range deployment.** Uses signed-nibble group-64 Hessian W4 and **DyRange-A8**, which
    recomputes each input-channel scale on every forward call.
 
-For GR00T, FCP retains the previous 100-W4/16-FP16 mask as a strict local optimum in the tested
-one-layer-flip neighborhood. The 3.2-point improvement over the previous GDSQ-VLA result comes
-from running that validated mask on the common Hessian-W4 + DyRange-A8 runtime; it is not claimed
-as a newly discovered mask.
+For GR00T, FCP retains the initialized 100-W4/16-FP16 mask as a local optimum in the tested
+one-layer-flip neighborhood. The audit finds no positive-benefit single-layer flip and no eligible
+structured alternative; this is not claimed as a newly discovered mask or a global optimum.
 
 ## Frozen Results
 
 | Model / role | W4 / FP16 | Success | Static bytes | Compression | Claim |
 |---|---:|---:|---:|---:|---|
-| GR00T N1.5 / DyPAC-VLA (ours) | 100 / 16 | **54.0%** (1350/2500) | 962,068,480 | 2.224× | +3.2pp over GDSQ-VLA, Holm $p=0.0036$; tied with FP16 |
+| GR00T N1.5 / DyPAC-VLA (ours) | 100 / 16 | **54.0%** (1350/2500) | 962,068,480 | 2.224× | +23.6pp over QuantVLA, Holm $p<10^{-4}$; difference from FP16 is not significant |
 | $\pi_{0.5}$ / compression anchor | 121 / 59 | 29/100 screen | 1,634,828,288 | 2.702× | Compression only; no success-rate superiority claim |
 
 The GR00T split success rates are 74.7% Atomic-Seen, 43.9% Composite-Seen, and 40.9%
 Composite-Unseen. FP16 obtains 55.1%; the paired comparison with ours has $p=0.2929$ and a
 95% hierarchical-bootstrap interval of [-3.88, 1.76] points.
+
+The paper places audited core mechanism ablations in the main text. The pending LIBERO comparison
+and lower-priority planned diagnostic ablations are appendix-only and explicitly claim-disabled.
 
 ## Paper and Evidence
 

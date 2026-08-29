@@ -23,8 +23,10 @@ readable booktabs tables, and a warning-free log.
 Active paper artifacts:
 
 - `figures/pipeline_figure.tex`: code-native DyPAC-VLA architecture figure.
-- `tables/main_results.tex`: restored two-model Table 1, with 54.0% as ours in the GR00T block.
-- `tables/omega_qvla_libero.tex`: restored pending LIBERO Table 2; it is claim-disabled.
+- `tables/main_results.tex`: GR00T Table 1, with 54.0% as ours and no within-project predecessor comparison.
+- `tables/core_ablation.tex`: audited core mechanism evidence in main-text Table 2.
+- `tables/extended_ablation_plan.tex`: appendix-only secondary ablation protocol; pending.
+- `tables/omega_qvla_libero.tex`: appendix-only pending LIBERO extension; claim-disabled.
 - `dypac_evidence_registry.json`: paper identity, claim guards, source paths, and frozen hashes.
 
 Older GDSQ figures and tables are retained only as provenance and are not included by the active
