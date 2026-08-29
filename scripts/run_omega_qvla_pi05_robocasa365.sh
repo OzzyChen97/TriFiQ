@@ -12,10 +12,12 @@ WORKER_LAUNCHER="$REPO_ROOT/scripts/run_pi05_formal_worker_seeded.sh"
 EVALUATOR="$REPO_ROOT/scripts/run_robocasa365_pi05_eval.py"
 CLIENT_PATH="$REPO_ROOT/code/pi05/openpi/packages/openpi-client/src"
 CONFIG="omega_qvla_w4a4"
-GPU_LAYOUT=(1 2 4 5 6 7)
+GPU_LAYOUT=(2 4 5 6 7)
+export QUANTVLA_CROSS_MODEL_PROTOCOL_PATH="$REPO_ROOT/scripts/protocols/quantvla_cross_model_protocol_v3.json"
+export QUANTVLA_CROSS_MODEL_PROTOCOL_ID="quantvla-gr00t-pi05-errorfold-v3"
 
 usage() {
-    echo "usage: $0 start | run-all | build-packs | run-task TASK_SET | aggregate | status | stop" >&2
+    echo "usage: $0 start | resume | run-all | build-packs | run-task TASK_SET | aggregate | status | stop" >&2
 }
 
 port_base() {
@@ -134,10 +136,11 @@ stop_servers() {
 }
 
 preflight() {
-    local task_set="$1" run_dir control base gpu=1 instance runtime hash tasks output
+    local task_set="$1" run_dir control base gpu instance runtime hash tasks output
     run_dir="$(run_dir_for "$task_set")"
     control="$(control_dir_for "$task_set")"
     base="$(port_base "$task_set")"
+    gpu="${GPU_LAYOUT[0]}"
     instance="$(instance_for "$task_set" "$gpu")"
     runtime="$control/$instance.runtime.json"
     hash="$(runtime_hash "$runtime")"
@@ -211,7 +214,7 @@ start_worker() {
     (
         export PI05_TASK_SETS="$task_set"
         exec nohup setsid "$WORKER_LAUNCHER" \
-            "$CONFIG" "$port" "$gpu" "$shard" 6 "$seeds" \
+            "$CONFIG" "$port" "$gpu" "$shard" "${#GPU_LAYOUT[@]}" "$seeds" \
             "$worker" "$hash" "$run_dir"
     ) >"$log" 2>&1 </dev/null &
     echo "$!" >"$pid_file"
@@ -223,7 +226,7 @@ start_workers() {
     [[ -f "$(run_dir_for "$task_set")/manifest.json" ]] || {
         echo "formal manifest is not frozen: $task_set" >&2; return 1;
     }
-    for shard in 0 1 2 3 4 5; do
+    for shard in "${!GPU_LAYOUT[@]}"; do
         start_worker "$task_set" "$shard" lo 0-24
         start_worker "$task_set" "$shard" hi 25-49
     done
@@ -278,6 +281,21 @@ run_all() {
     echo "complete" >"$ROOT/phase"
 }
 
+resume_remaining() {
+    local task_set
+    for task_set in atomic_seen composite_seen composite_unseen; do
+        if [[ -f "$(run_dir_for "$task_set")/manifest.json" ]] && task_complete "$task_set"; then
+            echo "[pi05 Omega] skip completed task set: $task_set"
+            continue
+        fi
+        echo "formal:$task_set" >"$ROOT/phase"
+        run_task "$task_set"
+    done
+    echo "aggregate" >"$ROOT/phase"
+    aggregate
+    echo "complete" >"$ROOT/phase"
+}
+
 start_queue() {
     mkdir -p "$ROOT/logs"
     local pid=""
@@ -286,7 +304,7 @@ start_queue() {
         echo "pi05 Omega queue already running pid=$pid"
         return
     fi
-    nohup setsid "$0" run-all >"$ROOT/logs/queue.log" 2>&1 </dev/null &
+    nohup setsid "$0" resume >"$ROOT/logs/queue.log" 2>&1 </dev/null &
     echo "$!" >"$ROOT/queue.pid"
     echo "started pi05 Omega queue pid=$! log=$ROOT/logs/queue.log"
 }
@@ -343,6 +361,7 @@ stop_all() {
 cd "$REPO_ROOT"
 case "${1:-}" in
     start) start_queue ;;
+    resume) resume_remaining ;;
     run-all) run_all ;;
     build-packs) build_packs ;;
     run-task) [[ $# -eq 2 ]] || { usage; exit 2; }; run_task "$2" ;;

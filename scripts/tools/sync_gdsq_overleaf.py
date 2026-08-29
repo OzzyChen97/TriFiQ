@@ -24,7 +24,7 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SOURCE = REPO_ROOT / "docs/gdsq_vla_cvpr2026"
+SOURCE = REPO_ROOT / "docs/gdsq_vla_iclr2027"
 CONFIG = REPO_ROOT / "config.txt"
 AUDIT_ROOT = REPO_ROOT / "runs/gdsq_extension_preregistered_v1/overleaf_sync"
 BEFORE = AUDIT_ROOT / "audit_before.json"

@@ -12,9 +12,9 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_REGISTRY = REPO_ROOT / "docs/gdsq_vla_cvpr2026/experiment_registry.json"
-DEFAULT_TEX = REPO_ROOT / "docs/gdsq_vla_cvpr2026/tables/main_results.tex"
-DEFAULT_AUDIT = REPO_ROOT / "docs/gdsq_vla_cvpr2026/tables/main_results.audit.json"
+DEFAULT_REGISTRY = REPO_ROOT / "docs/gdsq_vla_iclr2027/experiment_registry.json"
+DEFAULT_TEX = REPO_ROOT / "docs/gdsq_vla_iclr2027/tables/main_results.tex"
+DEFAULT_AUDIT = REPO_ROOT / "docs/gdsq_vla_iclr2027/tables/main_results.audit.json"
 PENDING = r"\textit{pending}"
 
 
@@ -235,6 +235,102 @@ def omega_gr00t_row(
     return row, sources
 
 
+def omega_pi05_row(
+    experiments: dict[str, Any], fp16_reference_bytes: int
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Render only independently complete pi0.5 Omega-QVLA task-set cells."""
+    progress = experiments["omega_qvla_robocasa365"]["model_progress"]["pi05"]
+    task_set_specs = {
+        "atomic_seen": ("atomic", 18, 900),
+        "composite_seen": ("composite_seen", 16, 800),
+        "composite_unseen": ("composite_unseen", 16, 800),
+    }
+    values: dict[str, float | None] = {
+        "atomic": None,
+        "composite_seen": None,
+        "composite_unseen": None,
+        "mean": None,
+    }
+    enabled = {key: False for key in (*values, "storage", "compression")}
+    sources: dict[str, str] = {}
+    completed_summaries: set[str] = set()
+    for task_set, (cell, expected_tasks, expected_episodes) in task_set_specs.items():
+        record = (progress.get("task_sets") or {}).get(task_set)
+        if not record or record.get("status") != "complete":
+            continue
+        coverage = record.get("coverage") or {}
+        label = f"pi0.5 Omega-QVLA {task_set}"
+        require(record.get("main_claim_enabled") is True, f"{label} claim disabled")
+        require(coverage.get("tasks") == expected_tasks, f"{label} task-count drift")
+        require(coverage.get("seeds_per_task") == 50, f"{label} seed-count drift")
+        require(coverage.get("expected_episodes") == expected_episodes, f"{label} expected coverage drift")
+        require(coverage.get("observed_episodes") == expected_episodes, f"{label} observed coverage drift")
+        require(coverage.get("missing_episodes") == 0, f"{label} has missing episodes")
+        require(coverage.get("duplicate_episodes") == 0, f"{label} has duplicates")
+        manifest_path, manifest = verified_json(record["manifest"], f"{label} manifest")
+        summary_path, summary = verified_json(record["summary"], f"{label} summary")
+        require(summary.get("complete") is True, f"{label} summary incomplete")
+        require(summary.get("validation_errors") == [], f"{label} validation errors")
+        require(summary.get("bootstrap_draws") == 10000, f"{label} bootstrap drift")
+        require(summary.get("task_set") == task_set, f"{label} task-set drift")
+        require(summary.get("manifest_sha256") == sha256_file(manifest_path), f"{label} link drift")
+        require(len(manifest.get("tasks") or []) == expected_tasks, f"{label} manifest tasks drift")
+        require(manifest.get("seeds") == list(range(50)), f"{label} manifest seeds drift")
+        result = (summary.get("configs") or {}).get("omega_qvla_w4a4") or {}
+        require(result.get("episodes") == expected_episodes, f"{label} result coverage drift")
+        require(result.get("formal_failures") == 0, f"{label} formal failure")
+        details = result.get("per_task_details") or {}
+        require(len(details) == expected_tasks, f"{label} per-task drift")
+        require(all(row.get("episodes") == 50 for row in details.values()), f"{label} seed drift")
+        values[cell] = 100.0 * float(result["task_macro_sr"])
+        enabled[cell] = True
+        sources[f"{task_set}_manifest"] = str(manifest_path.relative_to(REPO_ROOT))
+        sources[f"{task_set}_summary"] = str(summary_path.relative_to(REPO_ROOT))
+        completed_summaries.add(sha256_file(summary_path))
+
+    complete = progress.get("status") == "complete"
+    if complete:
+        coverage = progress.get("coverage") or {}
+        require(progress.get("main_claim_enabled") is True, "pi0.5 Omega-QVLA claim disabled")
+        require(coverage.get("expected_episodes") == 2500, "pi0.5 Omega expected coverage drift")
+        require(coverage.get("observed_episodes") == 2500, "pi0.5 Omega observed coverage drift")
+        require(coverage.get("missing_episodes") == 0, "pi0.5 Omega has missing episodes")
+        require(coverage.get("duplicate_episodes") == 0, "pi0.5 Omega has duplicates")
+        aggregate_path, aggregate = verified_json(progress["aggregate"], "pi0.5 Omega aggregate")
+        require(aggregate.get("complete") is True, "pi0.5 Omega aggregate incomplete")
+        require(aggregate.get("episodes") == 2500, "pi0.5 Omega aggregate coverage drift")
+        require(aggregate.get("bootstrap_samples") == 10000, "pi0.5 Omega aggregate bootstrap drift")
+        values["mean"] = 100.0 * float(aggregate["task_macro_sr"])
+        enabled["mean"] = True
+        sources["aggregate"] = str(aggregate_path.relative_to(REPO_ROOT))
+
+    memory_path, memory = verified_json(progress["memory"], "pi0.5 Omega memory audit")
+    require(memory.get("kind") == "omega_qvla_pi05_theoretical_packed_storage_audit", "pi0.5 Omega memory kind drift")
+    require(memory.get("scope_linear_layers") == 252, "pi0.5 Omega memory scope drift")
+    require(memory.get("quantized_layers") == 252, "pi0.5 Omega memory layer drift")
+    require((memory.get("representation") or {}).get("weight_bits") == 4, "pi0.5 Omega memory is not W4")
+    require((memory.get("representation") or {}).get("activation_bits") == 4, "pi0.5 Omega memory is not A4")
+    require((memory.get("evidence") or {}).get("summary", {}).get("sha256") in completed_summaries, "pi0.5 Omega memory is not linked to a completed task set")
+    packed_bytes = int(memory["packed"]["component_bytes"])
+    omega_fp16_bytes = int(memory["fp16_reference"]["component_bytes"])
+    require(omega_fp16_bytes >= fp16_reference_bytes, "pi0.5 Omega scope unexpectedly smaller than table reference")
+    enabled["storage"] = True
+    enabled["compression"] = True
+    sources["memory"] = str(memory_path.relative_to(REPO_ROOT))
+
+    return {
+        "label": r"$\Omega$-QVLA W4A4$^{\ddagger}$",
+        "low_bit_plan": "252 W4",
+        "metrics": values,
+        "storage": f"{packed_bytes / 2**30:.3f}",
+        "compression": f"{omega_fp16_bytes / packed_bytes:.2f}$\\times$",
+        "status": progress.get("status"),
+        "evidence": "omega_qvla_robocasa365",
+        "paper_claim_enabled": complete,
+        "claim_enabled_cells": enabled,
+    }, sources
+
+
 def build(registry_path: Path) -> tuple[str, dict[str, Any]]:
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     experiments = registry["experiments"]
@@ -286,6 +382,9 @@ def build(registry_path: Path) -> tuple[str, dict[str, Any]]:
 
     omega_gr00t_row_data, omega_gr00t_sources = omega_gr00t_row(
         experiments, gr_fp16_bytes
+    )
+    omega_pi05_row_data, omega_pi05_sources = omega_pi05_row(
+        experiments, pi_fp16_bytes
     )
 
     gr_w6_experiment, gr_w6_path, gr_w6_summary = gated_summary(
@@ -412,17 +511,7 @@ def build(registry_path: Path) -> tuple[str, dict[str, Any]]:
             "evidence": "pi05_uniform_w6_official50",
             "paper_claim_enabled": pi_w6_metrics is not None,
         },
-        pending_row(
-            label=r"$\Omega$-QVLA W4A4$^{\ddagger}$",
-            low_bit_plan="W4A4",
-            storage=PENDING,
-            compression=PENDING,
-            evidence="omega_qvla_robocasa365",
-            status=experiments["omega_qvla_robocasa365"]
-            .get("model_progress", {})
-            .get("pi05", {})
-            .get("status", "planned"),
-        ),
+        omega_pi05_row_data,
         {
             "label": r"\textbf{\textsc{GDSQ-VLA}(Ours)}",
             "low_bit_plan": "80 W4",
@@ -437,7 +526,7 @@ def build(registry_path: Path) -> tuple[str, dict[str, Any]]:
 
     lines = [
         "% AUTO-GENERATED by scripts/tools/render_gdsq_main_table.py; DO NOT EDIT.",
-        r"\begin{table*}[t]",
+        r"\begin{table}[t]",
         r"\centering",
         r"\caption{RoboCasa365 task-macro success rate (SR, \%) over 50 paired scenarios per task.}",
         r"\label{tab:main_results}",
@@ -460,8 +549,8 @@ def build(registry_path: Path) -> tuple[str, dict[str, Any]]:
         r"\bottomrule",
         r"\end{tabular}",
         r"\vspace{2pt}",
-        r"\parbox{0.99\textwidth}{\footnotesize C-Seen/C-Unseen denote Composite-Seen/Composite-Unseen. Ours uses the frozen v8 selector. Uniform W6 is the direct byte-budget baseline; QuantVLA is a different-rate comparison. Size is theoretical tightly packed candidate-Linear storage, with FP16 shown as the reference. Pending cells are claim-disabled. $^{\ddagger}\Omega$-QVLA uses RoboCasa365-specific calibration; its GR00T row has exact 50-task$\times$50-scenario coverage, while its $\pi_{0.5}$ row remains pending. Its displayed size includes packed W4 weights and required scales/rotation metadata, not the dequantized evaluation pack.}",
-        r"\end{table*}",
+        r"\parbox{0.99\textwidth}{\footnotesize C-Seen/C-Unseen denote Composite-Seen/Composite-Unseen. Ours uses the frozen v8 selector. Uniform W6 is the direct byte-budget baseline; QuantVLA is a different-rate comparison. Size is theoretical tightly packed candidate-Linear storage. $^{\ddagger}\Omega$-QVLA uses model- and task-set-specific RoboCasa365 calibration; both rows have exact 50-task$\times$50-scenario coverage. Their sizes include packed W4 weights and scales/rotation metadata; the $\pi_{0.5}$ compression ratio uses its audited 252-layer FP16 scope.}",
+        r"\end{table}",
         "",
     ]
 
@@ -491,6 +580,7 @@ def build(registry_path: Path) -> tuple[str, dict[str, Any]]:
                 str(pi_w6_path.relative_to(REPO_ROOT)) if pi_w6_path else None
             ),
             "omega_qvla_gr00t": omega_gr00t_sources,
+            "omega_qvla_pi05": omega_pi05_sources,
         },
         "rows": {"gr00t": gr_rows, "pi05": pi_rows},
         "forbidden_manual_result_sources": True,

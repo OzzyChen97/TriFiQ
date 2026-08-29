@@ -25,6 +25,13 @@ CONFIG = "omega_qvla_w4a4"
 TASK_SETS = ("atomic_seen", "composite_seen", "composite_unseen")
 NOISE_PROTOCOL = "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1"
 
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from quantvla_cross_model_protocol import (  # noqa: E402
+    protocol_attestation,
+    require_protocol_attestation,
+)
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -58,6 +65,7 @@ def validate_runtime(path: Path, task_set: str) -> dict[str, Any]:
     metadata = json.loads(path.read_text())
     runtime = metadata.get("openpi_runtime") or {}
     omega = runtime.get("omega_qvla") or {}
+    require_protocol_attestation(runtime, source=str(path))
     checks = {
         "config": runtime.get("config_id") == CONFIG,
         "adapter": (runtime.get("model_adapter") or {}).get("model") == "pi05",
@@ -81,6 +89,7 @@ def validate_runtime(path: Path, task_set: str) -> dict[str, Any]:
         "file_sha256": sha256_file(path),
         "server_metadata_sha256": canonical_hash(metadata),
         "omega_qvla": omega,
+        "cross_model_protocol": runtime.get("cross_model_protocol"),
         "protocol": runtime.get("protocol"),
         "model_adapter": runtime.get("model_adapter"),
     }
@@ -94,9 +103,15 @@ def freeze(args: argparse.Namespace) -> None:
     preflight = Path(args.preflight).resolve()
     control = Path(args.control_dir).resolve()
     runtime_paths = sorted(control.glob("*.runtime.json"))
-    if len(runtime_paths) != 6:
-        raise ValueError(f"expected six runtime attestations, found {len(runtime_paths)}")
+    expected_gpus = (2, 4, 5, 6, 7)
+    if len(runtime_paths) != len(expected_gpus):
+        raise ValueError(
+            f"expected {len(expected_gpus)} runtime attestations, found {len(runtime_paths)}"
+        )
     servers = [validate_runtime(path, task_set) for path in runtime_paths]
+    expected_protocol = protocol_attestation()
+    if any(server.get("cross_model_protocol") != expected_protocol for server in servers):
+        raise ValueError("runtime servers do not share the frozen cross-model protocol")
     manifest = {
         "schema_version": 1,
         "kind": "omega_qvla_pi05_robocasa365_formal_manifest",
@@ -129,7 +144,7 @@ def freeze(args: argparse.Namespace) -> None:
                 "task_shard_count": 6,
                 "seeds": seed_range,
             }
-            for shard, gpu in enumerate((1, 2, 4, 5, 6, 7))
+            for shard, gpu in enumerate(expected_gpus)
             for half, seed_range in (("lo", [0, 24]), ("hi", [25, 49]))
         ],
         "gr00t_alignment": {

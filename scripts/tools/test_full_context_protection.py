@@ -354,7 +354,7 @@ def test_table1_variable_budget_exact_values() -> None:
 def test_table1_anchors_match_frozen_official_artifacts() -> None:
     repo = Path(__file__).resolve().parents[2]
     registry = json.loads(
-        (repo / "docs/gdsq_vla_cvpr2026/experiment_registry.json").read_text(
+        (repo / "docs/gdsq_vla_iclr2027/experiment_registry.json").read_text(
             encoding="utf-8"
         )
     )

@@ -15,7 +15,7 @@ ROOT = REPO_ROOT / "runs/gdsq_extension_preregistered_v1/omega_qvla_table1"
 SUMMARY = ROOT / "aggregate/summary.json"
 PROTOCOL = ROOT / "protocol_v1.json"
 DOWNLOAD = REPO_ROOT / "checkpoints/omega_qvla/download_manifest.json"
-REGISTRY = REPO_ROOT / "docs/gdsq_vla_cvpr2026/experiment_registry.json"
+REGISTRY = REPO_ROOT / "docs/gdsq_vla_iclr2027/experiment_registry.json"
 
 
 def sha256_file(path: Path) -> str:

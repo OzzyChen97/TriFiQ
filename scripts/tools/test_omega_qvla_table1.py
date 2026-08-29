@@ -23,7 +23,7 @@ RENDER = load("render_omega_qvla_libero_table", "scripts/tools/render_omega_qvla
 
 def test_table_contains_only_pending_local_rows_before_reproduction() -> None:
     tex, audit = RENDER.build()
-    assert tex == (REPO_ROOT / "docs/gdsq_vla_cvpr2026/tables/omega_qvla_libero.tex").read_text()
+    assert tex == (REPO_ROOT / "docs/gdsq_vla_iclr2027/tables/omega_qvla_libero.tex").read_text()
     assert audit["paper_pdf_sha256"] == "d0c2ede8a71a497e423c31a2431b0166592f61093acfcfeb6be1be62a7f716e7"
     assert "v1 reported" not in tex
     assert "91.0 & 86.0 & 92.0 & 82.0 & 87.8" not in tex
@@ -39,7 +39,7 @@ def test_table_contains_only_pending_local_rows_before_reproduction() -> None:
     assert "4,000" in tex
 
 
-def test_libero_table_uses_cvpr_readable_booktabs_style() -> None:
+def test_libero_table_uses_iclr_readable_booktabs_style() -> None:
     tex, _audit = RENDER.build()
     assert tex.index(r"\caption{") < tex.index(r"\label{")
     assert r"\small" in tex

@@ -72,7 +72,7 @@ run_queue() {
     "$PY" "$REPO_ROOT/scripts/tools/render_gdsq_claim_status.py"
     "$PY" "$REPO_ROOT/scripts/tools/render_gdsq_component_ablation.py"
     "$PY" "$REPO_ROOT/scripts/tools/render_omega_qvla_libero_table.py"
-    make -C "$REPO_ROOT/docs/gdsq_vla_cvpr2026" check
+    make -C "$REPO_ROOT/docs/gdsq_vla_iclr2027" check
 
     CURRENT_PHASE=complete
     set_phase "$CURRENT_PHASE"

@@ -1,0 +1,8 @@
+\section{Conclusion and Limitations}
+\label{sec:conclusion}
+
+This paper presents \method, a training-free framework that couples action-weighted geometry/distribution preservation with byte-constrained W4/FP16 allocation and a calibration-gated selector over baseline, ATM, and OHB. The selector uses neither task identity nor outcome feedback, and its chosen paths are bitwise exact on 256 frozen observations per policy family. GR00T obtains 50.8\% task-macro SR at 1.99$\times$ theoretical candidate-component compression, versus 55.1\% for FP16. \PiSelectorResultStatus
+
+The evidence also defines clear boundaries. Differences from QuantVLA use different compression rates; \SameBudgetConclusionStatus\ The 16:1 ratio lies on a broad four-task development plateau and is transferred to $\pi_{0.5}$. The eager fake-quant path demonstrates theoretical static storage only, not live-memory or latency gains.
+
+Future work will complete LIBERO and same-budget controls, calibration and storage--SR robustness, and packed-kernel memory/latency measurements. Shared-protocol external comparisons require reproducible releases; fused INT4/INT8 kernels and real-robot evaluation remain necessary for an end-to-end deployment claim.

@@ -1,0 +1,13 @@
+Use case: scientific-educational
+Asset type: single-contribution ICLR paper figure
+Primary request: Create a technically accurate diagram for Contribution 2 of GDSQ-VLA: complete-configuration functional adjudication, which evaluates full Top-K quantized policies under paired observations and noise with a tail-aware d-func score and a frozen selection rule.
+Scene/backdrop: clean white scientific-paper background
+Style/medium: flat vector-like scientific diagram, crisp geometric modules, thin arrows, readable sans-serif typography
+Composition/framing: 2048x1152 landscape; three balanced left-to-right panels; generous whitespace; readable when scaled to a two-column paper width
+Color palette: colorblind-safe blue for the FP16 reference, orange for candidate masks, green for the selected representative, light gray for statistical checks
+Text (verbatim): "Contribution 2: Complete-Configuration Functional Adjudication", "Top-K Candidate Masks", "Mask k1", "Mask k2", "Mask k3", "Plan-Specific A8 Calibration", "Paired Observations", "Identical Initial Noise", "Execute 16-Step Physical Actions", "FP16 Reference", "D-Func Score", "D_final", "D_kin", "D_grip", "2 x CVaR0.9(D_solver)", "Tail Penalty", "Frozen Rule: 16:1 CKA:CS", "Candidate Set {8,16,32,64,128,256}:1", "10,000-Draw Task/Seed Bootstrap", "Leave-One-Task-Out", "Broad Plateau, Not Universal Optimum", "Selected Representative Mask"
+Subject: The left panel instantiates Top-K candidate masks as complete quantized policies, each with plan-specific A8 calibration. The middle panel runs each complete policy under paired observations and identical initial denoising noise, executing 16-step physical action sequences, and compares them against the FP16 reference. The d-func score combines final, kinematic, and gripper components with a doubled CVaR0.9 tail term on the solver trajectory. The right panel applies the frozen 16:1 CKA:CS selection rule chosen from a six-value candidate set, verified by a 10,000-draw task/seed bootstrap and leave-one-task-out analysis showing a broad plateau, and outputs the selected representative mask.
+Constraints: render every quoted label verbatim; make the CVaR0.9 tail term visually prominent; show candidate masks as complete models, not layers; keep the frozen-rule box highlighted in green; no logos; no watermark
+Avoid: photorealism, robots as decorative characters, 3D perspective, tiny text, dense equations, gradients, black background, extra modules, success-rate claims
+
+Execution target: bundled imagegen CLI, model gpt-image-2, quality high, size 2048x1152, PNG output.

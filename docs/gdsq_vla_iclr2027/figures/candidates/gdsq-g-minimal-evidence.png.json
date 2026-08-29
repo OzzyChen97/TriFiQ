@@ -1,0 +1,20 @@
+{
+  "created_utc": "2026-08-23T13:46:07.438847+00:00",
+  "endpoint": {
+    "host": "di2lab.zeabur.app",
+    "path": "/v1/images/generations",
+    "scheme": "https"
+  },
+  "http_status": 200,
+  "kind": "gdsq_vla_architecture_candidate",
+  "model": "gpt-image-2",
+  "output": "docs/gdsq_vla_iclr2027/figures/candidates/gdsq-g-minimal-evidence.png",
+  "output_bytes": 1094151,
+  "output_sha256": "38f6d96c521b0230c51a1ea12eef25c49e08f4c9bcbab254434be6b677d0bf8d",
+  "prompt": "docs/gdsq_vla_iclr2027/figures/prompts/variant-g-minimal-evidence.txt",
+  "prompt_sha256": "1abbb56b092ca2661dc0531c43012918646853b1ed424faa84545e4c4ff82147",
+  "quality": "high",
+  "requested_size": "2048x1152",
+  "response_field": "data[0].b64_json",
+  "schema_version": 1
+}

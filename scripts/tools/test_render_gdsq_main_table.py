@@ -14,9 +14,9 @@ SPEC.loader.exec_module(MODULE)
 
 def test_generated_table_is_current_and_has_no_unsupported_ohb_row() -> None:
     tex, audit = MODULE.build(
-        REPO_ROOT / "docs/gdsq_vla_cvpr2026/experiment_registry.json"
+        REPO_ROOT / "docs/gdsq_vla_iclr2027/experiment_registry.json"
     )
-    assert tex == (REPO_ROOT / "docs/gdsq_vla_cvpr2026/tables/main_results.tex").read_text()
+    assert tex == (REPO_ROOT / "docs/gdsq_vla_iclr2027/tables/main_results.tex").read_text()
     assert "27.6" not in tex
     assert r"\method + OHB" not in tex
     assert "pi05_runtime_selector_official50" in {
@@ -32,9 +32,9 @@ def test_generated_table_is_current_and_has_no_unsupported_ohb_row() -> None:
         assert forbidden not in tex
 
 
-def test_main_table_uses_cvpr_readable_booktabs_style() -> None:
+def test_main_table_uses_iclr_readable_booktabs_style() -> None:
     tex, _audit = MODULE.build(
-        REPO_ROOT / "docs/gdsq_vla_cvpr2026/experiment_registry.json"
+        REPO_ROOT / "docs/gdsq_vla_iclr2027/experiment_registry.json"
     )
     assert r"\caption{" in tex and tex.index(r"\caption{") < tex.index(r"\label{")
     assert r"\small" in tex
@@ -48,7 +48,7 @@ def test_main_table_uses_cvpr_readable_booktabs_style() -> None:
 
 def test_every_numeric_result_row_has_enabled_complete_evidence() -> None:
     _tex, audit = MODULE.build(
-        REPO_ROOT / "docs/gdsq_vla_cvpr2026/experiment_registry.json"
+        REPO_ROOT / "docs/gdsq_vla_iclr2027/experiment_registry.json"
     )
     for model_rows in audit["rows"].values():
         for row in model_rows:
@@ -73,7 +73,7 @@ def test_every_numeric_result_row_has_enabled_complete_evidence() -> None:
                     assert row["paper_claim_enabled"] is False
                     assert row["claim_enabled_cells"] == {
                         "atomic": True,
-                        "composite_seen": False,
+                        "composite_seen": True,
                         "composite_unseen": False,
                         "mean": False,
                         "storage": True,
@@ -86,10 +86,26 @@ def test_every_numeric_result_row_has_enabled_complete_evidence() -> None:
             if row["evidence"] == "omega_qvla_robocasa365"
         ]
         assert len(omega_rows) == 1
-        assert omega_rows[0]["paper_claim_enabled"] is False
         if model == "gr00t":
-            assert omega_rows[0]["metrics"] == {"atomic": 60.111111111111114}
+            assert omega_rows[0]["paper_claim_enabled"] is True
+            assert {
+                key: round(value, 3)
+                for key, value in omega_rows[0]["metrics"].items()
+            } == {
+                "atomic": 60.111,
+                "composite_seen": 25.875,
+                "composite_unseen": 27.5,
+                "mean": 38.72,
+            }
             assert omega_rows[0]["storage"] == "0.599"
             assert omega_rows[0]["compression"] == r"3.33$\times$"
         else:
-            assert omega_rows[0]["metrics"] is None
+            assert omega_rows[0]["paper_claim_enabled"] is True
+            assert omega_rows[0]["metrics"] == {
+                "atomic": 49.55555555555555,
+                "composite_seen": 10.375,
+                "composite_unseen": 1.0,
+                "mean": 21.48,
+            }
+            assert omega_rows[0]["storage"] == "1.307"
+            assert omega_rows[0]["compression"] == r"3.27$\times$"
