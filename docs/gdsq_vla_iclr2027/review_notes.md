@@ -52,6 +52,9 @@ The generated registry `dypac_evidence_registry.json` and
 - **Pass:** the paper consistently uses DyPAC-VLA, $D_{PAC}$, FCP, and DyRange-A8.
 - **Pass:** selection-buffer size, metric terms, budget, acceptance rule, W4 format, and A8 formula
   are specified.
+- **Pass:** Figure 1 exposes the evidence--search--deployment chain, exact-byte gate, fail-closed
+  freeze, one global mask, and absence of task routing/correction; the generated minimax box was
+  corrected to match the frozen adjudication rule rather than an invented formula.
 - **Pass:** the GR00T mask evidence boundary is repeated in Introduction, Experiments, Conclusion,
   figure caption, and supplement.
 

@@ -4,8 +4,6 @@
 \paragraph{Overview.}
 \method converts a frozen FP16 VLA into one static W4/FP16 policy. Figure~\ref{fig:pipeline} summarizes three stages. First, paired teacher and candidate action chunks are compared in physical control space with \dpac. Second, Full-Context Precision Protection (\fcp) generates byte-feasible masks from layer counterfactuals and lets complete-policy, cross-context evidence make the final decision. Third, the frozen plan is deployed with Hessian-aware group-64 W4 weights and dynamic per-forward A8 ranges. The following subsections define the optimization problem, metric, selector, and numerical deployment rule.
 
-\input{figures/pipeline_figure}
-
 \subsection{Problem Setting and Design Constraints}
 \label{sec:problem}
 

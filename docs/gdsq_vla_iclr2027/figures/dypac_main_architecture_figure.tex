@@ -1,0 +1,6 @@
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/dypac_main_architecture_api_v2.png}
+  \caption{Overview of \method. Paired physical action chunks produce \dpac evidence; \fcp filters exact-budget masks with full-context, task-level upper bounds and freezes one global W4/FP16 plan; deployment combines Hessian group-64 W4 with per-forward \dyrange, without task routing or output correction.}
+  \label{fig:pipeline}
+\end{figure}

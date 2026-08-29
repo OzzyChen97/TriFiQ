@@ -1,0 +1,6 @@
+Use case: precise-object-edit
+Asset type: final full-width main architecture figure for an ICLR machine-learning paper
+Input image: Image 1 is the edit target and must otherwise be preserved exactly.
+Primary request: change only the contents inside the white rounded rectangle headed "Full-Context Minimax" in the center panel. Remove the invented max-min mathematical formula and the four decorative context icons from that rectangle. Replace them with exactly three clean centered lines: "D_PAC + D_func", "Task-Level One-SE", and "Pose • Stitch • Gripper Safety". Use the same navy sans-serif typography and existing visual hierarchy.
+Invariants: preserve the full canvas dimensions, three-panel layout, every panel heading, every other label, all arrows, colors, line weights, icons, spacing, borders, and white background. Keep "Full-Context Minimax" unchanged. Do not alter Stage 1, the byte-budget gate, the fail-closed diamond, the global mask, or any part of Stage 3.
+Constraints: render the three replacement lines verbatim; no formula; no additional text; no spelling errors; no watermark; no cropping; no redesign.

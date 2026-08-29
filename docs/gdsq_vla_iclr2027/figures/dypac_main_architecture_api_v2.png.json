@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "kind": "dypac_vla_main_architecture_provenance",
+  "generated_date": "2026-08-30",
+  "base_generation": {
+    "credential_source": "config.txt (credential redacted and not persisted)",
+    "api_host": "di2lab.zeabur.app",
+    "endpoint": "/v1/images/generations",
+    "model": "gpt-image-2",
+    "quality": "high",
+    "requested_size": "2048x1024",
+    "returned_size": "1774x887",
+    "prompt": "figures/prompts/dypac-main-architecture-api-v1.txt",
+    "sha256": "a3d40be0d64a9542b13bb6138f14c78eb83ce68640a6fa64b48b021353283523"
+  },
+  "technical_correction": {
+    "reason": "Replace an invented max-min formula with the frozen FCP adjudication criteria.",
+    "mode": "precise-object-edit",
+    "prompt": "figures/prompts/dypac-main-architecture-api-edit-v2.txt",
+    "invariants": "All layout, color, labels, arrows, icons, and panels outside the Full-Context Minimax box were preserved."
+  },
+  "final": {
+    "path": "figures/dypac_main_architecture_api_v2.png",
+    "width": 1774,
+    "height": 887,
+    "color_space": "sRGB",
+    "sha256": "cee26420451dd80cb0e0be5be5a72c23f5d2bd16183c3d23dbf320a4c234f2d6"
+  },
+  "claim_scope": "Architecture and protocol visualization only; no empirical result is encoded in the figure."
+}

@@ -22,7 +22,9 @@ readable booktabs tables, and a warning-free log.
 
 Active paper artifacts:
 
-- `figures/pipeline_figure.tex`: code-native DyPAC-VLA architecture figure.
+- `figures/dypac_main_architecture_api_v2.png`: active API-generated, technically corrected DyPAC-VLA main architecture figure.
+- `figures/dypac_main_architecture_figure.tex`: Figure 1 wrapper, caption, and label.
+- `figures/dypac_main_architecture_api_v2.png.json`: redacted generation provenance and final checksum.
 - `figures/fcp_algorithm.tex`: fail-closed FCP selection and freeze algorithm.
 - `tables/main_results.tex`: GR00T and $\pi_{0.5}$ Table 1, with 54.0% as the formal ours result and the $\pi_{0.5}$ quick result explicitly isolated as a compression anchor.
 - `tables/core_ablation.tex`: audited core mechanism evidence in main-text Table 2.
