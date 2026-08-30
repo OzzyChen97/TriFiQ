@@ -159,3 +159,6 @@ config.txt
 /code/pi05/openpi/third_party/
 /code/pi05/openpi/.git/
 /code/examples/Libero/eval/rollouts/
+
+# Paper source is synchronized only with Overleaf, never GitHub.
+/docs/gdsq_vla_iclr2027/

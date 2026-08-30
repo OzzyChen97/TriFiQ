@@ -1,9 +1,0 @@
-Use case: scientific-educational
-Asset type: CVPR method overview with offline/runtime separation
-Primary request: Create a publication-ready GDSQ-VLA architecture figure organized into two horizontal lanes: an OFFLINE CALIBRATION lane that produces a frozen mixed-precision plan and selector rule, and a RUNTIME lane that applies the fixed plan and chooses at most one correction.
-Scene/backdrop: white paper canvas
-Style/medium: minimalist systems diagram, precise rectangular modules, sparse dark-blue arrows, orange for W4A8, blue for FP16, teal for frozen artifacts
-Composition/framing: 2048x1152 landscape; offline lane occupies upper 65 percent; runtime lane occupies lower 35 percent; clear vertical freeze boundary between calibration and deployment
-Text (verbatim): "GDSQ-VLA", "OFFLINE CALIBRATION", "Paired FP16 / W4A8 Probes", "1 - CKA", "D_CS", "Action Sensitivity", "Stability Guards", "W6-Equivalent Budget", "Complete-Mask Adjudication", "Frozen Layer Plan", "Frozen Selector v8", "RUNTIME", "Observation + Instruction + State", "Fixed W4A8 / FP16 Policy", "Calibration-Gated Choice", "baseline", "ATM", "OHB", "One Path Only", "Action Chunk", "No Test Feedback"
-Constraints: render all quoted labels exactly; frozen artifacts cross the boundary but rollout success never flows back; show three mutually exclusive selector branches with a one-hot visual; no ATM+OHB branch; do not show task identity as selector input; do not imply retraining; show theoretical storage budget but no speed or GPU-memory claim; flat background; no watermark
-Avoid: circular online learning, reward arrows, success-rate gauges, model routing by task, neural brain icons, decorative robots, dark background, 3D perspective, excessive formulas
