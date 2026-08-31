@@ -57,7 +57,7 @@ import tyro
 from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING
 from gr00t.eval.robot import RobotInferenceClient, RobotInferenceServer
 from gr00t.experiment.data_config import load_data_config
-from gr00t.model.policy import Gr00tPolicy
+from gr00t.model.policy import COMPUTE_DTYPE, Gr00tPolicy
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "tools"))
@@ -71,6 +71,62 @@ from quantvla_dynamic_a8_protocol import (  # noqa: E402
     protocol_attestation as dynamic_a8_protocol_attestation,
     validate_runtime as validate_dynamic_a8_runtime,
 )
+
+
+def _libero_dypac_attestation() -> dict:
+    path = REPO_ROOT / "scripts/quantvla_libero_dypac_protocol.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "protocol_id": payload["protocol_id"],
+        "protocol_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "benchmark": "libero",
+        "flow_steps": int(payload["action"]["pi05_flow_steps"]),
+        "n_action_steps": int(payload["benchmark"]["replan_steps"]),
+        "replan_steps": int(payload["benchmark"]["replan_steps"]),
+        "action_horizon": int(payload["action"]["shape"][0]),
+        "action_dimension": int(payload["action"]["shape"][1]),
+        "formal_initial_state_indices": payload["benchmark"]["formal_initial_state_indices"],
+        "paired_noise": payload["calibration"]["noise_derivation"],
+    }
+
+
+def _validate_libero_dypac_plan(plan_path: str, quant_layers: list) -> dict:
+    plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
+    protocol = _libero_dypac_attestation()
+    meta = plan.get("meta") or {}
+    if (
+        meta.get("protocol_id") != protocol["protocol_id"]
+        or meta.get("protocol_sha256") != protocol["protocol_sha256"]
+        or meta.get("model") != "gr00t"
+        or int(meta.get("flow_steps", -1)) != 10
+        or meta.get("activation_mode") != "dynamic_a8"
+        or meta.get("runtime_selector") is not False
+        or meta.get("runtime_correction") is not False
+    ):
+        raise RuntimeError("GR00T LIBERO DyPAC plan attestation failed")
+    layers = plan.get("layers") or {}
+    live_names = [layer.name for layer in quant_layers]
+    planned_w4 = [
+        name
+        for name, row in layers.items()
+        if not bool(row.get("skip", False)) and int(row.get("bits", 0) or 0) == 4
+    ]
+    if set(live_names) != set(planned_w4):
+        raise RuntimeError("GR00T LIBERO DyPAC plan/live W4 inventory mismatch")
+    if int(plan.get("quantized_w4_layers", -1)) != len(planned_w4):
+        raise RuntimeError("GR00T LIBERO DyPAC quantized-layer count drift")
+    if int(plan.get("total_bytes", 1 << 62)) > int(plan.get("budget_bytes", -1)):
+        raise RuntimeError("GR00T LIBERO DyPAC plan exceeds its exact byte budget")
+    return {
+        "method_id": meta.get("method_id"),
+        "suite": meta.get("suite"),
+        "quantized_w4_layers": len(planned_w4),
+        "retained_fp16_layers": int(plan.get("retained_fp16_layers", -1)),
+        "total_bytes": int(plan.get("total_bytes", -1)),
+        "budget_bytes": int(plan.get("budget_bytes", -1)),
+        "selected_candidate_id": meta.get("selected_candidate_id"),
+        "fcp_changed_initial_mask": meta.get("fcp_changed_initial_mask"),
+    }
 
 
 @dataclass
@@ -201,7 +257,19 @@ def _maybe_close_a8_calibration(
     # v1.4 Stage D: GR00T_OBS_FORMAT=robocasa365 for the RoboCasa365 checkpoints
     fmt = os.environ.get("GR00T_OBS_FORMAT", "libero")
     source_buffer_path = None
-    if fmt == "robocasa365":
+    external_buffer_sha = os.environ.get(
+        "GR00T_DUQUANT_CALIB_BUFFER_SHA256"
+    )
+    if external_buffer_sha:
+        # Formal cross-benchmark cells use a persisted, suite-specific LIBERO
+        # calibration buffer.  The scales already exist, so no warmup data are
+        # needed here; require their sidecar to match that exact buffer rather
+        # than the legacy seed-0 synthetic buffer.
+        if len(external_buffer_sha) != 64:
+            raise ValueError("invalid GR00T_DUQUANT_CALIB_BUFFER_SHA256")
+        warm_obs, warm_noises, sha = [], [], external_buffer_sha
+        source_buffer_path = os.environ.get("GR00T_DUQUANT_CALIB_BUFFER_PATH")
+    elif fmt == "robocasa365":
         source_buffer_path = protocol_artifact("calibration_buffer")
         records, provenance = load_model_records(
             source_buffer_path, calib_steps * batch_size, model="gr00t"
@@ -220,21 +288,31 @@ def _maybe_close_a8_calibration(
         with open(plan_path, "rb") as f:
             plan_sha = _hl.sha256(f.read()).hexdigest()
     checkpoint_path = str(_Path(model_path).resolve()) if model_path else None
-    act_meta = {
-        "buffer_sha256": sha,
-        "calibration_seed": 0,
-        "data_config": data_config,
-        "obs_format": fmt,
+    common_act_meta = {
         "act_percentile": float(os.environ.get("GR00T_DUQUANT_ACT_PCT", "99.9")),
         "calib_batches": calib_steps,
         "denoising_steps": int(
             os.environ.get("GR00T_DENOISING_STEPS", str(policy.denoising_steps))
         ),
         "plan_sha256": plan_sha,
-        "checkpoint_path": checkpoint_path,
         "wrapped_layers": count_wrapped_layers(policy.model),
     }
-    if source_buffer_path is not None:
+    if external_buffer_sha:
+        act_meta = {
+            **common_act_meta,
+            "calibration_buffer_sha256": sha,
+            "source_buffer_sha256": sha,
+        }
+    else:
+        act_meta = {
+            **common_act_meta,
+            "buffer_sha256": sha,
+            "calibration_seed": 0,
+            "data_config": data_config,
+            "obs_format": fmt,
+            "checkpoint_path": checkpoint_path,
+        }
+    if source_buffer_path is not None and not external_buffer_sha:
         act_meta.update(
             {
                 "source_buffer_sha256": sha,
@@ -268,8 +346,15 @@ def _maybe_close_a8_calibration(
             "prefix_llm_tables": 1,
             "dit_flow_step_tables": 4,
         }
-    print(f"[inference] static A8 calibration warmup: {calib_steps * batch_size} "
-          f"shared obs (buffer sha256 {sha[:16]}...; plan {plan_sha})", flush=True)
+    if external_buffer_sha:
+        print(
+            f"[inference] loading suite-specific static A8 scales "
+            f"(buffer sha256 {sha[:16]}...; plan {plan_sha})",
+            flush=True,
+        )
+    else:
+        print(f"[inference] static A8 calibration warmup: {calib_steps * batch_size} "
+              f"shared obs (buffer sha256 {sha[:16]}...; plan {plan_sha})", flush=True)
     t0 = time.time()
     ensure_a8_calibrated(
         policy, warm_obs, warm_noises, batch_size,
@@ -434,7 +519,49 @@ def _runtime_info(policy) -> dict:
     plan_path = os.environ.get("GR00T_DUQUANT_PLAN")
     act_scale_path = os.environ.get("GR00T_DUQUANT_ACT_SCALE_PATH")
     hessian_runtime = getattr(policy.model, "_gr00t_duquant_runtime", {})
-    if gptq_layers:
+    reproduction_runtime = getattr(
+        policy.model, "_qvla_actquant_runtime", {"enabled": False, "method": None}
+    )
+    parameter_dtypes: dict[str, int] = {}
+    linear_conv_dtypes: dict[str, int] = {}
+    for parameter in policy.model.parameters():
+        key = str(parameter.dtype).removeprefix("torch.")
+        parameter_dtypes[key] = parameter_dtypes.get(key, 0) + int(parameter.numel())
+    for module in policy.model.modules():
+        if isinstance(module, (torch.nn.Linear, torch.nn.Conv2d)):
+            key = str(module.weight.dtype).removeprefix("torch.")
+            linear_conv_dtypes[key] = linear_conv_dtypes.get(key, 0) + 1
+    model_dtype = {
+        "requested": os.environ.get("GR00T_MODEL_DTYPE", "bfloat16"),
+        "resolved": str(COMPUTE_DTYPE).removeprefix("torch."),
+        "parameter_elements_by_dtype": dict(sorted(parameter_dtypes.items())),
+        "linear_conv_layers_by_weight_dtype": dict(sorted(linear_conv_dtypes.items())),
+    }
+    if reproduction_runtime.get("enabled") and (quant_layers or gptq_layers):
+        raise RuntimeError("QVLA/ActQuant runtime cannot be mixed with DuQuant/GPTQ")
+    if reproduction_runtime.get("enabled"):
+        method = str(reproduction_runtime["method"])
+        quantization_contract = {
+            "logical_profile": (
+                "qvla_code_wavg4_a16" if method == "QVLA-code" else "actquant_4bpw_a16"
+            ),
+            "quantization_method": (
+                "qvla_mixed_row_pack_dequant_native"
+                if method == "QVLA-code"
+                else "actquant_gguf_dequant_native"
+            ),
+            "weight_precision": reproduction_runtime["precision"],
+            "activation_bits": 16,
+            "execution_backend": "pytorch_native_after_offline_pack_dequant",
+            "integer_gemm": False,
+            "runtime_memory_claim_allowed": False,
+            "latency_claim_allowed": False,
+            "denoising_steps": int(policy.denoising_steps),
+            "n_action_steps": 16,
+            "replan_steps": 16,
+            "paired_noise": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+        }
+    elif gptq_layers:
         weight_bits = {int(layer.weight_bits) for layer in gptq_layers}
         activation_bits = {
             int(layer._record_a_bits or layer.cfg.act_bits or 0)
@@ -585,6 +712,37 @@ def _runtime_info(policy) -> dict:
             "logical_profile": "fp16",
             "quantization_method": "none",
         }
+    libero_dypac_enabled = os.environ.get("GR00T_LIBERO_DYPAC_PROTOCOL", "0") not in (
+        "0", "false", "False", ""
+    )
+    libero_dypac_protocol = None
+    if libero_dypac_enabled:
+        libero_dypac_protocol = _libero_dypac_attestation()
+        if int(policy.denoising_steps) != 10:
+            raise RuntimeError("GR00T LIBERO DyPAC requires exactly 10 flow steps")
+        quantization_contract.update(
+            {
+                "denoising_steps": 10,
+                "n_action_steps": 5,
+                "replan_steps": 5,
+                "paired_noise": "sha256(protocol,suite,task,state,replan,stream)/torch-cpu-normal-v1",
+            }
+        )
+        if quant_layers:
+            if not hessian_runtime.get("hessian_w4_loaded"):
+                raise RuntimeError("GR00T LIBERO DyPAC requires the Hessian-W4 artifact")
+            if not bool(uniform_value(quant_layers, "act_dynamic")):
+                raise RuntimeError("GR00T LIBERO DyPAC requires dynamic A8")
+            if int(uniform_value(quant_layers, "block_size")) != 64:
+                raise RuntimeError("GR00T LIBERO DyPAC requires group size 64")
+            if str(uniform_value(quant_layers, "row_rot_mode")) != "0":
+                raise RuntimeError("GR00T LIBERO DyPAC requires the identity row basis")
+            if (
+                selector_metadata.get("enabled")
+                or atm_runtime.get("atm_enabled")
+                or atm_runtime.get("ohb_enabled")
+            ):
+                raise RuntimeError("GR00T LIBERO DyPAC forbids runtime selectors and corrections")
     contract_sha256 = hashlib.sha256(
         json.dumps(quantization_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -617,6 +775,8 @@ def _runtime_info(policy) -> dict:
         "quantization_contract": quantization_contract,
         "quantization_contract_sha256": contract_sha256,
         "runtime_selector": selector_metadata,
+        "qvla_actquant": reproduction_runtime,
+        "model_dtype": model_dtype,
         "cross_model_protocol": protocol_attestation(),
         "model_adapter": adapter_attestation(
             "gr00t",
@@ -624,6 +784,8 @@ def _runtime_info(policy) -> dict:
         ),
         "protocol": closed_loop_runtime_protocol(),
     }
+    if libero_dypac_protocol is not None:
+        payload["libero_dypac_protocol"] = libero_dypac_protocol
     if quant_layers and bool(uniform_value(quant_layers, "act_dynamic")):
         validate_dynamic_a8_runtime(
             quantization_contract, source="GR00T quantization contract"
@@ -642,12 +804,21 @@ def _runtime_info(policy) -> dict:
     ):
         if not plan_path:
             raise RuntimeError("adapter-only quantized runtime requires a plan")
-        payload["quantization_selection"] = validate_quant_plan(
-            json.loads(Path(plan_path).read_text(encoding="utf-8")),
-            model="gr00t",
-            source=str(Path(plan_path).resolve()),
+        payload["quantization_selection"] = (
+            _validate_libero_dypac_plan(plan_path, quant_layers)
+            if libero_dypac_enabled
+            else validate_quant_plan(
+                json.loads(Path(plan_path).read_text(encoding="utf-8")),
+                model="gr00t",
+                source=str(Path(plan_path).resolve()),
+            )
         )
-    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    # GPU allocator counters are diagnostic and can differ by a few blocks
+    # across otherwise byte-identical replicas.  Bind the reusable server
+    # identity only to semantic/runtime fields so paired workers can safely
+    # switch replicas without inventing a different experimental arm.
+    stable_payload = {key: value for key, value in payload.items() if key != "gpu_memory_bytes"}
+    encoded = json.dumps(stable_payload, sort_keys=True, default=str).encode("utf-8")
     payload["metadata_sha256"] = hashlib.sha256(encoded).hexdigest()
     return payload
 
@@ -676,6 +847,18 @@ def main(args: ArgsConfig):
             embodiment_tag=args.embodiment_tag,
             denoising_steps=args.denoising_steps,
         )
+        if os.environ.get("QVLA_ACTQUANT_METHOD"):
+            from qvla_actquant.runtime import apply_reproduction_artifact_from_env
+
+            reproduction_runtime = apply_reproduction_artifact_from_env(
+                policy.model, "gr00t"
+            )
+            setattr(policy.model, "_qvla_actquant_runtime", reproduction_runtime)
+            print(
+                f"[inference] loaded {reproduction_runtime['method']} artifact: "
+                f"{reproduction_runtime}",
+                flush=True,
+            )
 
         # Review round 2, item 3: close the static-A8 calibration loop BEFORE
         # the server accepts any request. Without this, the first LIBERO

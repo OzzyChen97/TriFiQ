@@ -22,6 +22,7 @@ from gr00t_v2_common import (
 from quantvla_cross_model_protocol import (
     protocol_artifact,
     protocol_attestation,
+    sha256_file,
     validate_quant_plan,
 )
 from quantvla_model_adapters import gr00t_rollout_inputs, load_model_records
@@ -32,6 +33,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--model-path", required=True)
     p.add_argument("--plan", required=True)
     p.add_argument("--packdir", required=True)
+    p.add_argument(
+        "--hessian-w4",
+        default=None,
+        help="Optional frozen Hessian-W4 payload used by the deployment being calibrated.",
+    )
     p.add_argument("--out", required=True)
     p.add_argument("--suite", default="robocasa365_atomic")
     p.add_argument("--data-config", default=None)
@@ -59,6 +65,9 @@ def main() -> None:
     plan_path = Path(args.plan).resolve()
     model_path = Path(args.model_path).resolve()
     out_path = Path(args.out).resolve()
+    hessian_path = (
+        Path(args.hessian_w4).expanduser().resolve() if args.hessian_w4 else None
+    )
     plan = json.loads(plan_path.read_text())
     quant_selection = validate_quant_plan(
         plan, model="gr00t", source=str(plan_path)
@@ -76,6 +85,17 @@ def main() -> None:
         row_rot=args.row_rot, act_dynamic=False,
     )
     os.environ["GR00T_DUQUANT_PLAN"] = str(plan_path)
+    if hessian_path is not None:
+        if not hessian_path.is_file():
+            raise FileNotFoundError(hessian_path)
+        os.environ["GR00T_DUQUANT_HESSIAN_W4_PATH"] = str(hessian_path)
+        # Hessian artifacts store one scale per group-64 block.  The eager
+        # fallback expects one scale per output row, whereas deployment uses
+        # the fused packed-W4 kernel that consumes the group table directly.
+        # Calibrate through that same deployed path.
+        os.environ["GR00T_DUQUANT_FUSED"] = "1"
+    else:
+        os.environ.pop("GR00T_DUQUANT_HESSIAN_W4_PATH", None)
     os.environ["GR00T_OBS_FORMAT"] = args.obs_format
     os.environ["GR00T_DENOISING_STEPS"] = str(args.denoising_steps)
     os.environ["GR00T_ATM_ENABLE"] = "0"
@@ -106,6 +126,10 @@ def main() -> None:
         "calib_batches": args.calib_steps,
         "denoising_steps": args.denoising_steps,
         "plan_sha256": plan_sha,
+        "hessian_w4_path": str(hessian_path) if hessian_path is not None else None,
+        "hessian_w4_sha256": (
+            sha256_file(hessian_path) if hessian_path is not None else None
+        ),
         "checkpoint_path": str(model_path),
         "wrapped_layers": expected_wrapped,
         "cross_model_protocol": protocol_attestation(),

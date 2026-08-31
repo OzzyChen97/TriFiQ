@@ -40,7 +40,10 @@ def validate_action_noise(
         raise ValueError(f"action noise dtype must be float32, got {value.dtype}")
     if not np.isfinite(value).all():
         raise ValueError("action noise must contain only finite values")
-    return value
+    # msgpack may expose a read-only NumPy view.  PyTorch does not mutate the
+    # initial flow noise, but materialize a writable contiguous buffer so the
+    # tensor conversion has defined behavior and emits no warning.
+    return np.array(value, dtype=np.float32, order="C", copy=True)
 
 
 class Policy(BasePolicy):

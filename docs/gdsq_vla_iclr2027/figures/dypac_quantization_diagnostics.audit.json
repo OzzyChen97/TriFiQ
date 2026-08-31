@@ -1,0 +1,94 @@
+{
+  "derived": {
+    "all_w4_action_head_max_drift": 0.4898800881748424,
+    "all_w4_action_head_median_drift_by_step": [
+      0.0,
+      0.10823523341028554,
+      0.16792976404600485,
+      0.24858765814465714
+    ],
+    "dynamic_a8_successes": 269,
+    "ffn_contract_median_drift_by_step": [
+      0.0,
+      0.13529648699657543,
+      0.23245091138156748,
+      0.3690550912664126
+    ],
+    "ffn_expand_median_drift_by_step": [
+      0.0,
+      0.04139894073056066,
+      0.06678891253649076,
+      0.11198650113129317
+    ],
+    "fp16_to_w4_flips": 16,
+    "frozen_a8_successes": 0,
+    "max_drift_flow_step": 4,
+    "max_drift_layer": "action_head.model.transformer_blocks.13.ff.net.2",
+    "metric_sign_mismatches": 22,
+    "one_layer_flips": 116,
+    "pearson_p": 1.8488768736973604e-42,
+    "pearson_r": 0.8980197710266966,
+    "spearman_p": 4.602589373697235e-27,
+    "spearman_rho": 0.8001230154153693,
+    "w4_to_fp16_flips": 100
+  },
+  "formula": {
+    "flip_delta": "D(context_base) - D(one_layer_flip); positive favors the flip",
+    "flow_drift": "||s_layer,t - s_layer,1||_2 / ||s_layer,1||_2",
+    "scale_aggregation": "channelwise median across three split-specific frozen-A8 tables"
+  },
+  "kind": "dypac_quantization_diagnostics",
+  "outputs": {
+    "pdf": {
+      "path": "docs/gdsq_vla_iclr2027/figures/dypac_quantization_diagnostics.pdf",
+      "sha256": "2f0fca6543bcfb1c148b151f244263b58c62f44935ea97a60c6aa4c2195665ea"
+    },
+    "png": {
+      "path": "docs/gdsq_vla_iclr2027/figures/dypac_quantization_diagnostics.png",
+      "sha256": "c318254c9f0dc2e3726148dcf3b9f3295270a623ecef5551f752f5df2c11dfcf"
+    }
+  },
+  "protocol": {
+    "action_head_targets": 32,
+    "action_head_w4_with_scale_tables": 31,
+    "component_rollout_episodes_per_arm": 500,
+    "flow_steps": 4,
+    "fp16_layers": 16,
+    "target_linears": 116,
+    "verified_candidate_plans": {
+      "all_recorded_sha256_verified": true,
+      "base_path": "runs/full_context_v2/p2/interventions_dynamic/context_base.json",
+      "candidate_id_sha256_digest": "4a2f9c76f30118f159def53a9dc90dd19571a0d30dfb3a38ac082d1169811a29",
+      "count": 117
+    },
+    "w4_layers": 100,
+    "weight_group_size": 64
+  },
+  "schema_version": 1,
+  "sources": [
+    {
+      "path": "runs/full_context_v2/table3_quick/static_a8/atomic_seen/m0_static_a8.npz",
+      "sha256": "4d6bc1f67b8695edda6297ce24cf2a10d6c5dddfaffa9e4232462993e360a178"
+    },
+    {
+      "path": "runs/full_context_v2/table3_quick/static_a8/composite_seen/m0_static_a8.npz",
+      "sha256": "b7d586bd77c2dd5593caa8d281849001800f21696079833be9302202b367b04d"
+    },
+    {
+      "path": "runs/full_context_v2/table3_quick/static_a8/composite_unseen/m0_static_a8.npz",
+      "sha256": "69990ab5cc767fc6dafea931038b2e7d3ed7458bdc7c81b496ebc78ad94682ef"
+    },
+    {
+      "path": "runs/full_context_v2/p2/flip_scores/flip_scores_cross_split.json",
+      "sha256": "2b99b74b67c400243b037bf4c7c7172ba8d37243057119c5035c57d817d1c631"
+    },
+    {
+      "path": "runs/full_context_v2/p2/gr00t_full_context_v2_frozen.json",
+      "sha256": "969c5ae8bc84719229c81a88e8b6ace745cbb87cea551528ec8cf1fd3820e3a2"
+    },
+    {
+      "path": "runs/full_context_v2/table3_quick/aggregate.json",
+      "sha256": "41a2d63af912111725bf3b547a7ee220d78135987cb914d0cd4b073c16a87f9b"
+    }
+  ]
+}

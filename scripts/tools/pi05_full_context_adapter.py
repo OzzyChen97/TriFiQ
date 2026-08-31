@@ -28,7 +28,7 @@ def run_records(
     device: str,
     *,
     noise_index: int = 0,
-    flow_steps: int = 10,
+    flow_steps: int = 4,
 ) -> tuple[torch.Tensor, np.ndarray, list[float]]:
     if flow_steps < 1:
         raise ValueError("flow_steps must be positive")

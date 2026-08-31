@@ -58,12 +58,45 @@ from quantvla_full_context import (  # noqa: E402
 )
 
 
+LIBERO_DYPAC_PROTOCOL_PATH = REPO_ROOT / "scripts/quantvla_libero_dypac_protocol.json"
+
+
+def _libero_dypac_protocol() -> dict:
+    value = json.loads(LIBERO_DYPAC_PROTOCOL_PATH.read_text(encoding="utf-8"))
+    action = value["action"]
+    benchmark = value["benchmark"]
+    return {
+        "protocol_id": value["protocol_id"],
+        "protocol_sha256": _sha256_file(LIBERO_DYPAC_PROTOCOL_PATH),
+        "benchmark": "libero",
+        "action_horizon": int(action["shape"][0]),
+        "action_dimension": int(action["shape"][1]),
+        "n_action_steps": int(benchmark["replan_steps"]),
+        "replan_steps": int(benchmark["replan_steps"]),
+        "flow_steps": int(action["pi05_flow_steps"]),
+        "formal_initial_state_indices": list(
+            benchmark["formal_initial_state_indices"]
+        ),
+        "paired_noise": value["calibration"]["noise_derivation"],
+    }
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _semantic_metadata_sha256(metadata: dict) -> str:
+    """Hash semantic runtime identity while excluding allocator counters."""
+    stable = json.loads(json.dumps(metadata, sort_keys=True, default=str))
+    runtime = stable.get("openpi_runtime") or {}
+    runtime.pop("gpu_memory_bytes", None)
+    runtime.pop("semantic_metadata_sha256", None)
+    encoded = json.dumps(stable, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def enable_omega_qvla_if_configured(model: torch.nn.Module) -> dict:
@@ -247,6 +280,17 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
     policy._sample_kwargs["num_steps"] = int(denoising_steps)
     runtime_selector = configure_runtime_selector_from_env()
     model = policy._model
+    reproduction_runtime = {"enabled": False, "method": None}
+    if os.environ.get("QVLA_ACTQUANT_METHOD"):
+        from qvla_actquant.runtime import apply_reproduction_artifact_from_env
+
+        reproduction_runtime = apply_reproduction_artifact_from_env(model, "pi05")
+        setattr(model, "_qvla_actquant_runtime", reproduction_runtime)
+        logging.info(
+            "loaded %s reproduction artifact: %s",
+            reproduction_runtime["method"],
+            reproduction_runtime,
+        )
     adapter_only = os.environ.get("QUANTVLA_ADAPTER_ONLY", "0") not in (
         "0", "false", "False", ""
     )
@@ -274,6 +318,7 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
         key: value for key, value in duquant_runtime.items() if key != "wrapped_layer_names"
     }
     runtime["omega_qvla"] = omega_runtime
+    runtime["qvla_actquant"] = reproduction_runtime
     runtime["atm_ohb"] = atm_runtime
     runtime["errorfold"] = {
         "enabled": bool(duquant_runtime.get("errorfold_path")),
@@ -292,9 +337,18 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
         and int(duquant_runtime.get("wrapped_layers", 0))
         < int(duquant_runtime.get("candidate_layers", 0))
     )
+    libero_dypac = os.environ.get("OPENPI_LIBERO_DYPAC_PROTOCOL", "0") not in (
+        "0", "false", "False", "",
+    )
     quantization_contract = {
         "logical_profile": (
-            "omega_qvla_w4a4"
+            (
+                "qvla_code_wavg4_a16"
+                if reproduction_runtime.get("method") == "QVLA-code"
+                else "actquant_4bpw_a16"
+            )
+            if reproduction_runtime.get("enabled")
+            else "omega_qvla_w4a4"
             if omega_enabled
             else (
             "quantvla_adapter_only_w4a8"
@@ -303,7 +357,13 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             )
         ),
         "quantization_method": (
-            "omega_qvla_a2lite_gptq_rtn_perstep"
+            (
+                "qvla_mixed_row_pack_dequant_native"
+                if reproduction_runtime.get("method") == "QVLA-code"
+                else "actquant_gguf_dequant_native"
+            )
+            if reproduction_runtime.get("enabled")
+            else "omega_qvla_a2lite_gptq_rtn_perstep"
             if omega_enabled
             else (
             "real_quant_packed_w4_dequant_fp16_gemm"
@@ -312,7 +372,9 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             )
         ),
         "layer_selection_policy": (
-            "omega_qvla_all_paligemma_and_gemma_expert_projection_layers"
+            "vision_and_language_backbones_only_action_expert_protected"
+            if reproduction_runtime.get("enabled")
+            else "omega_qvla_all_paligemma_and_gemma_expert_projection_layers"
             if omega_enabled
             else (
             "shared_static_compression_profile_over_model_adapter_bound_layers"
@@ -322,7 +384,13 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             )
         ),
         "weight_quantizer": (
-            "omega_qvla_gptq_paligemma_rtn_expert"
+            (
+                "released_qvla_per_output_channel_mixed_symmetric"
+                if reproduction_runtime.get("method") == "QVLA-code"
+                else "actquant_hsic_amf_ggml"
+            )
+            if reproduction_runtime.get("enabled")
+            else "omega_qvla_gptq_paligemma_rtn_expert"
             if omega_enabled
             else (
             "hessian_aware_gptq_feedback_signed_group64"
@@ -331,7 +399,9 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             )
         ),
         "activation_quantizer": (
-            "omega_qvla_per_input_channel_per_step"
+            "none_a16"
+            if reproduction_runtime.get("enabled")
+            else "omega_qvla_per_input_channel_per_step"
             if omega_enabled else "signed_symmetric_per_input_channel"
         ),
         "execution_backend": duquant_runtime.get("execution_backend"),
@@ -352,8 +422,12 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
         "fp_weight_sized_buffers": int(
             duquant_runtime.get("fp_weight_sized_buffers", 0)
         ),
-        "weight_bits": int(omega_runtime.get("weight_bits", duquant_runtime.get("weight_bits", 4))),
-        "activation_bits": int(omega_runtime.get("activation_bits", duquant_runtime.get("act_bits", 8))),
+        "weight_bits": (
+            reproduction_runtime.get("precision")
+            if reproduction_runtime.get("enabled")
+            else int(omega_runtime.get("weight_bits", duquant_runtime.get("weight_bits", 4)))
+        ),
+        "activation_bits": 16 if reproduction_runtime.get("enabled") else int(omega_runtime.get("activation_bits", duquant_runtime.get("act_bits", 8))),
         "block_in": int(duquant_runtime.get("block_in", 64)),
         "block_out": int(duquant_runtime.get("block_out", 64)),
         "lambda_smooth": float(os.environ.get("OPENPI_DUQUANT_LS", "0.15")),
@@ -378,8 +452,8 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             or duquant_runtime.get("act_scales_ready", False)
         ),
         "denoising_steps": int(denoising_steps),
-        "n_action_steps": 16,
-        "replan_steps": 16,
+        "n_action_steps": 5 if libero_dypac else 16,
+        "replan_steps": 5 if libero_dypac else 16,
         "paired_noise": PAIRED_NOISE_PROTOCOL,
         "selector_loads_atm_and_ohb_superset": (
             runtime["runtime_selector"].get("enabled") is True
@@ -408,7 +482,11 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
     runtime["model_adapter"] = adapter_attestation(
         "pi05", native_action_horizon=int(model.config.action_horizon)
     )
-    runtime["protocol"] = closed_loop_runtime_protocol()
+    runtime["protocol"] = (
+        _libero_dypac_protocol() if libero_dypac else closed_loop_runtime_protocol()
+    )
+    if libero_dypac:
+        runtime["libero_dypac_protocol"] = runtime["protocol"]
     if os.environ.get("OPENPI_FULL_CONTEXT_PROTOCOL", "0") not in (
         "0", "false", "False", "",
     ):
@@ -451,6 +529,7 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
         runtime["native_rng_seed"] = seed
+    runtime["semantic_metadata_sha256"] = _semantic_metadata_sha256(policy._metadata)
     _validate_formal_runtime(runtime)
     runtime_path = os.environ.get("OPENPI_RUNTIME_INFO_PATH")
     if runtime_path:
@@ -469,7 +548,12 @@ def _validate_formal_runtime(runtime: dict) -> None:
 
     config_id = runtime["config_id"]
     formal_flow_steps = int(os.environ.get("OPENPI_FORMAL_FLOW_STEPS", "4"))
-    required_protocol = closed_loop_runtime_protocol()
+    libero_dypac = os.environ.get("OPENPI_LIBERO_DYPAC_PROTOCOL", "0") not in (
+        "0", "false", "False", "",
+    )
+    required_protocol = (
+        _libero_dypac_protocol() if libero_dypac else closed_loop_runtime_protocol()
+    )
     required_protocol["flow_steps"] = formal_flow_steps
     protocol = runtime.get("protocol") or {}
     mismatches = {
@@ -487,6 +571,56 @@ def _validate_formal_runtime(runtime: dict) -> None:
             f"formal checkpoint hash mismatch: runtime={runtime.get('checkpoint_sha256')!r} "
             f"expected={expected_checkpoint_sha256!r}"
         )
+    if config_id == "dypac_vla_libero":
+        if not libero_dypac or formal_flow_steps != 10:
+            raise RuntimeError("LIBERO DyPAC formal runtime requires its v1 protocol and 10 flow steps")
+        expected_wrapped_text = os.environ.get("OPENPI_FORMAL_EXPECT_WRAPPED")
+        if expected_wrapped_text is None:
+            raise RuntimeError("LIBERO DyPAC runtime requires OPENPI_FORMAL_EXPECT_WRAPPED")
+        expected_wrapped = int(expected_wrapped_text)
+        duquant = runtime.get("duquant") or {}
+        required_duquant = {
+            "enabled": True,
+            "wrapped_layers": expected_wrapped,
+            "block_in": 64,
+            "block_out": 64,
+            "act_bits": 8,
+            "act_dynamic": True,
+            "hessian_w4_loaded": expected_wrapped,
+            "packed_low_bit_residency": True,
+        }
+        mismatches = {
+            key: (duquant.get(key), value)
+            for key, value in required_duquant.items()
+            if duquant.get(key) != value
+        }
+        if mismatches:
+            raise RuntimeError(f"{config_id}: DyPAC DuQuant mismatch: {mismatches}")
+        contract = runtime.get("cross_model_quantization_contract") or {}
+        contract_required = {
+            "weight_quantizer": "hessian_aware_gptq_feedback_signed_group64",
+            "activation_quantizer": "signed_symmetric_per_input_channel",
+            "calibration_policy": "online_dynamic_per_forward_per_channel_amax",
+            "row_rotation": "0",
+            "static_activation_scales": False,
+            "denoising_steps": 10,
+            "n_action_steps": 5,
+            "replan_steps": 5,
+        }
+        contract_mismatches = {
+            key: (contract.get(key), value)
+            for key, value in contract_required.items()
+            if contract.get(key) != value
+        }
+        if contract_mismatches:
+            raise RuntimeError(f"{config_id}: DyPAC contract mismatch: {contract_mismatches}")
+        if (runtime.get("atm_ohb") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: ATM/OHB corrections are forbidden")
+        if (runtime.get("runtime_selector") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: runtime selection is forbidden")
+        if (runtime.get("errorfold") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: ErrorFold corrections are forbidden")
+        return
     if config_id == "omega_qvla_w4a4":
         omega = runtime.get("omega_qvla") or {}
         expected_wrapped = int(os.environ.get("OPENPI_FORMAL_EXPECT_WRAPPED", "252"))
@@ -525,6 +659,27 @@ def _validate_formal_runtime(runtime: dict) -> None:
             or contract.get("activation_bits") != 4
         ):
             raise RuntimeError(f"{config_id}: cross-model contract mismatch: {contract}")
+        return
+    if config_id in ("qvla_code_wavg4_a16", "actquant_4bpw_a16"):
+        reproduction = runtime.get("qvla_actquant") or {}
+        wanted_method = "QVLA-code" if config_id.startswith("qvla") else "ActQuant"
+        if (
+            reproduction.get("enabled") is not True
+            or reproduction.get("method") != wanted_method
+            or reproduction.get("runtime_memory_claim_allowed") is not False
+            or reproduction.get("latency_claim_allowed") is not False
+        ):
+            raise RuntimeError(f"{config_id}: reproduction runtime mismatch: {reproduction}")
+        if (runtime.get("duquant") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: DuQuant must be disabled")
+        if (runtime.get("omega_qvla") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: Omega-QVLA must be disabled")
+        if (runtime.get("atm_ohb") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: ATM/OHB must be disabled")
+        if (runtime.get("runtime_selector") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: selector must be disabled")
+        if (runtime.get("errorfold") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: ErrorFold must be disabled")
         return
     precision = runtime.get("model_dtype") or {}
     linear_dtypes = precision.get("linear_layers_by_weight_dtype") or {}

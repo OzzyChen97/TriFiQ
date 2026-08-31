@@ -105,7 +105,7 @@ a8_sidecar = json.loads(Path(str(a8_path) + ".json").read_text(encoding="utf-8")
 a8_meta = a8_sidecar.get("metadata") or {}
 plan_hash = digest(Path(sys.argv[4]).resolve())
 a8_checks = {
-    "flow_steps": int(a8_meta.get("denoising_steps", -1)) == 10,
+    "flow_steps": int(a8_meta.get("denoising_steps", -1)) == 4,
     "plan": a8_meta.get("plan_sha256") == plan_hash,
     "wrapped": int(a8_meta.get("wrapped_layers", -1)) == 80,
     "buffer": a8_meta.get("calibration_buffer_sha256")
@@ -113,7 +113,7 @@ a8_checks = {
 }
 failed = [name for name, passed in a8_checks.items() if not passed]
 if failed:
-    raise SystemExit(f"GDSQ-main flow10 A8 preflight failed: {failed}")
+    raise SystemExit(f"GDSQ-main four-flow-step A8 preflight failed: {failed}")
 hessian_path = Path(sys.argv[5]).resolve()
 hessian_meta = json.loads(Path(str(hessian_path) + ".json").read_text(encoding="utf-8"))
 hessian_checks = {
@@ -147,7 +147,7 @@ PY
 server_env() {
     env \
         PI05_CONTROL_DIR="$CONTROL_DIR" \
-        PI05_FLOW_STEPS=10 \
+        PI05_FLOW_STEPS=4 \
         PI05_FULL_CONTEXT_PLAN="$CANDIDATE_PLAN" \
         PI05_FULL_CONTEXT_HESSIAN_W4="$CANDIDATE_HESSIAN" \
         PI05_GDSQ_A8="$GDSQ_FLOW10_A8" \
@@ -185,7 +185,7 @@ launch_one() {
         --trial-seeds "$seeds" \
         --split target \
         --replan-steps 16 \
-        --flow-steps 10 \
+        --flow-steps 4 \
         --egl-device "$egl" \
         --expected-server-metadata-sha256 "$metadata_hash" \
         --resume-dir "$RESULTS_DIR/$config" \

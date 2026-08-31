@@ -134,6 +134,8 @@ SimplerEnv/
 
 # Reproduction-only external releases and large official quantization packs.
 /external/Omega-QVLA/
+/external/QVLA/
+/external/ActQuant/
 /checkpoints/omega_qvla/
 
 # Local secrets (LLM API key / Overleaf token) - never committed

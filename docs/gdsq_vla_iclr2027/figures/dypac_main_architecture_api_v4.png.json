@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "kind": "dypac_vla_main_architecture_provenance",
+  "generated_date": "2026-08-30",
+  "generation": {
+    "mode": "built-in imagegen precise-object-edit",
+    "credential_persisted": false,
+    "source": "archived outside the synced paper tree in output/paper_cleanup_backup_20260830/figures/dypac_main_architecture_api_v3.png",
+    "source_sha256": "e06fb94149c2d90c82572995f850bfbddd6c91c132c09f9b61a5c1fbfb6d5192",
+    "prompt": "figures/prompts/dypac-main-architecture-api-edit-v4.txt"
+  },
+  "corrections": {
+    "fail_branch": "One straight orange dashed left arrow with one arrowhead and no X mark",
+    "fail_label": "Fail",
+    "other_content_changed": false
+  },
+  "final": {
+    "path": "figures/dypac_main_architecture_api_v4.png",
+    "width": 1774,
+    "height": 887,
+    "color_space": "sRGB",
+    "sha256": "0cd93b7677732d1daaa6feef4639f78ef2c2160d6e8adeeaecfce9e3a969bb21"
+  },
+  "claim_scope": "Architecture and protocol visualization only; no empirical result is encoded in the figure."
+}

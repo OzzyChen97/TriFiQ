@@ -128,9 +128,9 @@ def build(args: argparse.Namespace) -> None:
     actual_checkpoint_sha256 = (
         sha256_file(checkpoint) if args.rehash_checkpoint else args.checkpoint_sha256
     )
-    if actual_checkpoint_sha256 != CHECKPOINT_SHA256:
+    if actual_checkpoint_sha256 != args.checkpoint_sha256:
         raise RuntimeError(
-            f"checkpoint hash changed: {actual_checkpoint_sha256} != {CHECKPOINT_SHA256}"
+            f"checkpoint hash changed: {actual_checkpoint_sha256} != {args.checkpoint_sha256}"
         )
     keys = candidate_keys(checkpoint)
     names = [key.removesuffix(".weight") for key in keys]

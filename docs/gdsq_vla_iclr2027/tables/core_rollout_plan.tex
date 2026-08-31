@@ -1,18 +1,20 @@
 \begin{table}[t]
 \centering
-\caption{Main closed-loop ablation matrix. Each contrast changes one decision while freezing the checkpoint, task--seed pairs, byte accounting, and rollout protocol. Pending cells are a preregistered experiment plan and support no current claim.}
+\caption{Reduced closed-loop component ablation. Each configuration uses the same 50 tasks, seeds 0--9, paired noise, and official horizons. The reference is $M_0$ with \dyrange on the same 500 episodes.}
 \label{tab:core_rollout_plan}
 \footnotesize
-\setlength{\tabcolsep}{4.0pt}
+\setlength{\tabcolsep}{3.5pt}
 \renewcommand{\arraystretch}{1.08}
-\begin{tabular}{@{}p{0.21\linewidth}p{0.24\linewidth}p{0.30\linewidth}p{0.16\linewidth}@{}}
+\begin{tabular}{@{}lcccc@{}}
 \toprule
-Configuration & Changed decision & Frozen controls & Status / SR \\
+Configuration & W4/FP16 & SR & $\Delta$ (pp) & Holm $p$ \\
 \midrule
-\method & None & Formal 50-task protocol & Complete; 54.0 \\
-Static A8 & Activation range only & Same W4 weights and mask & Planned / -- \\
-Local-MSE selection & Precision metric only & Same byte ceiling and generator & Planned / -- \\
-No full-network check & Final adjudication only & Same metric, budget, and runtime & Planned / -- \\
+$M_0$ + \dyrange & 100/16 & 53.8 & reference & -- \\
+Frozen-range A8 & 100/16 & 0.0 & $-53.8$ & $<10^{-4}$ \\
+Local-MSE + \dyrange & 81/35 & 53.0 & $-0.8$ & 1.000 \\
+No final check + \dyrange & 115/1 & 53.0 & $-0.8$ & 1.000 \\
 \bottomrule
 \end{tabular}
+\vspace{2pt}
+\parbox{0.98\linewidth}{\footnotesize SR is reported in percent and $\Delta$ in percentage points. This reduced experiment estimates directional effects and does not establish equivalence when a difference is not significant.}
 \end{table}

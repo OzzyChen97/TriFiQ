@@ -120,6 +120,23 @@ def canonical_hash(value) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def server_metadata_hash(value: dict) -> str:
+    runtime = value.get("openpi_runtime") or {}
+    claimed = runtime.get("semantic_metadata_sha256")
+    if not claimed:
+        return canonical_hash(value)
+    stable = json.loads(json.dumps(value, sort_keys=True))
+    stable_runtime = stable.get("openpi_runtime") or {}
+    stable_runtime.pop("gpu_memory_bytes", None)
+    stable_runtime.pop("semantic_metadata_sha256", None)
+    computed = canonical_hash(stable)
+    if claimed != computed:
+        raise ValueError(
+            f"server semantic metadata SHA mismatch: {claimed} != {computed}"
+        )
+    return str(claimed)
+
+
 def load_committed(
     path: Path,
     config_id: str,
@@ -455,8 +472,8 @@ def main() -> None:
 
     client = WebsocketClientPolicy(args.host, args.port)
     server_metadata = client.get_server_metadata()
-    metadata_hash = canonical_hash(server_metadata)
     server_runtime = server_metadata.get("openpi_runtime") or {}
+    metadata_hash = server_metadata_hash(server_metadata)
     require_protocol_attestation(server_runtime, source="pi0.5 runtime")
     server_quant_contract = server_runtime.get("cross_model_quantization_contract") or {}
     if server_quant_contract.get("static_activation_scales") is False:

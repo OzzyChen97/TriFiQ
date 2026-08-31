@@ -309,6 +309,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--trial-timeout", type=int, default=3600)
     p.add_argument("--trial-batch-size", type=int, default=5)
     p.add_argument(
+        "--max-concurrent-clients", type=int, default=0,
+        help=("Operational cap on simultaneously active client shards. Zero starts "
+              "all pending shards. Positive values dispatch resumable waves without "
+              "changing the frozen evaluation protocol."),
+    )
+    p.add_argument(
         "--action-noise", choices=["paired", "native"], default="paired",
         help=("paired uses deterministic common-random-number diffusion noise; "
               "native uses the model server's ordinary RNG stream."),
@@ -538,7 +544,7 @@ def clean_server_env(base: dict[str, str]) -> dict[str, str]:
         "GR00T_OHB_", "GR00T_DENOISING_STEPS", "OMEGA_QVLA_",
     )
     for key in list(env):
-        if key.startswith(prefixes):
+        if key.startswith(prefixes) or key.startswith("QVLA_ACTQUANT_"):
             env.pop(key, None)
     env["PYTHONPATH"] = f"{REPO / 'code'}:{REPO / 'scripts/tools'}:{env.get('PYTHONPATH', '')}"
     return env
@@ -708,6 +714,22 @@ def build_manifest(
                         f"{raw['id']}: dynamic runtime refuses non-DyRange ErrorFold"
                     )
         omega_pack_artifact = artifact(raw.get("omega_pack"))
+        reproduction_artifact = artifact(raw.get("reproduction_artifact"))
+        reproduction_method = raw.get("reproduction_method")
+        if reproduction_method is not None:
+            reproduction_method = str(reproduction_method).lower()
+            if reproduction_method not in {"qvla", "actquant"}:
+                raise SystemExit(
+                    f"{raw['id']}: reproduction_method must be qvla or actquant"
+                )
+            if reproduction_artifact is None:
+                raise SystemExit(
+                    f"{raw['id']}: reproduction_method requires reproduction_artifact"
+                )
+        elif reproduction_artifact is not None:
+            raise SystemExit(
+                f"{raw['id']}: reproduction_artifact requires reproduction_method"
+            )
         omega_attestation_artifact = None
         omega_calibration_artifact = artifact(raw.get("omega_calibration_manifest"))
         quant_selection_attestation = None
@@ -810,6 +832,8 @@ def build_manifest(
             "omega_pack_attestation": omega_attestation_artifact,
             "omega_calibration_manifest": omega_calibration_artifact,
             "omega_include": raw.get("omega_include"),
+            "reproduction_artifact": reproduction_artifact,
+            "reproduction_method": reproduction_method,
             "atm": artifact(raw.get("atm")),
             "ohb": bool(raw.get("ohb", False)),
             "ohb_only": bool(raw.get("ohb_only", False)),
@@ -833,8 +857,16 @@ def build_manifest(
         ]
         if replicas:
             config["replicas"] = replicas
-        if config["plan"] and config["omega_pack"]:
-            raise SystemExit(f"{config['id']}: cannot mix DuQuant and Omega-QVLA")
+        selected_quantizers = sum(
+            value is not None
+            for value in (
+                config["plan"], config["omega_pack"], config["reproduction_artifact"]
+            )
+        )
+        if selected_quantizers > 1:
+            raise SystemExit(
+                f"{config['id']}: cannot mix DuQuant, Omega-QVLA, and reproduction artifacts"
+            )
         if config["expected_wrapped"] and not config["plan"] and not config["omega_pack"]:
             raise SystemExit(f"{config['id']}: quantized config requires plan")
         if (
@@ -1014,9 +1046,26 @@ def start_server(
     env["GR00T_CONFIG_ID"] = str(config["id"])
     env["GR00T_MODEL_PATH"] = manifest["checkpoint_path"]
     env["GR00T_DATA_CONFIG"] = manifest["data_config"]
-    if int(manifest.get("schema_version", 1)) >= 2:
+    if (
+        int(manifest.get("schema_version", 1)) >= 2
+        and not config.get("reproduction_artifact")
+    ):
         env["QUANTVLA_ADAPTER_ONLY"] = "1"
-    if config["omega_pack"]:
+    if config.get("reproduction_artifact"):
+        env["CUDA_VISIBLE_DEVICES"] = str(instance["gpu"])
+        env["QVLA_ACTQUANT_METHOD"] = config["reproduction_method"]
+        env["QVLA_ACTQUANT_PACK"] = config["reproduction_artifact"]["path"]
+        env["QVLA_ACTQUANT_PACK_SHA256"] = config["reproduction_artifact"]["sha256"]
+        env["ACTQUANT_ROOT"] = str(REPO / "external" / "ActQuant")
+        env["GR00T_ATM_ENABLE"] = "0"
+        env["GR00T_OHB_ENABLE"] = "0"
+        cmd = [
+            str(GROOT_PY), str(REPO / "scripts/inference_service.py"), "--server",
+            "--model-path", manifest["checkpoint_path"], "--data-config", manifest["data_config"],
+            "--embodiment-tag", "new_embodiment", "--port", str(instance["port"]),
+            "--denoising-steps", "4",
+        ]
+    elif config["omega_pack"]:
         omega_calibration = json.loads(
             Path(config["omega_calibration_manifest"]["path"]).read_text()
         )
@@ -1117,7 +1166,11 @@ def wait_and_verify(
             # timeout causes an endless retry loop while the server is still
             # completing a valid hash.  Keep the short timeout for ordinary
             # configs and grant only the attested Omega path enough time.
-            endpoint_timeout_ms = 120_000 if config["omega_pack"] else 3_000
+            endpoint_timeout_ms = (
+                120_000
+                if config["omega_pack"] or config.get("reproduction_artifact")
+                else 3_000
+            )
             info = call_endpoint(
                 instance["port"], "get_runtime_info", endpoint_timeout_ms
             )
@@ -1174,6 +1227,43 @@ def wait_and_verify(
                 )["calibration"]["buffer_sha256"]
                 if calibration.get("buffer_sha256") != expected_calibration:
                     raise RuntimeError(f"Omega-QVLA calibration mismatch: {info}")
+            if config.get("reproduction_artifact"):
+                reproduction = info.get("qvla_actquant") or {}
+                wanted_method = (
+                    "QVLA-code"
+                    if config["reproduction_method"] == "qvla"
+                    else "ActQuant"
+                )
+                required = {
+                    "enabled": True,
+                    "method": wanted_method,
+                    "runtime_memory_claim_allowed": False,
+                    "latency_claim_allowed": False,
+                }
+                mismatches = {
+                    key: (reproduction.get(key), value)
+                    for key, value in required.items()
+                    if reproduction.get(key) != value
+                }
+                if mismatches:
+                    raise RuntimeError(
+                        f"QVLA/ActQuant reproduction runtime mismatch: {mismatches}"
+                    )
+                runtime_artifact_sha = reproduction.get(
+                    "pack_sha256"
+                    if config["reproduction_method"] == "qvla"
+                    else "bundle_manifest_sha256"
+                )
+                if runtime_artifact_sha != config["reproduction_artifact"]["sha256"]:
+                    raise RuntimeError(
+                        "QVLA/ActQuant reproduction artifact SHA mismatch: "
+                        f"{runtime_artifact_sha} != "
+                        f"{config['reproduction_artifact']['sha256']}"
+                    )
+                if int(info.get("wrapped_layers", -1)) != 0:
+                    raise RuntimeError(
+                        f"reproduction runtime unexpectedly contains wrapper layers: {info}"
+                    )
             expect_atm = config["atm"] is not None and not config.get("ohb_only")
             expect_ohb = config["atm"] is not None and (
                 config["ohb"] or config.get("ohb_only")
@@ -1254,6 +1344,7 @@ def start_clients(
     shard_indices: set[int] | None = None,
     instance_mode: str = "all",
     candidate_state_archive_dir: Path | None = None,
+    max_children: int | None = None,
 ) -> list[tuple[subprocess.Popen, Any, str]]:
     """Start incomplete client shards, rebalancing them over active instances.
 
@@ -1305,6 +1396,8 @@ def start_clients(
                 continue
             pending_shards.append((shard_index, tasks, seeds))
         for pending_index, (shard_index, tasks, seeds) in enumerate(pending_shards):
+            if max_children is not None and len(children) >= max_children:
+                return children
             out = config["result_files"][shard_index]
             shard_egl_devices = config.get("shard_egl_devices")
             egl_device = (
@@ -1406,6 +1499,8 @@ def stop_process(proc: subprocess.Popen) -> None:
 
 def main() -> None:
     args = parse_args()
+    if args.max_concurrent_clients < 0:
+        raise SystemExit("--max-concurrent-clients must be >= 0")
     spec_path = Path(args.spec).resolve()
     run_dir = Path(args.run_dir).resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1531,19 +1626,35 @@ def main() -> None:
             print(f"[matrix] verified {runtime_key}: {runtime[runtime_key]}")
         (run_dir / "runtime_info.json").write_text(json.dumps(runtime, indent=2) + "\n")
 
-        clients = start_clients(
-            manifest, manifest_sha, run_dir,
-            candidate_state_archive_dir=args.candidate_state_archive_dir,
-        )
-        failures = []
-        for proc, handle, label in clients:
-            rc = proc.wait()
-            handle.close()
-            if rc != 0:
-                failures.append((label, rc))
-            print(f"[matrix] client {label} exit={rc}")
-        if failures:
-            raise SystemExit(f"matrix clients failed: {failures}; rerun resumes by task/seed")
+        client_wave = 0
+        while True:
+            clients = start_clients(
+                manifest, manifest_sha, run_dir,
+                candidate_state_archive_dir=args.candidate_state_archive_dir,
+                max_children=(
+                    args.max_concurrent_clients
+                    if args.max_concurrent_clients > 0 else None
+                ),
+            )
+            if not clients:
+                break
+            client_wave += 1
+            print(
+                f"[matrix] client wave {client_wave}: {len(clients)} active "
+                f"(cap={args.max_concurrent_clients or 'all'})"
+            )
+            failures = []
+            for proc, handle, label in clients:
+                rc = proc.wait()
+                handle.close()
+                if rc != 0:
+                    failures.append((label, rc))
+                print(f"[matrix] client {label} exit={rc}")
+            if failures:
+                raise SystemExit(
+                    f"matrix clients failed: {failures}; rerun resumes by task/seed"
+                )
+            clients = []
         verify_complete_client_results(manifest, manifest_sha)
         print(f"[matrix] complete: {len(manifest['tasks'])} tasks x "
               f"{len(manifest['seeds'])} seeds x {len(manifest['configs'])} configs")

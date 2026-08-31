@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "protocol_id": "dypac-vla-libero-v1",
+  "method_id": "dypac_vla",
+  "models": ["gr00t", "pi05"],
+  "benchmark": {
+    "suites": {
+      "goal": "libero_goal",
+      "spatial": "libero_spatial",
+      "object": "libero_object",
+      "long": "libero_10"
+    },
+    "tasks_per_suite": 10,
+    "calibration_initial_state_indices": [0, 1, 2],
+    "formal_initial_state_indices": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+    "environment_seed": 0,
+    "stabilization_steps": 10,
+    "replan_steps": 5,
+    "queried_replan_indices": [0, 1, 2, 3, 4, 5, 6],
+    "retained_replan_indices": [0, 2, 4, 6]
+  },
+  "calibration": {
+    "source_policy": "original_fp16_checkpoint",
+    "selection_task_indices": [0, 4, 8],
+    "selection_states_per_task": 3,
+    "other_states_per_task": 1,
+    "total_observations": 256,
+    "selection_observations": 144,
+    "all_tasks_covered": true,
+    "uses_success_labels": false,
+    "uses_test_rollout_feedback": false,
+    "noise_streams": ["A", "B"],
+    "noise_derivation": "sha256(protocol,suite,task,state,replan,stream)"
+  },
+  "action": {
+    "space": "inverse_normalized_libero_physical_action",
+    "shape": [5, 7],
+    "layout": {
+      "translation": [0, 3],
+      "axis_angle": [3, 6],
+      "gripper": [6, 7]
+    },
+    "pi05_native_horizon": 10,
+    "pi05_action_dimension": 7,
+    "pi05_flow_steps": 10
+  },
+  "quantization": {
+    "candidate_scope": "adapter_bound_linear_layers",
+    "weight": "hessian_aware_gptq_feedback_signed_group64",
+    "weight_bits": 4,
+    "group_size": 64,
+    "clipping_ratios": [1.0, 0.95, 0.9, 0.85],
+    "input_permutation": false,
+    "row_rotation": "identity",
+    "activation": "dynamic_per_forward_per_input_channel_amax_a8",
+    "activation_bits": 8,
+    "corrections": false
+  },
+  "selection": {
+    "primary_metric": "d_pac_libero_v1",
+    "components": ["local", "prefix", "pose", "stitch", "grip"],
+    "component_weights": [0.2, 0.2, 0.2, 0.2, 0.2],
+    "risk": "mean_plus_cvar90_over_task_state_sequences",
+    "secondary_metric": "d_func_libero_v1",
+    "initial_mask": "exact_byte_dp_from_single_layer_outputimpact",
+    "fcp": {
+      "coordinate_flips": "all_candidate_layers",
+      "structured_proposals": "exact_byte_dp",
+      "adjudication": "complete_network_d_pac",
+      "robustness": "suite_minimax_and_delete_one_task_jackknife",
+      "candidate_state_audit": "top3_noise_B",
+      "failure_policy": "return_initial_mask"
+    }
+  }
+}

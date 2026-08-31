@@ -951,6 +951,8 @@ def load_hessian_w4(
             "f43aa056b5633b555acfecc48af2f2b5eec81ca7e2cf83c8b86f12fde91498e2",
         "quantvla-gr00t-pi05-errorfold-v4":
             "8ab2aa09c72bc881f7275121717081a011e81d3b39937598d619c6a58d5c5aea",
+        "dypac-vla-libero-v1":
+            "759fba378a255ecc2676d5fb5aa5f586e4b0ef086bcf864c8cf81ae5348dc91e",
     }
     protocol_id = metadata.get("protocol_id")
     if (

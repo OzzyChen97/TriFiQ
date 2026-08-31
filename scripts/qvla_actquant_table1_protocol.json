@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "protocol_id": "qvla-actquant-robocasa365-table1-v1",
+  "benchmark": {
+    "name": "RoboCasa365",
+    "split": "target",
+    "task_source": "scripts/quantvla_full_context_protocol_v2.json#/table1/tasks",
+    "task_source_sha256": "438746d064d55cdfb5d6d1c427b70bb03d97547bc81e9ef96d5680bee7e0a363",
+    "formal_seeds": {
+      "start": 0,
+      "stop_inclusive": 49
+    },
+    "episodes_per_row": 2500,
+    "primary_metric": "task_macro_success_rate",
+    "secondary_metrics": [
+      "micro_success_rate",
+      "split_task_macro_success_rate",
+      "exact_two_sided_mcnemar",
+      "task_then_seed_hierarchical_bootstrap",
+      "holm_adjusted_mcnemar"
+    ]
+  },
+  "sources": {
+    "qvla": {
+      "paper": "arXiv:2602.03782v1",
+      "paper_path": "docs/gdsq_vla_iclr2027/third_party/qvla_actquant/qvla-2602.03782v1.pdf",
+      "paper_sha256": "e53902d1c8f1c07b555a18c058d64a62d415e6e1c0b581b41fe1f25007af17c4",
+      "repository": "https://github.com/AutoLab-SAI-SJTU/QVLA.git",
+      "commit": "26cc4821a3be4c003d09d3c7997b38db2a347982",
+      "semantic_priority": "released_code"
+    },
+    "actquant": {
+      "paper": "arXiv:2605.24011v3",
+      "paper_path": "docs/gdsq_vla_iclr2027/third_party/qvla_actquant/actquant-2605.24011v3.pdf",
+      "paper_sha256": "8a3371d2668a259508184e4064197ea5c7c0dd2228725ffade028e7c739200b0",
+      "repository": "https://github.com/arashakb/ActQuant.git",
+      "commit": "b64791125070652fe6b554e244fe809c79ef5246"
+    }
+  },
+  "calibration": {
+    "selection_seed": 42,
+    "formal_seed_overlap_forbidden": true,
+    "human_download_probe": {
+      "url": "https://utexas.box.com/shared/static/6yw8qwkwufg7di063v7e5zbcyhgn8nlf.tar",
+      "checked_utc": "2026-08-31T08:14:14Z",
+      "http_status": 404
+    },
+    "source": "fp16_teacher_proxy",
+    "source_protocol_equivalent": false,
+    "teacher_seed_start": 1000,
+    "accept_failed_trajectories": true,
+    "qvla_episodes_per_model_unit": 512,
+    "actquant_episodes_per_model_unit": 60,
+    "frame_policy": "all_valid_replan_frames",
+    "actquant_is_qvla_subset": true
+  },
+  "models": {
+    "gr00t": {
+      "display_name": "GR00T N1.5",
+      "units": {
+        "atomic_seen": "checkpoints/robocasa365/gr00t_n1-5/foundation_model_learning/target_posttraining/atomic_seen/checkpoint-60000",
+        "composite_seen": "checkpoints/robocasa365/gr00t_n1-5/foundation_model_learning/target_posttraining/composite_seen/checkpoint-60000",
+        "composite_unseen": "checkpoints/robocasa365/gr00t_n1-5/foundation_model_learning/target_posttraining/composite_unseen/checkpoint-60000"
+      },
+      "flow_steps": 4,
+      "execute_steps": 16
+    },
+    "pi05": {
+      "display_name": "pi0.5",
+      "checkpoint": "checkpoints/robocasa/pi05_pretrain_human300_pytorch/model.safetensors",
+      "checkpoint_sha256": "4174133479c6a51d79cac90d6a1739f32f928624eb529bf791cd5be942afdf1c",
+      "flow_steps": 4,
+      "execute_steps": 16
+    }
+  },
+  "methods": {
+    "qvla": {
+      "display_name": "QVLA-code Wavg4/A16",
+      "bits": [0, 2, 4, 8, 16],
+      "target_channel_average_bits": 4.0,
+      "activation_bits": 16,
+      "calibration_uses_actions": false,
+      "runtime": "packed_rows_dequantized_once_to_native_dtype"
+    },
+    "actquant": {
+      "display_name": "ActQuant 4.0 BPW/A16",
+      "target_bpw": 4.0,
+      "base_type": "IQ2_XS",
+      "max_type": "Q4_K",
+      "activation_bits": 16,
+      "fisher_alpha": 1.0,
+      "runtime": "gguf_dequantized_once_to_native_dtype"
+    }
+  },
+  "target_policy": {
+    "gr00t": {
+      "include_families": ["eagle_vision", "qwen_language"],
+      "exclude_substrings": ["action_head", "projector", "lm_head", "output_head"]
+    },
+    "pi05": {
+      "include_families": ["siglip_vision", "paligemma_language"],
+      "exclude_substrings": ["gemma_expert", "action_in_proj", "action_out_proj", "time_mlp", "multi_modal_projector", "lm_head"]
+    }
+  },
+  "claims": {
+    "static_pack_size_only": true,
+    "runtime_memory_claim_allowed": false,
+    "latency_claim_allowed": false,
+    "test_feedback_allowed": false
+  }
+}

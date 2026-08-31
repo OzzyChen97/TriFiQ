@@ -93,9 +93,20 @@ def sample_batch(
 ):
     """Run one true model batch with the buffer's canonical action noises."""
     _, observation = prepare_observation_batch(policy, records, device)
-    noises = torch.from_numpy(
-        np.stack([record["noise"] for record in records], axis=0)
-    ).to(device)
+    # Calibration buffers retain the canonical 50-step noise stream so the
+    # same result-blind artifact can serve both RoboCasa (H=50) and LIBERO
+    # pi0.5 (H=10).  Feed only the horizon declared by the loaded checkpoint;
+    # otherwise the action embeddings have length 50 while the model builds a
+    # length-10 suffix attention mask.
+    horizon = int(policy._model.config.action_horizon)
+    action_dim = int(policy._model.config.action_dim)
+    canonical = np.stack([record["noise"] for record in records], axis=0)
+    if canonical.ndim != 3 or canonical.shape[1] < horizon or canonical.shape[2] != action_dim:
+        raise ValueError(
+            "canonical action noise is incompatible with the loaded model: "
+            f"noise={canonical.shape}, horizon={horizon}, action_dim={action_dim}"
+        )
+    noises = torch.from_numpy(canonical[:, :horizon, :]).to(device)
     with torch.inference_mode():
         return policy._model.sample_actions(
             device,

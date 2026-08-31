@@ -13,6 +13,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 PAPER = ROOT / "docs/gdsq_vla_iclr2027"  # Legacy directory name; paper identity is DyPAC-VLA.
+QVLA_ACTQUANT_AGGREGATE = ROOT / "runs/qvla_actquant_table1/formal/aggregate.json"
 
 SOURCES = {
     "gr00t_plan": (
@@ -29,19 +30,19 @@ SOURCES = {
     ),
     "pi05_plan": (
         ROOT / "runs/full_context_v2/pi05_p2/pi05_full_context_v2_frozen.json",
-        "75d03ac67f17e44570055b54b1a25e44b88ee22bc2282d91bda5acc1f1c61b98",
+        "e502f7cd7d126517c000f8b5b8e7c6e5537b31226910a2dd6834caaebf736c83",
     ),
     "pi05_main_plan": (
         ROOT / "runs/full_context_v2/pi05_p2/interventions_round_main/context_base.json",
-        "fed603b2d91ca8ef419b22e665325e73f97bc400018f6514aa86319dd821e4d4",
+        "461531ea2c48cdd5e0f063bc944c882ede6a36ed73482beeb19134ec7e55e42b",
     ),
-    "pi05_quick": (
-        ROOT / "runs/full_context_v2/pi05_quick/combined_aggregate.json",
-        "9633554be93cdfd88448b8e2ebec8e0999e26a7351520752c20ee2eb6d3fbade",
+    "pi05_dypac_formal": (
+        ROOT / "runs/full_context_v2/pi05_table1/aggregate.json",
+        "512480a2e0836423254217b5215489bcb218e17a4c7d0fff1cdf5aba9acf4f73",
     ),
-    "pi05_guard": (
-        ROOT / "runs/full_context_v2/pi05_quick/non_inferiority_anchor.json",
-        "b7922b77071480e5d7d5b37e0492ad22bb42fac23c25f83f22ff872fb190f7b8",
+    "pi05_protocol_correction": (
+        ROOT / "runs/full_context_v2/pi05_table1/protocol_correction.json",
+        "cd5e07baaaf7b40e53c1ace9a881eb49aabb9407d8d20189d46e3a11b2186770",
     ),
     "pi05_static_official": (
         ROOT / "runs/pi05_gdsq_gr00t_aligned/official_target_paired50/aggregate/summary.json",
@@ -97,7 +98,85 @@ def load_sources() -> dict[str, dict[str, Any]]:
         actual_hash = sha256(path)
         require(actual_hash == expected_hash, f"{name} SHA drift: {actual_hash}")
         loaded[name] = json.loads(path.read_text(encoding="utf-8"))
+    if QVLA_ACTQUANT_AGGREGATE.is_file():
+        loaded["qvla_actquant"] = json.loads(
+            QVLA_ACTQUANT_AGGREGATE.read_text(encoding="utf-8")
+        )
     return loaded
+
+
+def audit_qvla_actquant(value: dict[str, Any]) -> dict[str, Any]:
+    require(value.get("complete") is True, "QVLA/ActQuant aggregate incomplete")
+    require(value.get("ready_for_table_update") is True, "QVLA/ActQuant table gate disabled")
+    require(value.get("formal_episode_count_new") == 10_000, "QVLA/ActQuant coverage drift")
+    require(value.get("bootstrap_draws") == 10_000, "QVLA/ActQuant bootstrap drift")
+    require(value.get("bootstrap_seed") == 0, "QVLA/ActQuant bootstrap seed drift")
+    require(len(value.get("holm_family") or []) == 4, "QVLA/ActQuant Holm family drift")
+    expected = {
+        "qvla_gr00t", "actquant_gr00t", "qvla_pi05", "actquant_pi05",
+        "dypac_gr00t", "dypac_pi05",
+    }
+    arms = value.get("arms") or {}
+    require(set(arms) == expected, "QVLA/ActQuant arm inventory drift")
+    candidate_records = {}
+    for arm in sorted(expected - {"dypac_gr00t", "dypac_pi05"}):
+        row = arms[arm]
+        require(row.get("episodes") == 2500, f"{arm} coverage drift")
+        require(len(row.get("per_task_success_rate") or {}) == 50, f"{arm} task drift")
+        require(set((row.get("split_task_macro_success_rate") or {})) == {
+            "atomic_seen", "composite_seen", "composite_unseen"
+        }, f"{arm} split drift")
+        artifacts = row.get("artifacts") or []
+        expected_artifacts = 3 if arm.endswith("gr00t") else 1
+        require(len(artifacts) == expected_artifacts, f"{arm} artifact coverage drift")
+        for artifact in artifacts:
+            manifest_path = Path(artifact["pack_manifest"])
+            require(manifest_path.is_file(), f"{arm} pack manifest missing")
+            require(sha256(manifest_path) == artifact["pack_manifest_sha256"], f"{arm} pack manifest SHA drift")
+            pack = json.loads(manifest_path.read_text(encoding="utf-8"))
+            require(pack.get("test_results_used") is False, f"{arm} used test feedback")
+            require(pack.get("source_protocol_equivalent") is False, f"{arm} source label drift")
+            precision = pack.get("model_precision") or {}
+            if arm.startswith("qvla"):
+                require(float(pack["actual_average_channel_bits"]) <= 4.0, f"{arm} Wavg drift")
+                require(
+                    precision.get("resolved") == "bfloat16"
+                    and precision.get("strict_all_linear_conv_bf16") is True
+                    and pack.get("activation_compute_dtype") == "bfloat16",
+                    f"{arm} QVLA precision drift",
+                )
+            else:
+                require(float(pack["achieved_bpw"]) <= 4.0 + 1e-6, f"{arm} BPW drift")
+                require(
+                    precision.get("resolved") == "float16"
+                    and precision.get("strict_all_linear_conv_fp16") is True
+                    and pack.get("activation_compute_dtype") == "float16",
+                    f"{arm} ActQuant precision drift",
+                )
+        candidate_records[arm] = {
+            "episodes": row["episodes"],
+            "successes": row["successes"],
+            "task_macro_success_rate": row["task_macro_success_rate"],
+            "micro_success_rate": row["micro_success_rate"],
+            "split_task_macro_success_rate": row["split_task_macro_success_rate"],
+            "storage": row["storage"],
+        }
+    for comparison in value.get("holm_family") or []:
+        record = (value.get("comparisons") or {}).get(comparison) or {}
+        require("exact_two_sided_mcnemar_p" in record, f"{comparison} McNemar missing")
+        require("holm_adjusted_mcnemar_p" in record, f"{comparison} Holm p missing")
+        bootstrap = record.get("task_then_seed_hierarchical_bootstrap") or {}
+        require(bootstrap.get("draws") == 10_000 and bootstrap.get("seed") == 0,
+                f"{comparison} bootstrap drift")
+    return {
+        "aggregate_path": str(QVLA_ACTQUANT_AGGREGATE.relative_to(ROOT)),
+        "aggregate_sha256": sha256(QVLA_ACTQUANT_AGGREGATE),
+        "calibration_source": "fp16_teacher_proxy",
+        "source_protocol_equivalent": False,
+        "formal_episode_count_new": 10_000,
+        "arms": candidate_records,
+        "comparison_scope": value["comparison_scope"],
+    }
 
 
 def audit(data: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -149,11 +228,25 @@ def audit(data: dict[str, dict[str, Any]]) -> dict[str, Any]:
     pi_main = data["pi05_main_plan"]
     require(pi_main["meta"]["quantized_layers"] == 80 and pi_main["retained_fp16_layers"] == 100, "pi0.5 main mask drift")
     require(pi_main["table1_total_static_bytes"] == 1_845_100_544, "pi0.5 main byte drift")
-    quick = data["pi05_quick"]
-    guard = data["pi05_guard"]
-    require((quick["candidate_successes"], quick["main_successes"]) == (29, 33), "pi0.5 quick result drift")
-    require((quick["paired_wins"], quick["paired_losses"]) == (7, 11), "pi0.5 discordance drift")
-    require(guard["candidate_successes"] == 29 and guard["main_successes"] == 33, "pi0.5 guard drift")
+    pi_dypac = data["pi05_dypac_formal"]
+    pi_dypac_result = pi_dypac["result"]
+    require(pi_dypac["complete"] is True, "pi0.5 DyPAC aggregate incomplete")
+    require(
+        pi_dypac["model"] == "pi0.5" and pi_dypac["method"] == "DyPAC-VLA",
+        "pi0.5 DyPAC identity drift",
+    )
+    require(pi_dypac_result["episodes"] == 2500, "pi0.5 DyPAC coverage drift")
+    require(pi_dypac_result["successes"] == 693, "pi0.5 DyPAC success-count drift")
+    require(close(pi_dypac_result["task_macro_success_rate"], 0.2772), "pi0.5 DyPAC headline drift")
+    require(
+        pi_dypac_result["split_task_macro_success_rate"]
+        == {
+            "atomic_seen": 0.5955555555555555,
+            "composite_seen": 0.15375,
+            "composite_unseen": 0.042499999999999996,
+        },
+        "pi0.5 DyPAC split drift",
+    )
 
     pi_static = data["pi05_static_official"]
     pi_fp16 = pi_static["configs"]["fp16"]
@@ -168,14 +261,14 @@ def audit(data: dict[str, dict[str, Any]]) -> dict[str, Any]:
     require(close(pi_w6["task_macro_sr"], 0.2452), "pi0.5 W6 result drift")
     require(close(pi_omega["task_macro_sr"], 0.2148), "pi0.5 Omega result drift")
 
-    return {
+    result = {
         "schema_version": 1,
         "kind": "dypac_vla_final_paper_evidence",
         "valid": True,
         "paper_identity": {
             "short_name": "DyPAC-VLA",
-            "expanded_name": "Dynamic-Range and Prefix-Accumulated Control-aware Quantization for Vision-Language-Action Models",
-            "title": "DyPAC-VLA: Full-Context Mixed-Precision Quantization for Vision-Language-Action Models",
+            "expanded_name": "Full-context PTQ under policy-induced deployment distributions",
+            "title": "Quantization Changes the Data: Full-Context Post-Training Quantization for Vision-Language-Action Policies",
         },
         "gr00t": {
             "ours_task_macro_success_rate": candidate["task_macro_success_rate"],
@@ -192,7 +285,6 @@ def audit(data: dict[str, dict[str, Any]]) -> dict[str, Any]:
                 "losses": quantvla["paired_losses"],
                 "mcnemar_p": quantvla["exact_two_sided_mcnemar_p"],
                 "holm_p": quantvla["holm_adjusted_mcnemar_p"],
-                "bootstrap": quantvla["task_then_seed_hierarchical_bootstrap"],
                 "status": "formal_superiority",
             },
             "versus_fp16": {
@@ -200,7 +292,6 @@ def audit(data: dict[str, dict[str, Any]]) -> dict[str, Any]:
                 "wins": fp16["paired_wins"],
                 "losses": fp16["paired_losses"],
                 "holm_p": fp16["holm_adjusted_mcnemar_p"],
-                "bootstrap": fp16["task_then_seed_hierarchical_bootstrap"],
                 "status": "difference_not_significant_no_equivalence_claim",
             },
             "core_mechanism_evidence": {
@@ -219,15 +310,17 @@ def audit(data: dict[str, dict[str, Any]]) -> dict[str, Any]:
             },
         },
         "pi05": {
-            "role": "compression_anchor_only",
+            "role": "formal_target_split_result",
+            "flow_steps": 4,
             "w4_layers": 121,
             "fp16_layers": 59,
             "static_component_bytes": pi_plan["table1_total_static_bytes"],
             "compression": pi_plan["table1_total_static_compression"],
-            "candidate_successes": quick["candidate_successes"],
-            "main_successes": quick["main_successes"],
-            "episodes_per_configuration": 100,
-            "claim_status": "quick_screen_does_not_support_success_superiority",
+            "successes": pi_dypac_result["successes"],
+            "episodes_per_configuration": pi_dypac_result["episodes"],
+            "task_macro_success_rate": pi_dypac_result["task_macro_success_rate"],
+            "split_task_macro_success_rate": pi_dypac_result["split_task_macro_success_rate"],
+            "claim_status": "formal_target_split_result_descriptive_cross_row_comparison",
             "official_target_split_baselines": {
                 "fp16": pi_fp16["task_macro_sr"],
                 "quantvla_w4a8": pi_quant["task_macro_sr"],
@@ -241,12 +334,50 @@ def audit(data: dict[str, dict[str, Any]]) -> dict[str, Any]:
             for name, (path, expected_hash) in SOURCES.items()
         },
     }
+    if "qvla_actquant" in data:
+        result["qvla_actquant_extension"] = audit_qvla_actquant(
+            data["qvla_actquant"]
+        )
+    return result
 
 
 def pct(value: float) -> str:
     # Use conventional half-up display rather than Python's ties-to-even formatting.
-    rounded = math.floor(1000 * value + 0.5) / 10
+    # The frozen JSON may encode decimal ties a few ulps below their exact value.
+    rounded = math.floor(1000 * value + 0.5 + 1e-9) / 10
     return f"{rounded:.1f}"
+
+
+def reproduction_table_row(data: dict[str, dict[str, Any]], method: str, model: str) -> str:
+    extension = data.get("qvla_actquant")
+    label = (
+        r"QVLA-code Wavg4/A16$^{\S}$"
+        if method == "qvla"
+        else r"ActQuant 4.0 BPW/A16$^{\S}$"
+    )
+    allocation = (
+        r"Ch. 0/2/4/8/16"
+        if method == "qvla"
+        else r"Tensor IQ2--Q4"
+    )
+    if extension is None:
+        return (
+            f"\\quad {label} & {allocation} & "
+            "\\multicolumn{6}{c}{\\textit{Pending}} \\\\"
+        )
+    row = extension["arms"][f"{method}_{model}"]
+    splits = row["split_task_macro_success_rate"]
+    storage = row["storage"]
+    static_gib = (
+        float(storage["static_gib_total_deployed_checkpoint_set"])
+        / int(storage["checkpoint_count"])
+    )
+    return (
+        f"\\quad {label} & {allocation} & {pct(splits['atomic_seen'])} & "
+        f"{pct(splits['composite_seen'])} & {pct(splits['composite_unseen'])} & "
+        f"{pct(row['task_macro_success_rate'])} & {static_gib:.3f} & "
+        f"{float(storage['compression_ratio_total_deployed_checkpoint_set']):.2f}$\\times$ \\\\"
+    )
 
 
 def main_table(data: dict[str, dict[str, Any]]) -> str:
@@ -262,39 +393,58 @@ def main_table(data: dict[str, dict[str, Any]]) -> str:
     pi_q = pi_static["configs"]["quantvla_w4a8_atmohb"]
     pi_w6 = data["pi05_uniform_w6"]["configs"]["uniform_w6"]
     pi_omega = data["pi05_omega"]
+    pi_dypac = data["pi05_dypac_formal"]["result"]
     pifs = pi_fp["task_set_macro_sr"]
     piqs = pi_q["task_set_macro_sr"]
     piws = pi_w6["task_set_macro_sr"]
     pios = {name: row["task_macro_sr"] for name, row in pi_omega["task_sets"].items()}
+    pids = pi_dypac["split_task_macro_success_rate"]
+    gr_qvla = reproduction_table_row(data, "qvla", "gr00t")
+    gr_actquant = reproduction_table_row(data, "actquant", "gr00t")
+    pi_qvla = reproduction_table_row(data, "qvla", "pi05")
+    pi_actquant = reproduction_table_row(data, "actquant", "pi05")
+    allocation_header = "Allocation"
+    table_column_separation = "1.5pt"
+    extension_note = (
+        "$^{\\S}$QVLA/ActQuant~\\cite{xu2026qvla,akbari2026actquant} use local FP16-teacher proxy calibration "
+        "(source-protocol-equivalent=false). Their sizes are measured static packs; "
+        "GR00T reports the mean across its three split checkpoints. "
+        if "qvla_actquant" in data
+        else "$^{\\S}$QVLA/ActQuant~\\cite{xu2026qvla,akbari2026actquant} formal extensions are pending. "
+    )
     return f"""% AUTO-GENERATED by scripts/tools/render_dypac_paper.py; DO NOT EDIT.
 \\begin{{table}}[t]
 \\centering
-\\caption{{RoboCasa365 results and exact static storage for GR00T N1.5 and $\\pi_{{0.5}}$. Formal target-split rows use 50 paired scenarios per task.}}
+\\caption{{RoboCasa365 results and exact static storage for GR00T N1.5 and $\\pi_{{0.5}}$. Completed target-split rows use 50 paired scenarios per task.}}
 \\label{{tab:main_results}}
-\\small
-\\setlength{{\\tabcolsep}}{{4.0pt}}
+\\footnotesize
+\\setlength{{\\tabcolsep}}{{{table_column_separation}}}
 \\renewcommand{{\\arraystretch}}{{1.06}}
 \\begin{{tabular}}{{@{{}}lcrrrrrr@{{}}}}
 \\toprule
-Configuration & \\shortstack{{Low-bit\\\\layers}} & \\shortstack{{Atomic\\\\SR $\\uparrow$}} & \\shortstack{{C-Seen\\\\SR $\\uparrow$}} & \\shortstack{{C-Unseen\\\\SR $\\uparrow$}} & \\shortstack{{All\\\\SR $\\uparrow$}} & \\shortstack{{Size\\\\(GiB) $\\downarrow$}} & \\shortstack{{Comp.\\\\$\\uparrow$}} \\\\
+Configuration & {allocation_header} & \\shortstack{{Atomic\\\\SR $\\uparrow$}} & \\shortstack{{C-Seen\\\\SR $\\uparrow$}} & \\shortstack{{C-Unseen\\\\SR $\\uparrow$}} & \\shortstack{{All\\\\SR $\\uparrow$}} & \\shortstack{{Size\\\\(GiB) $\\downarrow$}} & \\shortstack{{Comp.\\\\$\\uparrow$}} \\\\
 \\midrule
 \\multicolumn{{8}}{{@{{}}l}}{{\\textbf{{GR00T N1.5}}\\enspace\\textit{{(formal target split)}}}} \\\\
 \\quad FP16 & -- & {pct(fs['atomic_seen'])} & {pct(fs['composite_seen'])} & {pct(fs['composite_unseen'])} & {pct(fp['task_macro_success_rate'])} & 1.993 & 1.00$\\times$ \\\\
 \\quad \\quantvla W4A8 & 116 W4 & {pct(qs['atomic_seen'])} & {pct(qs['composite_seen'])} & {pct(qs['composite_unseen'])} & {pct(q['task_macro_success_rate'])} & 0.898 & 2.22$\\times$ \\\\
 \\quad Uniform W6 & 116 W6 & 68.4 & 42.9 & 41.8 & 51.7 & 1.109 & 1.80$\\times$ \\\\
 \\quad $\\Omega$-QVLA W4A4$^{{\\ddagger}}$ & 180 W4 & 60.1 & 25.9 & 27.5 & 38.7 & 0.599 & 3.33$\\times$ \\\\
-\\quad \\textbf{{\\method (Ours)}} & \\textbf{{100 W4}} & \\textbf{{{pct(cs['atomic_seen'])}}} & \\textbf{{{pct(cs['composite_seen'])}}} & \\textbf{{{pct(cs['composite_unseen'])}}} & \\textbf{{{pct(c['task_macro_success_rate'])}}} & \\textbf{{0.896}} & \\textbf{{2.22$\\times$}} \\\\
+{gr_qvla}
+{gr_actquant}
+\\quad \\textbf{{\\method (Ours)}}$^{{\\dagger}}$ & \\textbf{{100 W4}} & \\textbf{{{pct(cs['atomic_seen'])}}} & \\textbf{{{pct(cs['composite_seen'])}}} & \\textbf{{{pct(cs['composite_unseen'])}}} & \\textbf{{{pct(c['task_macro_success_rate'])}}} & \\textbf{{0.896}} & \\textbf{{2.22$\\times$}} \\\\
 \\midrule
-\\multicolumn{{8}}{{@{{}}l}}{{\\textbf{{$\\pi_{{0.5}}$}}~\\cite{{intelligence2025pi05}}\\enspace\\textit{{(formal baselines; ours is a quick-screen anchor)}}}} \\\\
+\\multicolumn{{8}}{{@{{}}l}}{{\\textbf{{$\\pi_{{0.5}}$}}~\\cite{{intelligence2025pi05}}\\enspace\\textit{{(formal target split)}}}} \\\\
 \\quad FP16 & -- & {pct(pifs['atomic_seen'])} & {pct(pifs['composite_seen'])} & {pct(pifs['composite_unseen'])} & {pct(pi_fp['task_macro_sr'])} & 4.113 & 1.00$\\times$ \\\\
 \\quad \\quantvla W4A8 & 180 W4 & {pct(piqs['atomic_seen'])} & {pct(piqs['composite_seen'])} & {pct(piqs['composite_unseen'])} & {pct(pi_q['task_macro_sr'])} & 1.388 & 2.96$\\times$ \\\\
 \\quad Uniform W6 & 180 W6 & {pct(piws['atomic_seen'])} & {pct(piws['composite_seen'])} & {pct(piws['composite_unseen'])} & {pct(pi_w6['task_macro_sr'])} & 1.902 & 2.16$\\times$ \\\\
 \\quad $\\Omega$-QVLA W4A4$^{{\\ddagger}}$ & 252 W4 & {pct(pios['atomic_seen'])} & {pct(pios['composite_seen'])} & {pct(pios['composite_unseen'])} & {pct(pi_omega['task_macro_sr'])} & 1.307 & 3.27$\\times$ \\\\
-\\quad \\textbf{{\\method (Ours; anchor)}} & \\textbf{{121 W4}} & -- & -- & -- & \\textbf{{29/100$^{{*}}$}} & \\textbf{{1.523}} & \\textbf{{2.70$\\times$}} \\\\
+{pi_qvla}
+{pi_actquant}
+\\quad \\textbf{{\\method (Ours)}}$^{{\\dagger}}$ & \\textbf{{121 W4}} & \\textbf{{{pct(pids['atomic_seen'])}}} & \\textbf{{{pct(pids['composite_seen'])}}} & \\textbf{{{pct(pids['composite_unseen'])}}} & \\textbf{{{pct(pi_dypac['task_macro_success_rate'])}}} & \\textbf{{1.523}} & \\textbf{{2.70$\\times$}} \\\\
 \\bottomrule
 \\end{{tabular}}
 \\vspace{{2pt}}
-\\parbox{{0.99\\textwidth}}{{\\footnotesize C-Seen/C-Unseen denote Composite-Seen/Composite-Unseen. GR00T ours uses 962,068,480 bytes; $\\pi_{{0.5}}$ ours uses 1,634,828,288 bytes. $^{{*}}$The 29/100 cell is a five-task quick screen, not the 2,500-episode target-split protocol, and supports no cross-row success comparison. $^{{\\ddagger}}\\Omega$-QVLA uses model- and task-set-specific calibration. Compression denotes static component storage, not latency.}}
+\\parbox{{0.99\\textwidth}}{{\\footnotesize C-Seen/C-Unseen denote Composite-Seen/Composite-Unseen. All completed $\\pi_{{0.5}}$ RoboCasa365 rows use four flow steps. $^{{\\dagger}}$For each Ours row, the four tasks used to select the initializer ratio are included in the 50-task aggregate. GR00T ours uses 962,068,480 bytes; $\\pi_{{0.5}}$ ours uses 1,634,828,288 bytes. $^{{\\ddagger}}\\Omega$-QVLA uses model- and task-set-specific calibration. {extension_note}Compression denotes static storage, not PyTorch/C++ runtime memory or latency.}}
 \\end{{table}}
 """
 
@@ -317,8 +467,8 @@ Factor & Controlled counterfactual & Audited evidence & Decision \\\\
 \\midrule
 Range & Static A8 vs. FP16-activation control & $J={activation['static_vs_a16']['objective']:.2f}$ & Reject static A8 \\\\
 Range & Dynamic A8 vs. FP16-activation control & $J={activation['dynamic_vs_a16']['objective']:.3f}$ & Use \\dyrange \\\\
-Protection & Every valid one-layer state flip & 0/{len(data['gr00t_plan']['layers'])} positive benefits & Keep base mask \\\\
-Adjudication & {len(summaries)} structured mask alternatives & 0/{len(summaries)} eligible; $J\\in[{min(objectives):.2f},{max(objectives):.2f}]$ & Reject alternatives \\\\
+Proposal audit & Every valid one-layer state flip & 0/{len(data['gr00t_plan']['layers'])} positive benefits & No eligible flip \\\\
+Policy audit & {len(summaries)} structured mask alternatives & 0/{len(summaries)} eligible; $J\\in[{min(objectives):.2f},{max(objectives):.2f}]$ & Abstain; retain $M_0$ \\\\
 \\bottomrule
 \\end{{tabular}}
 \\vspace{{2pt}}
@@ -331,16 +481,19 @@ def claim_status() -> str:
     return r"""% AUTO-GENERATED by scripts/tools/render_dypac_paper.py; DO NOT EDIT.
 \providecommand{\GRHeadlineStatus}{DyPAC-VLA obtains 54.0\% over 2,500 GR00T episodes at 2.22$\times$ static component compression.}
 \providecommand{\GRComparisonStatus}{The gain over QuantVLA is 23.6 points with Holm-adjusted $p<10^{-4}$; the difference from FP16 is not significant ($p=0.2929$).}
-\providecommand{\PiAnchorStatus}{The $\pi_{0.5}$ result is a 2.702$\times$ compression anchor and does not support a success-rate improvement claim.}
+\providecommand{\PiAnchorStatus}{DyPAC-VLA obtains 27.7\% over 2,500 $\pi_{0.5}$ episodes at 2.702$\times$ static component compression.}
 """
 
 
 def generated_files(data: dict[str, dict[str, Any]], registry: dict[str, Any]) -> dict[Path, str]:
+    source_hashes = {name: digest for name, (_, digest) in SOURCES.items()}
+    if "qvla_actquant" in data:
+        source_hashes["qvla_actquant"] = sha256(QVLA_ACTQUANT_AGGREGATE)
     audit_payload = {
         "schema_version": 1,
         "kind": "dypac_vla_paper_render_audit",
         "valid": True,
-        "source_hashes": {name: digest for name, (_, digest) in SOURCES.items()},
+        "source_hashes": source_hashes,
         "headline": registry["gr00t"],
         "pi05_claim_guard": registry["pi05"],
     }

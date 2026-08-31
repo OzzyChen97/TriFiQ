@@ -41,6 +41,8 @@ def parse_args() -> argparse.Namespace:
         "--checkpoint-dir",
         default=str(REPO_ROOT / "checkpoints/robocasa/pi05_pretrain_human300_pytorch"),
     )
+    parser.add_argument("--config", default="pi05_pretrain_human300")
+    parser.add_argument("--checkpoint-sha256", default=CHECKPOINT_SHA256)
     parser.add_argument(
         "--plan",
         default=str(
@@ -92,7 +94,7 @@ def configure_environment(args: argparse.Namespace, buffer_hash: str) -> None:
         "OPENPI_DUQUANT_PACKDIR": str(Path(args.pack_dir).resolve()),
         "OPENPI_DUQUANT_ACT_SCALE_PATH": str(Path(args.out).resolve()),
         "OPENPI_DUQUANT_CALIB_BUFFER_SHA256": buffer_hash,
-        "OPENPI_CHECKPOINT_SHA256": CHECKPOINT_SHA256,
+        "OPENPI_CHECKPOINT_SHA256": args.checkpoint_sha256,
         "OPENPI_DUQUANT_STRICT_ARTIFACTS": "1",
         "OPENPI_DUQUANT_PRECACHE_WEIGHTS": "1",
         "OPENPI_DUQUANT_TRITON": "0",
@@ -125,10 +127,12 @@ def main() -> None:
     checkpoint_dir = Path(args.checkpoint_dir).resolve()
     started = time.time()
     policy = policy_config.create_trained_policy(
-        config.get_config("pi05_pretrain_human300"), checkpoint_dir, pytorch_device=args.device
+        config.get_config(args.config), checkpoint_dir, pytorch_device=args.device
     )
     runtime = enable_duquant_if_configured(policy._model)
     policy._model.to(args.device)
+    action_horizon = int(policy._model.config.action_horizon)
+    action_dim = int(policy._model.config.action_dim)
     if output_path.is_file():
         if not static_scales_ready(policy._model):
             raise RuntimeError("existing A8 artifact loaded but scales are not ready")
@@ -141,7 +145,7 @@ def main() -> None:
         actions = sample_batch(
             policy, batch, args.device, num_steps=args.flow_steps
         ).detach().to(torch.float32).cpu().numpy()
-        if actions.shape != (args.batch_size, 50, 32) or not np.isfinite(actions).all():
+        if actions.shape != (args.batch_size, action_horizon, action_dim) or not np.isfinite(actions).all():
             raise RuntimeError(f"calibration batch {index} produced invalid actions {actions.shape}")
         timings.append(time.time() - request_started)
         print(
@@ -156,7 +160,8 @@ def main() -> None:
         policy._model,
         output_path,
         {
-            "checkpoint_sha256": CHECKPOINT_SHA256,
+            "checkpoint_sha256": args.checkpoint_sha256,
+            "checkpoint_config": args.config,
             "calibration_buffer_sha256": buffer_hash,
             "calibration_buffer_path": str(buffer_path),
             "plan_path": str(Path(args.plan).resolve()),

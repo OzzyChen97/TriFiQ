@@ -1,29 +1,31 @@
-\begin{table}[ht]
+\begin{table}[h!]
 \centering
-\caption{Appendix-only LIBERO extension under a shared local protocol (success rate, \%).}
+\caption{LIBERO comparison in success rate (\%). Local size is tightly packed static model-component storage.}
 \label{tab:omega_qvla_libero}
 \small
-\setlength{\tabcolsep}{5.5pt}
+\setlength{\tabcolsep}{4.2pt}
 \renewcommand{\arraystretch}{1.06}
-\begin{tabular}{@{}lrrrrr@{}}
+\begin{tabular}{@{}lrrrrrr@{}}
 \toprule
-Configuration & Goal $\uparrow$ & Spatial $\uparrow$ & Object $\uparrow$ & Long $\uparrow$ & Avg. $\uparrow$ \\
+Configuration & Goal $\uparrow$ & Spatial $\uparrow$ & Object $\uparrow$ & Long $\uparrow$ & Avg. $\uparrow$ & \shortstack{Size\\(GiB) $\downarrow$} \\
 \midrule
-\multicolumn{6}{@{}l}{\textbf{GR00T N1.5}} \\
-\quad FP16 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
-\quad \quantvla W4A8 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
-\quad Uniform W6 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
-\quad $\Omega$-QVLA W4A4 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
-\quad \textbf{\method (Ours)} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
+\multicolumn{7}{@{}l}{\textbf{GR00T N1.5}} \\
+\quad FP16 & 88.0 & 87.0 & 96.0 & 76.0 & 86.8 & 1.993 \\
+\quad \quantvla W4A8 & 89.0 & 85.0 & 79.0 & 72.0 & 81.3 & 0.898 \\
+\quad Uniform W6 & 85.0 & 83.0 & 92.0 & 22.0 & 70.5 & 1.109 \\
+\quad $\Omega$-QVLA W4A4 & 87.0 & 86.0 & 89.0 & 76.0 & 84.5 & 0.599 \\
+\quad \textbf{\method (Ours)} & 97.0 & 95.0 & 98.0 & 85.0 & 93.8 & 0.948 \\
 \midrule
-\multicolumn{6}{@{}l}{\textbf{$\pi_{0.5}$}} \\
-\quad FP16 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
-\quad \quantvla W4A8 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
-\quad Uniform W6 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
-\quad $\Omega$-QVLA W4A4 & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
-\quad \method compression-anchor plan & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} & \textit{pending} \\
+\multicolumn{7}{@{}l}{\textbf{$\pi_{0.5}$}} \\
+\quad FP16 & 95.0 & 100.0 & 98.0 & 94.0 & 96.8 & 4.113 \\
+\quad \quantvla W4A8 & 97.0 & 97.0 & 98.0 & 93.0 & 96.3 & 1.388 \\
+\quad Uniform W6 & 99.0 & 97.0 & 99.0 & 92.0 & 96.8 & 1.902 \\
+\quad $\Omega$-QVLA W4A4 & 100.0 & 99.0 & 97.0 & 96.0 & 98.0 & 1.307 \\
+\quad QVLA (4.0 BPW)$^{\dagger}$ & 96.4 & 98.0 & 97.2 & 91.8 & 95.8 & 2.7 \\
+\quad ActQuant (4.0 BPW)$^{\dagger}$ & 96.8 & 98.4 & 99.4 & 91.8 & 96.6 & 2.7 \\
+\quad \textbf{\method (Ours)} & 99.0 & 100.0 & 96.0 & 94.0 & 97.3 & 1.788 \\
 \bottomrule
 \end{tabular}
 \vspace{2pt}
-\parbox{0.99\textwidth}{\footnotesize Four official suites, ten tasks per suite, and ten held-out trials per task. All cells remain pending until the joint five-configuration manifest reaches exactly 4,000 valid local episodes; no author-reported values are imported. The official $\Omega$-QVLA W4A4 packs are pinned. Pending cells are protocol commitments, not results.}
+\parbox{0.99\textwidth}{\footnotesize The complete local matrix contains 4,000 episodes across 40/40 exact-valid cells. Every local suite value covers exactly ten tasks and held-out initial states 10--19. The corrected GR00T ours row uses five executed actions per replan and paired suite-keyed action noise. Local size includes packed weights and quantization metadata. For suite-specific masks, it is the four-suite mean. $^{\dagger}$The $\pi_{0.5}$ QVLA and ActQuant entries are the source-reported 4.0 Vision+LLM-BPW rows from ActQuant~\cite{akbari2026actquant}; their 2.7-GB values follow that source's memory definition.}
 \end{table}

@@ -1,0 +1,13 @@
+Use case: precise-object-edit
+Asset type: final full-width main architecture figure for an ICLR machine-learning paper
+Input image: Image 1 is the edit target.
+
+Primary request: change only the lower orange failure branch immediately to the left of the teal diamond labeled "Fail-Closed Freeze" in the center panel.
+
+Replace that malformed branch with one clean, straight, horizontal orange dashed arrow. The arrow must start at the diamond's left vertex and point left, ending in exactly one standard left-facing arrowhead. Keep the exact orange label "Fail" centered just above the dashed line. Completely remove the extra orange X below the line, the duplicated or forked arrowhead, and every stray orange stroke in that local area.
+
+Critical geometry: exactly one dashed line, exactly one arrowhead, zero X marks. The arrow and label must not touch the center panel border or any other element.
+
+Invariants: preserve the full canvas dimensions and crop; preserve every other pixel and all other labels, typography, icons, arrows, colors, borders, spacing, and scientific content. Do not change the upper "Over Budget" branch or its X. Keep "1. DPAC Evidence", "DPAC + Functional Distance", the clean A8 bars, the global mask, and all three panels unchanged.
+
+Constraints: no additional text; no spelling changes; no watermark; no cropping; no redesign; no gradients; no shadows.

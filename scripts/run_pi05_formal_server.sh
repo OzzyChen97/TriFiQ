@@ -38,12 +38,15 @@ OMEGA_PACK="${PI05_OMEGA_PACK:-}"
 OMEGA_CALIBRATION_MANIFEST="${PI05_OMEGA_CALIBRATION_MANIFEST:-}"
 OMEGA_ATTESTATION="${OMEGA_PACK%.pt}.attestation.json"
 OMEGA_INCLUDE='.*paligemma_with_expert\.(?:paligemma\.model\.language_model|gemma_expert\.model)\.layers\.\d+\..*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)'
+REPRO_PACK="${QVLA_ACTQUANT_PACK:-}"
+REPRO_PACK_SHA256="${QVLA_ACTQUANT_PACK_SHA256:-}"
+ACTQUANT_ROOT="${ACTQUANT_ROOT:-$REPO_ROOT/external/ActQuant}"
 CONTROL_DIR="${PI05_CONTROL_DIR:-$ALIGNED_ROOT/official_target_paired50/control}"
 CONTROL_DIR="$(mkdir -p "$CONTROL_DIR" && cd "$CONTROL_DIR" && pwd)"
 
 usage() {
     echo "usage: $0 start CONFIG GPU PORT INSTANCE | stop INSTANCE | status" >&2
-    echo "CONFIG: fp16 | omega_qvla_w4a4 | quantvla_w4a8_paper | quantvla_w4a8_dynamic | quantvla_w4a8_dynamic_profile | full_context_w4a8_dynamic_profile | quantvla_w4a8_dynamic_profile_errorfold | errorfold_dfunc | errorfold_dpac_v2 | legacy configs" >&2
+    echo "CONFIG: qvla_code_wavg4_a16 | actquant_4bpw_a16 | fp16 | omega_qvla_w4a4 | quantvla_w4a8_paper | quantvla_w4a8_dynamic | quantvla_w4a8_dynamic_profile | full_context_w4a8_dynamic_profile | quantvla_w4a8_dynamic_profile_errorfold | errorfold_dfunc | errorfold_dpac_v2 | legacy configs" >&2
 }
 
 sha256_file() {
@@ -105,7 +108,7 @@ clear_quant_environment() {
     local variable
     while IFS='=' read -r variable _; do
         case "$variable" in
-            OPENPI_DUQUANT_*|OPENPI_ATM_*|OPENPI_OHB_*|OPENPI_RUNTIME_SELECTOR_*|OPENPI_ERRORFOLD_PATH|OPENPI_OMEGA_*|GR00T_GPTQ*|QUANTVLA_ADAPTER_ONLY) unset "$variable" ;;
+            OPENPI_DUQUANT_*|OPENPI_ATM_*|OPENPI_OHB_*|OPENPI_RUNTIME_SELECTOR_*|OPENPI_ERRORFOLD_PATH|OPENPI_OMEGA_*|GR00T_GPTQ*|QUANTVLA_ADAPTER_ONLY|QVLA_ACTQUANT_*) unset "$variable" ;;
         esac
     done < <(env)
 }
@@ -228,6 +231,18 @@ start_server() {
     fi
     local gdsq_wrapped=""
     case "$config" in
+        qvla_code_wavg4_a16|actquant_4bpw_a16)
+            require_file "$REPRO_PACK"
+            local actual_repro_sha256
+            actual_repro_sha256="$(sha256_file "$REPRO_PACK")"
+            if [[ -n "$REPRO_PACK_SHA256" && "$actual_repro_sha256" != "$REPRO_PACK_SHA256" ]]; then
+                echo "reproduction pack hash mismatch: $REPRO_PACK" >&2
+                echo "  actual:   $actual_repro_sha256" >&2
+                echo "  expected: $REPRO_PACK_SHA256" >&2
+                exit 1
+            fi
+            REPRO_PACK_SHA256="$actual_repro_sha256"
+            ;;
         fp16) ;;
         omega_qvla_w4a4)
             for artifact in "$OMEGA_PACK" "$OMEGA_ATTESTATION" "$OMEGA_CALIBRATION_MANIFEST"; do
@@ -318,7 +333,11 @@ start_server() {
         export CUDA_VISIBLE_DEVICES="$gpu"
         export PYTHONUNBUFFERED=1
         export TORCHDYNAMO_DISABLE=1
-        export OPENPI_MODEL_DTYPE=float16
+        if [[ "$config" == qvla_code_wavg4_a16 ]]; then
+            export OPENPI_MODEL_DTYPE=bfloat16
+        else
+            export OPENPI_MODEL_DTYPE=float16
+        fi
         export OPENPI_CHECKPOINT_SHA256="$CHECKPOINT_SHA256"
         export OPENPI_FORMAL_MODE=1
         export OPENPI_FORMAL_FLOW_STEPS="$FLOW_STEPS"
@@ -332,10 +351,21 @@ start_server() {
         # validator already requires packed residency and zero FP-sized W4
         # buffers; setting this once prevents a fake-quant baseline.
         case "$config" in
-            fp16|omega_qvla_w4a4) ;;
+            fp16|omega_qvla_w4a4|qvla_code_wavg4_a16|actquant_4bpw_a16) ;;
             *) export QUANTVLA_ADAPTER_ONLY=1 ;;
         esac
         case "$config" in
+            qvla_code_wavg4_a16|actquant_4bpw_a16)
+                export QVLA_ACTQUANT_METHOD
+                if [[ "$config" == qvla_code_wavg4_a16 ]]; then
+                    QVLA_ACTQUANT_METHOD=qvla
+                else
+                    QVLA_ACTQUANT_METHOD=actquant
+                fi
+                export QVLA_ACTQUANT_PACK="$REPRO_PACK"
+                export QVLA_ACTQUANT_PACK_SHA256="$REPRO_PACK_SHA256"
+                export ACTQUANT_ROOT
+                ;;
             fp16) ;;
             omega_qvla_w4a4)
                 export OPENPI_OMEGA_QVLA=1

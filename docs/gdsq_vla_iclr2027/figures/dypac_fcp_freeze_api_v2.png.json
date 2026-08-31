@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "kind": "dypac_vla_fcp_freeze_figure_provenance",
+  "generated_date": "2026-08-30",
+  "generation": {
+    "credential_source": "config.txt (credential redacted and not persisted)",
+    "endpoint": "/v1/images/generations",
+    "model": "gpt-image-2",
+    "quality": "high",
+    "requested_size": "2400x800",
+    "returned_size": "2172x724",
+    "prompt": "figures/prompts/dypac-fcp-freeze-api-compact-v2.txt",
+    "sha256": "a15733e0931931f4da319b31ec508178f4370172d5581f22438e5cd3fd5a0da6"
+  },
+  "validation": {
+    "fail_closed_no_branch": "Return M0 and record fallback reason",
+    "accepted_yes_branch": "Deterministic tie-break and one global W4/FP16 mask",
+    "empirical_results_encoded": false
+  },
+  "claim_scope": "Method and protocol visualization only; no empirical result is encoded in the figure."
+}

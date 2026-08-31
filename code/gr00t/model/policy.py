@@ -31,7 +31,19 @@ from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
 from gr00t.model.gr00t_n1 import GR00T_N1_5
 
-COMPUTE_DTYPE = torch.bfloat16
+_COMPUTE_DTYPES = {
+    "bfloat16": torch.bfloat16,
+    "bf16": torch.bfloat16,
+    "float16": torch.float16,
+    "fp16": torch.float16,
+}
+_requested_compute_dtype = os.environ.get("GR00T_MODEL_DTYPE", "bfloat16").strip().lower()
+if _requested_compute_dtype not in _COMPUTE_DTYPES:
+    raise ValueError(
+        f"Unsupported GR00T_MODEL_DTYPE={_requested_compute_dtype!r}; "
+        f"expected one of {sorted(_COMPUTE_DTYPES)}"
+    )
+COMPUTE_DTYPE = _COMPUTE_DTYPES[_requested_compute_dtype]
 
 
 class BasePolicy(ABC):
@@ -258,6 +270,11 @@ class Gr00tPolicy(BasePolicy):
 
     def _load_model(self, model_path):
         model = GR00T_N1_5.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
+        # Several nested pretrained components retain their serialized dtype
+        # despite the transformers ``torch_dtype`` hint.  Formal FP16 rows and
+        # teacher proxies require an actual all-GEMM FP16 model, so enforce the
+        # resolved policy dtype after the complete module tree is constructed.
+        model = model.to(dtype=COMPUTE_DTYPE)
         model.eval()  # Set model to eval mode
 
         # Update action_horizon to match modality config

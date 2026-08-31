@@ -236,12 +236,14 @@
       "coverage": {
         "duplicate_episodes": 0,
         "expected_episodes": 4000,
-        "missing_episodes": 4000,
-        "observed_episodes": 0
+        "invalid_cells": [],
+        "missing_cells": [],
+        "missing_episodes": 0,
+        "observed_episodes": 4000
       },
-      "main_claim_enabled": false,
+      "main_claim_enabled": true,
       "model": "cross_model",
-      "notes": "Table 2 contains only locally audited values. The existing 1,600-episode FP16/Omega queue is a reusable subset but cannot independently enable any Table 2 claim.",
+      "notes": "Complete locally audited five-configuration LIBERO comparison with exact 4,000-episode coverage and no missing or duplicate episode keys.",
       "paper_cells": [
         "main.table2.libero.gr00t.fp16",
         "main.table2.libero.gr00t.quantvla_w4a8",
@@ -257,7 +259,12 @@
       "preregistration": "libero_table2_five_config_v2",
       "role": "main_table2_five_configuration_local_comparison",
       "scope": "2 models x 5 configs x 4 LIBERO suites x 10 tasks x 10 held-out trials",
-      "status": "preregistered_post_week1"
+      "status": "complete",
+      "summary": {
+        "bytes": 15747,
+        "path": "runs/table6_libero_v1/aggregate/summary.json",
+        "sha256": "545291172b23b2520cebbc613d3da511b2586de18eb6f7d18ef6b1a1e5412dbd"
+      }
     },
     "libero_table2_four_config_local": {
       "configuration": "fp16_quantvla_w4a8_omega_w4a4_gdsq_selector",
@@ -289,25 +296,25 @@
     "omega_qvla_robocasa365": {
       "configuration": "omega_qvla_w4a4_robocasa_recalibrated",
       "coverage": {
+        "duplicate_episodes": 0,
         "expected_episodes": 5000,
-        "observed_episodes": 5000,
         "missing_episodes": 0,
-        "duplicate_episodes": 0
+        "observed_episodes": 5000
       },
       "main_claim_enabled": true,
       "model": "cross_model",
       "model_progress": {
         "gr00t": {
+          "aggregate": {
+            "bytes": 28948,
+            "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_robocasa365_v1/aggregate/summary.json",
+            "sha256": "88f5a0ffd282148ed98f5c6df3d2087c5b49a76dda5ff4f84e4f14a71b8e749b"
+          },
           "coverage": {
             "duplicate_episodes": 0,
             "expected_episodes": 2500,
             "missing_episodes": 0,
             "observed_episodes": 2500
-          },
-          "aggregate": {
-            "bytes": 28948,
-            "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_robocasa365_v1/aggregate/summary.json",
-            "sha256": "88f5a0ffd282148ed98f5c6df3d2087c5b49a76dda5ff4f84e4f14a71b8e749b"
           },
           "main_claim_enabled": true,
           "memory": {
@@ -391,91 +398,91 @@
           }
         },
         "pi05": {
+          "aggregate": {
+            "bytes": 3456,
+            "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/summary.json",
+            "sha256": "d898552b26fb68db253decfe9375977f1dbf38daf89bb94d73c6d62564114ae9"
+          },
           "coverage": {
+            "duplicate_episodes": 0,
             "expected_episodes": 2500,
-            "observed_episodes": 2500,
             "missing_episodes": 0,
-            "duplicate_episodes": 0
+            "observed_episodes": 2500
+          },
+          "main_claim_enabled": true,
+          "memory": {
+            "bytes": 5149,
+            "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/pi05_paper_memory.json",
+            "sha256": "38e8af86473a566a23bcb52801a5e951a576135d9f905d19db907c067adf82f6"
           },
           "status": "complete",
           "task_sets": {
             "atomic_seen": {
-              "status": "complete",
-              "main_claim_enabled": true,
               "coverage": {
-                "tasks": 18,
-                "seeds_per_task": 50,
+                "duplicate_episodes": 0,
                 "expected_episodes": 900,
-                "observed_episodes": 900,
                 "missing_episodes": 0,
-                "duplicate_episodes": 0
+                "observed_episodes": 900,
+                "seeds_per_task": 50,
+                "tasks": 18
               },
+              "main_claim_enabled": true,
               "manifest": {
+                "bytes": 23228,
                 "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/results/atomic_seen/manifest.json",
-                "sha256": "9926d70abdaaa57b063b391a96a00b9f2d5a302c531632ff35fcf18b3a068c7d",
-                "bytes": 23228
+                "sha256": "9926d70abdaaa57b063b391a96a00b9f2d5a302c531632ff35fcf18b3a068c7d"
               },
+              "status": "complete",
               "summary": {
+                "bytes": 2941,
                 "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/results/atomic_seen/summary.json",
-                "sha256": "40ea63fff04bfdbfb3faa13895232d498f70146fd2ce858b5a63c06cfba68de9",
-                "bytes": 2941
+                "sha256": "40ea63fff04bfdbfb3faa13895232d498f70146fd2ce858b5a63c06cfba68de9"
               }
             },
             "composite_seen": {
-              "status": "complete",
-              "main_claim_enabled": true,
               "coverage": {
-                "tasks": 16,
-                "seeds_per_task": 50,
+                "duplicate_episodes": 0,
                 "expected_episodes": 800,
-                "observed_episodes": 800,
                 "missing_episodes": 0,
-                "duplicate_episodes": 0
+                "observed_episodes": 800,
+                "seeds_per_task": 50,
+                "tasks": 16
               },
+              "main_claim_enabled": true,
               "manifest": {
+                "bytes": 23556,
                 "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/results/composite_seen/manifest.json",
-                "sha256": "d3604ed2a076b4ea88e978126b406374d07b1c3718f621567d6587603ebda08e",
-                "bytes": 23556
+                "sha256": "d3604ed2a076b4ea88e978126b406374d07b1c3718f621567d6587603ebda08e"
               },
+              "status": "complete",
               "summary": {
+                "bytes": 2635,
                 "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/results/composite_seen/summary.json",
-                "sha256": "854854206880c83237c76cb51d195dd2b48aac046e5457b7721d60d99fbea8c0",
-                "bytes": 2635
+                "sha256": "854854206880c83237c76cb51d195dd2b48aac046e5457b7721d60d99fbea8c0"
               }
             },
             "composite_unseen": {
-              "status": "complete",
-              "main_claim_enabled": true,
               "coverage": {
-                "tasks": 16,
-                "seeds_per_task": 50,
+                "duplicate_episodes": 0,
                 "expected_episodes": 800,
-                "observed_episodes": 800,
                 "missing_episodes": 0,
-                "duplicate_episodes": 0
+                "observed_episodes": 800,
+                "seeds_per_task": 50,
+                "tasks": 16
               },
+              "main_claim_enabled": true,
               "manifest": {
+                "bytes": 22742,
                 "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/results/composite_unseen/manifest.json",
-                "sha256": "b52c670fd5b4e0974ef964c669417dfbeb76868f8cc24c03a793289216d1e34b",
-                "bytes": 22742
+                "sha256": "b52c670fd5b4e0974ef964c669417dfbeb76868f8cc24c03a793289216d1e34b"
               },
+              "status": "complete",
               "summary": {
+                "bytes": 2625,
                 "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/results/composite_unseen/summary.json",
-                "sha256": "d567c8d672b5dc57e122b0a6ba73633c3dfdbd9c192e45503e370d974034e571",
-                "bytes": 2625
+                "sha256": "d567c8d672b5dc57e122b0a6ba73633c3dfdbd9c192e45503e370d974034e571"
               }
             }
-          },
-          "memory": {
-            "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/pi05_paper_memory.json",
-            "sha256": "38e8af86473a566a23bcb52801a5e951a576135d9f905d19db907c067adf82f6",
-            "bytes": 5149
-          },
-          "main_claim_enabled": true,
-          "aggregate": {
-            "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/summary.json",
-            "sha256": "d898552b26fb68db253decfe9375977f1dbf38daf89bb94d73c6d62564114ae9",
-            "bytes": 3456
           }
         }
       },

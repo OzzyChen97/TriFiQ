@@ -126,7 +126,7 @@ def main() -> None:
     static_budget = table1_total_static_budget(args.model)
     if static_total > static_budget:
         raise ValueError("pruned plan still exceeds the Table-1 static ceiling")
-    flow_steps = {"gr00t": 4, "pi05": 10}[args.model]
+    flow_steps = {"gr00t": 4, "pi05": 4}[args.model]
     meta = dict(plan.get("meta") or {})
     meta.update(
         {

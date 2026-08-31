@@ -22,8 +22,10 @@
 | `gdsq_vla_atmohb` | GDSQ-VLA，CKA:CS=16:1 | plan-specific static expert | 69 wrappers；18 个 attention layers |
 | `gdsq_vla` | GDSQ-VLA（Ours），CKA:CS=16:1 | 关闭 | 69 wrappers |
 
-所有配置使用相同 π0.5 checkpoint、三路 224×224 图像、10 个 flow steps、50-action
+所有配置使用相同 π0.5 checkpoint、三路 224×224 图像、4 个 flow steps、50-action
 chunk、每 5 步 replan，以及相同的 paired deterministic 初始 diffusion noise。
+这里原先登记为 10 个 flow steps，属于元数据错误；本次仅更正协议字段，历史 episode
+outcome、coverage、timing observation 与 storage accounting 均未改动。
 
 ## RoboCasa365 Table 1 口径
 

@@ -19,6 +19,7 @@ pdf:
 	cp $(BUILD)/$(PAPER).pdf $(PAPER).pdf
 
 check: pdf
+	$(ROBOCASA_PY) $(REPO_ROOT)/scripts/tools/render_omega_qvla_libero_table.py --check
 	$(ROBOCASA_PY) $(REPO_ROOT)/scripts/tools/render_dypac_paper.py --check
 	$(ROBOCASA_PY) $(REPO_ROOT)/scripts/tools/check_gdsq_paper.py \
 		--paper-dir $(CURDIR) \

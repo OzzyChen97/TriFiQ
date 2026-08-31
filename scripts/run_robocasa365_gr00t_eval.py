@@ -314,9 +314,11 @@ def main() -> None:
         raise SystemExit(f"GR00T server cross-model protocol mismatch: {protocol_mismatches}")
     if (server_metadata.get("model_adapter") or {}).get("model") != "gr00t":
         raise SystemExit("GR00T server adapter attestation is missing")
-    server_metadata_sha256 = hashlib.sha256(
-        json.dumps(server_metadata, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()
+    server_metadata_sha256 = server_metadata.get("metadata_sha256")
+    if not server_metadata_sha256:
+        server_metadata_sha256 = hashlib.sha256(
+            json.dumps(server_metadata, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
     runtime_selector_metadata = server_metadata.get("runtime_selector") or {}
     if args.expect_runtime_selector and not runtime_selector_metadata.get("enabled"):
         raise SystemExit(f"server runtime selector is not enabled: {runtime_selector_metadata}")

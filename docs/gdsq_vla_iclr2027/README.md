@@ -1,7 +1,7 @@
-# DyPAC-VLA ICLR 2027 draft
+# Quantization Changes the Data — ICLR 2027 draft
 
-This directory contains the anonymous ICLR 2027 review draft for **DyPAC-VLA: Full-Context
-Mixed-Precision Quantization for Vision-Language-Action Models**. The directory name is retained
+This directory contains the anonymous ICLR 2027 review draft for **Quantization Changes the Data:
+Full-Context Post-Training Quantization for Vision-Language-Action Policies**. The directory name is retained
 as a legacy integration path for existing build and Overleaf automation; it is not the paper name.
 
 The manuscript uses the official ICLR 2027 author kit. The downloaded ZIP has SHA-256
@@ -22,16 +22,19 @@ readable booktabs tables, and a warning-free log.
 
 Active paper artifacts:
 
-- `figures/dypac_main_architecture_api_v2.png`: active API-generated, technically corrected DyPAC-VLA main architecture figure.
+- `figures/dypac_main_architecture.pdf`: active vector Figure 1 contrasting fixed-data PTQ, the quantization--control feedback loop, and the full-context response.
 - `figures/dypac_main_architecture_figure.tex`: Figure 1 wrapper, caption, and label.
-- `figures/dypac_main_architecture_api_v2.png.json`: redacted generation provenance and final checksum.
-- `figures/fcp_algorithm.tex`: fail-closed FCP selection and freeze algorithm.
-- `tables/main_results.tex`: GR00T and $\pi_{0.5}$ Table 1, with 54.0% as the formal ours result and the $\pi_{0.5}$ quick result explicitly isolated as a compression anchor.
+- `scripts/tools/render_dypac_method_figure.py`: deterministic Figure 1 renderer.
+- `figures/dypac_fcp_audit.pdf`: active evidence Figure 2 for the GR00T full-policy audit and its abstention outcome.
+- `figures/dypac_fcp_audit_figure.tex`: Figure 2 wrapper, caption, and label.
+- `figures/dypac_evidence_figures.audit.json`: frozen-source audit for the evidence figures.
+- `tables/main_results.tex`: GR00T and $\pi_{0.5}$ Table 1, including the complete 2,500-episode, four-flow-step $\pi_{0.5}$ DyPAC-VLA result.
 - `tables/core_ablation.tex`: audited core mechanism evidence in main-text Table 2.
 - `tables/core_rollout_plan.tex`: main-text Table 3 with the three preregistered closed-loop causal contrasts.
 - `tables/extended_ablation_plan.tex`: appendix-only secondary ablation protocol; pending.
-- `tables/omega_qvla_libero.tex`: appendix-only pending LIBERO extension; claim-disabled.
+- `tables/libero_transfer_compact.tex`: main-paper LIBERO transfer summary over GR00T N1.5 and $\pi_{0.5}$.
+- `tables/omega_qvla_libero.tex`: appendix LIBERO suite breakdown with 4,000/4,000 locally audited episodes, all 40 suite cells complete, and audited static size for every local configuration.
 - `dypac_evidence_registry.json`: paper identity, claim guards, source paths, and frozen hashes.
 
-Older GDSQ figures and tables are retained only as provenance and are not included by the active
-manuscript.
+Only assets referenced by the active manuscript, their generation provenance, and evidence audits
+are retained in this directory.

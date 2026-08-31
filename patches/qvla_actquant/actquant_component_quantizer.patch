@@ -1,0 +1,239 @@
+diff --git a/tools/quantize-vision/quantize-vision.cpp b/tools/quantize-vision/quantize-vision.cpp
+index b3fe1b1..d3f5351 100644
+--- a/tools/quantize-vision/quantize-vision.cpp
++++ b/tools/quantize-vision/quantize-vision.cpp
+@@ -28,6 +28,7 @@
+ #include <cstring>
+ #include <fstream>
+ #include <map>
++#include <sstream>
+ #include <string>
+ #include <unordered_map>
+ #include <vector>
+@@ -51,11 +52,23 @@ static const QuantType QUANT_TYPES[] = {
+     {"Q3_K_S", GGML_TYPE_Q3_K,   256},
+     {"Q3_K_M", GGML_TYPE_Q3_K,   256},  // Same type, different name for compatibility
+     {"Q3_K_L", GGML_TYPE_Q3_K,   256},
++    {"Q3_K",   GGML_TYPE_Q3_K,   256},
+     {"Q4_K_S", GGML_TYPE_Q4_K,   256},
+     {"Q4_K_M", GGML_TYPE_Q4_K,   256},  // Same type, different name for compatibility
++    {"Q4_K",   GGML_TYPE_Q4_K,   256},
+     {"Q5_K_S", GGML_TYPE_Q5_K,   256},
+     {"Q5_K_M", GGML_TYPE_Q5_K,   256},
++    {"Q5_K",   GGML_TYPE_Q5_K,   256},
+     {"Q6_K",   GGML_TYPE_Q6_K,   256},
++    // Importance-aware quantization (same ggml codebooks as llama-quantize)
++    {"IQ1_S",   GGML_TYPE_IQ1_S,   256},
++    {"IQ1_M",   GGML_TYPE_IQ1_M,   256},
++    {"IQ2_XXS", GGML_TYPE_IQ2_XXS, 256},
++    {"IQ2_XS",  GGML_TYPE_IQ2_XS,  256},
++    {"IQ2_S",   GGML_TYPE_IQ2_S,   256},
++    {"IQ3_XXS", GGML_TYPE_IQ3_XXS, 256},
++    {"IQ3_S",   GGML_TYPE_IQ3_S,   256},
++    {"IQ4_XS",  GGML_TYPE_IQ4_XS,  256},
+     // Float types
+     {"F16",  GGML_TYPE_F16,  1},
+     {"F32",  GGML_TYPE_F32,  1},
+@@ -205,7 +218,7 @@ static std::vector<float> pad_tensor_data(
+ }
+ 
+ static void print_usage(const char *prog) {
+-    printf("Usage: %s <input.gguf> <output.gguf> <type> [--pad|--no-pad] [--imatrix <path>]\n\n", prog);
++    printf("Usage: %s <input.gguf> <output.gguf> <type> [--pad|--no-pad] [--imatrix <path>] [--tensor-types <tsv>]\n\n", prog);
+     printf("Quantizes vision encoder GGUF files to lower precision.\n\n");
+     printf("Supported quantization types:\n");
+     printf("  Legacy (block size 32):\n");
+@@ -216,6 +229,8 @@ static void print_usage(const char *prog) {
+     printf("    Q4_K_S, Q4_K_M - 4-bit, good quality/size balance\n");
+     printf("    Q5_K_S, Q5_K_M - 5-bit, better quality\n");
+     printf("    Q6_K          - 6-bit, near-lossless\n");
++    printf("  Importance-aware (block size 256):\n");
++    printf("    IQ1_S, IQ1_M, IQ2_XXS, IQ2_XS, IQ2_S, IQ3_XXS, IQ3_S, IQ4_XS\n");
+     printf("  Float:\n");
+     printf("    F16, F32\n");
+     printf("\nOptions:\n");
+@@ -223,6 +238,8 @@ static void print_usage(const char *prog) {
+     printf("  --no-pad          Disable padding, skip incompatible tensors\n");
+     printf("  --imatrix <path>  Use AMF/imatrix GGUF as quantization weights\n");
+     printf("                    (per-tensor `<name>.in_sum2` + `.counts`).\n");
++    printf("  --tensor-types <tsv>  Exact per-tensor types: one '<name>\\t<TYPE>' per line.\n");
++    printf("                        Every input tensor must occur exactly once.\n");
+     printf("\nNote: Padding adds zero rows/cols to make dimensions divisible by block size.\n");
+     printf("      The original dimensions are stored in metadata for inference.\n");
+     printf("\nExamples:\n");
+@@ -263,6 +280,12 @@ static bool can_quantize_shape(const int64_t *ne, int n_dims, int block_size) {
+     return true;
+ }
+ 
++static bool requires_imatrix(enum ggml_type type) {
++    return type == GGML_TYPE_IQ1_S || type == GGML_TYPE_IQ1_M ||
++           type == GGML_TYPE_IQ2_XXS || type == GGML_TYPE_IQ2_XS ||
++           type == GGML_TYPE_IQ2_S;
++}
++
+ int main(int argc, char **argv) {
+     if (argc < 4) {
+         print_usage(argv[0]);
+@@ -276,6 +299,7 @@ int main(int argc, char **argv) {
+     // Parse remaining flags (--pad / --no-pad / --imatrix <path>)
+     bool enable_padding = true;
+     const char *imatrix_path = nullptr;
++    const char *tensor_types_path = nullptr;
+     for (int ai = 4; ai < argc; ++ai) {
+         if (strcmp(argv[ai], "--no-pad") == 0) {
+             enable_padding = false;
+@@ -288,6 +312,13 @@ int main(int argc, char **argv) {
+                 return 1;
+             }
+             imatrix_path = argv[++ai];
++        } else if (strcmp(argv[ai], "--tensor-types") == 0) {
++            if (ai + 1 >= argc) {
++                fprintf(stderr, "Error: --tensor-types requires a path argument\n\n");
++                print_usage(argv[0]);
++                return 1;
++            }
++            tensor_types_path = argv[++ai];
+         } else {
+             fprintf(stderr, "Error: Unknown option '%s'\n\n", argv[ai]);
+             print_usage(argv[0]);
+@@ -302,11 +333,49 @@ int main(int argc, char **argv) {
+         return 1;
+     }
+ 
++    std::unordered_map<std::string, const QuantType *> tensor_types;
++    if (tensor_types_path) {
++        std::ifstream manifest(tensor_types_path);
++        if (!manifest) {
++            fprintf(stderr, "Error: failed to open tensor type manifest '%s'\n", tensor_types_path);
++            return 1;
++        }
++        std::string line;
++        int line_number = 0;
++        while (std::getline(manifest, line)) {
++            ++line_number;
++            if (line.empty() || line[0] == '#') continue;
++            std::istringstream fields(line);
++            std::string tensor_name;
++            std::string type_name;
++            std::string extra;
++            if (!(fields >> tensor_name >> type_name) || (fields >> extra)) {
++                fprintf(stderr, "Error: malformed tensor type manifest line %d\n", line_number);
++                return 1;
++            }
++            const QuantType *entry_type = find_quant_type(type_name.c_str());
++            if (!entry_type) {
++                fprintf(stderr, "Error: unknown type '%s' on manifest line %d\n", type_name.c_str(), line_number);
++                return 1;
++            }
++            if (!tensor_types.emplace(tensor_name, entry_type).second) {
++                fprintf(stderr, "Error: duplicate tensor '%s' in type manifest\n", tensor_name.c_str());
++                return 1;
++            }
++        }
++        if (tensor_types.empty()) {
++            fprintf(stderr, "Error: empty tensor type manifest\n");
++            return 1;
++        }
++    }
++
+     printf("Input:   %s\n", input_path);
+     printf("Output:  %s\n", output_path);
+     printf("Type:    %s (block size: %d)\n", quant_type->name, quant_type->block_size);
+     printf("Padding: %s\n", enable_padding ? "enabled" : "disabled");
+     printf("Imatrix: %s\n", imatrix_path ? imatrix_path : "(none)");
++    printf("Tensor type manifest: %s (%zu entries)\n",
++           tensor_types_path ? tensor_types_path : "(none)", tensor_types.size());
+     printf("\n");
+ 
+     std::unordered_map<std::string, ImatrixEntry> imatrix_map;
+@@ -366,6 +435,7 @@ int main(int argc, char **argv) {
+ 
+     std::vector<TensorInfo> tensor_infos;
+     int n_padded = 0;
++    std::unordered_map<std::string, bool> used_tensor_types;
+ 
+     for (int i = 0; i < n_tensors; i++) {
+         const char *name = gguf_get_tensor_name(ctx_in, i);
+@@ -380,6 +450,19 @@ int main(int argc, char **argv) {
+         int n_dims = ggml_n_dims(tensor_in);
+         size_t tensor_size_in = ggml_nbytes(tensor_in);
+ 
++        const QuantType *selected_type = quant_type;
++        if (tensor_types_path) {
++            auto selected = tensor_types.find(name);
++            if (selected == tensor_types.end()) {
++                fprintf(stderr, "Error: tensor '%s' is absent from the exact type manifest\n", name);
++                gguf_free(ctx_in);
++                ggml_free(ctx_meta);
++                return 1;
++            }
++            selected_type = selected->second;
++            used_tensor_types[name] = true;
++        }
++
+         input_size += tensor_size_in;
+ 
+         // Determine output type and if we need padding
+@@ -393,18 +476,18 @@ int main(int argc, char **argv) {
+ 
+         if (!skip && (type_in == GGML_TYPE_F32 || type_in == GGML_TYPE_F16)) {
+             // Check if dimensions are compatible with block size
+-            bool can_quantize_native = can_quantize_shape(tensor_in->ne, n_dims, quant_type->block_size);
++            bool can_quantize_native = can_quantize_shape(tensor_in->ne, n_dims, selected_type->block_size);
+ 
+             if (can_quantize_native) {
+                 // Can quantize without padding
+-                type_out = quant_type->type;
++                type_out = selected_type->type;
+                 do_quantize = true;
+-            } else if (enable_padding && n_dims >= 2 && tensor_in->ne[0] > quant_type->block_size) {
++            } else if (enable_padding && n_dims >= 2 && tensor_in->ne[0] > selected_type->block_size) {
+                 // Check if we can pad to make it compatible
+-                padded_ne0 = calc_padded_dim(tensor_in->ne[0], quant_type->block_size);
++                padded_ne0 = calc_padded_dim(tensor_in->ne[0], selected_type->block_size);
+                 if (padded_ne0 != tensor_in->ne[0]) {
+                     needs_padding = true;
+-                    type_out = quant_type->type;
++                    type_out = selected_type->type;
+                     do_quantize = true;
+                 }
+             }
+@@ -513,6 +596,14 @@ int main(int argc, char **argv) {
+                 }
+             }
+ 
++            if (requires_imatrix(type_out) && !imatrix_ptr) {
++                fprintf(stderr, "Error: importance-aware tensor '%s' (%s) has no compatible imatrix entry\n",
++                        name, ggml_type_name(type_out));
++                gguf_free(ctx_in);
++                ggml_free(ctx_meta);
++                return 1;
++            }
++
+             quantize_tensor_with_imatrix(type_out, data_to_quantize->data(), info.data.data(),
+                                          q_nrows, q_n_per_row, imatrix_ptr, imatrix_per_weight);
+ 
+@@ -566,6 +657,14 @@ int main(int argc, char **argv) {
+ 
+     fin.close();
+ 
++    if (tensor_types_path && used_tensor_types.size() != tensor_types.size()) {
++        fprintf(stderr, "Error: type manifest has %zu entries but input consumed %zu\n",
++                tensor_types.size(), used_tensor_types.size());
++        gguf_free(ctx_in);
++        ggml_free(ctx_meta);
++        return 1;
++    }
++
+     // Create output context with proper memory allocation
+     printf("\nCreating output file...\n");
+ 
+@@ -689,7 +788,7 @@ int main(int argc, char **argv) {
+     printf("Reduction:         %.1f%%\n", (1.0 - (double)actual_output_size / input_size) * 100.0);
+ 
+     if (n_padded > 0) {
+-        printf("\nNote: %d tensor(s) were padded to align with block size %d.\n", n_padded, quant_type->block_size);
++        printf("\nNote: %d tensor(s) were padded to align with their selected block size.\n", n_padded);
+         printf("      Original dimensions are stored in metadata.\n");
+         printf("      Inference code must unpad these tensors after loading.\n");
+     }

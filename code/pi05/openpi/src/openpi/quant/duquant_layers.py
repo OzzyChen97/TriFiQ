@@ -648,7 +648,30 @@ class DuQuantLinear(nn.Module):
         from .duquant_triton import duquant_linear_fused_w4
 
         x2 = x.reshape(-1, self.in_features)
-        sa = self._get_act_scale(x) if self.cfg.act_bits > 0 else None
+        perm = self._triton_perm32
+        rin = self._triton_rin
+        # Dynamic A8 is defined in the deployed (permuted/rotated) channel
+        # basis.  The fused kernel normally applies that transform internally,
+        # but scales computed from the untransformed input are then attached to
+        # the wrong channels whenever a non-identity pack is loaded.  Transform
+        # first for dynamic A8 and tell the kernel not to transform a second
+        # time.  Static scales were calibrated in the transformed basis and can
+        # keep using the fully fused route.
+        if self.cfg.act_bits > 0 and self.cfg.act_dynamic:
+            from .duquant_preprocess import apply_input_transform_optimized
+
+            x2 = apply_input_transform_optimized(
+                x,
+                self.pack,
+                self._perm_cache,
+                self._get_R_in_cache(),
+                self._block_size,
+            ).reshape(-1, self.in_features)
+            sa = self._get_act_scale(x2)
+            perm = None
+            rin = None
+        else:
+            sa = self._get_act_scale(x) if self.cfg.act_bits > 0 else None
         if self.cfg.row_rot_mode == "restore" and self.pack.R_out_blocks is not None:
             rout = self._triton_rout
             bias_arg = self.bias
@@ -664,8 +687,8 @@ class DuQuantLinear(nn.Module):
             self._W_packed_u4,
             self._w_scales,
             bias_arg,
-            self._triton_perm32,
-            self._triton_rin,
+            perm,
+            rin,
             sa,
             rout,
             weight_input_gain=self._w_input_gain,
@@ -1162,7 +1185,10 @@ def load_hessian_w4(
     metadata = json.loads(sidecar.read_text(encoding="utf-8"))
     if metadata.get("schema_version") != 3 or metadata.get("group_size") != 64:
         raise ValueError("unsupported Hessian W4 artifact schema/group")
-    if metadata.get("protocol_id") != "quantvla-gr00t-pi05-errorfold-v4":
+    if metadata.get("protocol_id") not in {
+        "quantvla-gr00t-pi05-errorfold-v4",
+        "dypac-vla-libero-v1",
+    }:
         raise ValueError("Hessian W4 artifact protocol drift")
     actual_hash = sha256_file(artifact)
     if metadata.get("npz_sha256") != actual_hash:

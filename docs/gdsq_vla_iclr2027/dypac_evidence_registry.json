@@ -34,13 +34,6 @@
       }
     },
     "versus_fp16": {
-      "bootstrap": {
-        "ci95_high": 0.0176,
-        "ci95_low": -0.03879999999999999,
-        "draws": 10000,
-        "mean_delta": -0.01087452,
-        "seed": 0
-      },
       "delta": -0.01079999999999992,
       "holm_p": 0.29286269346886834,
       "losses": 319,
@@ -48,13 +41,6 @@
       "wins": 292
     },
     "versus_quantvla": {
-      "bootstrap": {
-        "ci95_high": 0.27999999999999997,
-        "ci95_low": 0.19119999999999998,
-        "draws": 10000,
-        "mean_delta": 0.23528427999999998,
-        "seed": 0
-      },
       "delta": 0.23560000000000003,
       "holm_p": 1.8894854853781264e-98,
       "losses": 132,
@@ -66,17 +52,16 @@
   },
   "kind": "dypac_vla_final_paper_evidence",
   "paper_identity": {
-    "expanded_name": "Dynamic-Range and Prefix-Accumulated Control-aware Quantization for Vision-Language-Action Models",
+    "expanded_name": "Full-context PTQ under policy-induced deployment distributions",
     "short_name": "DyPAC-VLA",
-    "title": "DyPAC-VLA: Full-Context Mixed-Precision Quantization for Vision-Language-Action Models"
+    "title": "Quantization Changes the Data: Full-Context Post-Training Quantization for Vision-Language-Action Policies"
   },
   "pi05": {
-    "candidate_successes": 29,
-    "claim_status": "quick_screen_does_not_support_success_superiority",
+    "claim_status": "formal_target_split_result_descriptive_cross_row_comparison",
     "compression": 2.701569421338518,
-    "episodes_per_configuration": 100,
+    "episodes_per_configuration": 2500,
+    "flow_steps": 4,
     "fp16_layers": 59,
-    "main_successes": 33,
     "official_target_split_baselines": {
       "episodes_per_configuration": 2500,
       "fp16": 0.26159999999999994,
@@ -84,8 +69,15 @@
       "quantvla_w4a8": 0.24839999999999995,
       "uniform_w6": 0.24519999999999992
     },
-    "role": "compression_anchor_only",
+    "role": "formal_target_split_result",
+    "split_task_macro_success_rate": {
+      "atomic_seen": 0.5955555555555555,
+      "composite_seen": 0.15375,
+      "composite_unseen": 0.042499999999999996
+    },
     "static_component_bytes": 1634828288,
+    "successes": 693,
+    "task_macro_success_rate": 0.2772,
     "w4_layers": 121
   },
   "schema_version": 1,
@@ -102,13 +94,13 @@
       "path": "runs/full_context_v2/p2/gr00t_full_context_v2_frozen.json",
       "sha256": "969c5ae8bc84719229c81a88e8b6ace745cbb87cea551528ec8cf1fd3820e3a2"
     },
-    "pi05_guard": {
-      "path": "runs/full_context_v2/pi05_quick/non_inferiority_anchor.json",
-      "sha256": "b7922b77071480e5d7d5b37e0492ad22bb42fac23c25f83f22ff872fb190f7b8"
+    "pi05_dypac_formal": {
+      "path": "runs/full_context_v2/pi05_table1/aggregate.json",
+      "sha256": "512480a2e0836423254217b5215489bcb218e17a4c7d0fff1cdf5aba9acf4f73"
     },
     "pi05_main_plan": {
       "path": "runs/full_context_v2/pi05_p2/interventions_round_main/context_base.json",
-      "sha256": "fed603b2d91ca8ef419b22e665325e73f97bc400018f6514aa86319dd821e4d4"
+      "sha256": "461531ea2c48cdd5e0f063bc944c882ede6a36ed73482beeb19134ec7e55e42b"
     },
     "pi05_omega": {
       "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/summary.json",
@@ -116,11 +108,11 @@
     },
     "pi05_plan": {
       "path": "runs/full_context_v2/pi05_p2/pi05_full_context_v2_frozen.json",
-      "sha256": "75d03ac67f17e44570055b54b1a25e44b88ee22bc2282d91bda5acc1f1c61b98"
+      "sha256": "e502f7cd7d126517c000f8b5b8e7c6e5537b31226910a2dd6834caaebf736c83"
     },
-    "pi05_quick": {
-      "path": "runs/full_context_v2/pi05_quick/combined_aggregate.json",
-      "sha256": "9633554be93cdfd88448b8e2ebec8e0999e26a7351520752c20ee2eb6d3fbade"
+    "pi05_protocol_correction": {
+      "path": "runs/full_context_v2/pi05_table1/protocol_correction.json",
+      "sha256": "cd5e07baaaf7b40e53c1ace9a881eb49aabb9407d8d20189d46e3a11b2186770"
     },
     "pi05_static_official": {
       "path": "runs/pi05_gdsq_gr00t_aligned/official_target_paired50/aggregate/summary.json",

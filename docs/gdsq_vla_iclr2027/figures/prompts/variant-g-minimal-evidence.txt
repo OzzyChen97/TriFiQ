@@ -1,9 +1,0 @@
-Use case: scientific-educational
-Asset type: minimal full-width CVPR teaser and method diagram
-Primary request: Produce an extremely clean evidence-to-decision diagram for GDSQ-VLA. Use four large cards connected left to right: Paired Intervention Evidence, Constrained Layer Allocation, Frozen Runtime Gate, and Quantized Action Policy.
-Scene/backdrop: pure white
-Style/medium: minimal Nature/CVPR-style vector infographic, thin lines, large typography, almost no decorative icons, colorblind-safe blue/orange/teal
-Composition/framing: 2048x1152 landscape; one row of four large cards; at most three visual elements per card; a small bottom strip states prohibited feedback and claim scope
-Text (verbatim): "GDSQ-VLA", "1  Paired Intervention Evidence", "FP16", "One-Layer W4A8", "1 - CKA", "D_CS", "Action Weight", "2  Constrained Layer Allocation", "Stability Guards", "W6-Equivalent Budget", "Frozen Mixed-Precision Mask", "3  Frozen Runtime Gate", "Calibration Only", "baseline | ATM | OHB", "Exactly One", "4  Quantized Action Policy", "Action Chunk", "No Task Identity", "No Rollout Feedback", "Theoretical Static Storage"
-Constraints: all labels verbatim; use a small geometric matrix icon for CKA and overlapping distributions for D_CS; represent the mask as blue FP16 and orange W4A8 tiles; gate has exactly three mutually exclusive outputs and no combination; final output is an action sequence; claim strip must not mention latency or memory savings; no watermark
-Avoid: detailed equations, success rates, task names, runtime adaptation, feedback loops, pruning, 3D network stacks, dark background, gradients, excessive arrows

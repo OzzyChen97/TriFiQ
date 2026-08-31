@@ -74,7 +74,26 @@ def main() -> None:
     if parent_meta.get("npz_sha256") != parent_hash:
         raise ValueError("parent Hessian hash drift")
     plan_payload = json.loads(plan.read_text(encoding="utf-8"))
-    selection = validate_quant_plan(plan_payload, model=args.model, source=str(plan))
+    plan_meta = plan_payload.get("meta") or {}
+    if plan_meta.get("protocol_id") == "dypac-vla-libero-v1":
+        protocol_path = Path(__file__).resolve().parents[1] / "quantvla_libero_dypac_protocol.json"
+        protocol_hash = hashlib.sha256(protocol_path.read_bytes()).hexdigest()
+        if (
+            plan_meta.get("protocol_sha256") != protocol_hash
+            or plan_meta.get("model") != args.model
+            or int(plan_meta.get("flow_steps", -1)) != 10
+            or plan_meta.get("activation_mode") != "dynamic_a8"
+        ):
+            raise ValueError("LIBERO DyPAC deployment-plan attestation mismatch")
+        selection = {
+            "quantized_w4_layers": int(plan_payload.get("quantized_w4_layers", -1))
+        }
+        if int(plan_payload.get("total_bytes", 1 << 62)) > int(
+            plan_payload.get("budget_bytes", -1)
+        ):
+            raise ValueError("LIBERO DyPAC deployment plan exceeds its byte budget")
+    else:
+        selection = validate_quant_plan(plan_payload, model=args.model, source=str(plan))
     active = {
         name
         for name, row in plan_payload["layers"].items()

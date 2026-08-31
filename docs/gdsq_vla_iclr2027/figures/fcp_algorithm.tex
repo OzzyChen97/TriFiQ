@@ -1,18 +1,6 @@
 \begin{figure}[t]
 \centering
-\setlength{\fboxsep}{6pt}
-\fcolorbox{iclrblue}{blue!3}{
-\begin{minipage}{0.94\linewidth}
-\small
-\textbf{Full-Context Precision Protection: freeze procedure}\par
-\vspace{2pt}
-\textbf{Input:} frozen FP16 teacher, initial mask $M_0$, context buffer $\mathcal{B}$, exact byte ceiling $C_{\max}$.\par
-\textbf{1. Pair:} run teacher and each one-layer counterfactual with identical observations and noise; compute $\dpac$, $\dfunc$, and component vectors.\par
-\textbf{2. Propose:} combine conservative flip benefits with an exact sparse Pareto dynamic program; add structured single-, pair-, attention-, and MLP-family proposals.\par
-\textbf{3. Adjudicate:} instantiate every proposal as a complete policy; retain only masks with $J<0$ and non-positive pose, stitch, and gripper upper bounds.\par
-\textbf{4. Audit state:} rescore the top three eligible masks on candidate-induced observations and replace $J$ by the worse teacher-/candidate-state score.\par
-\textbf{5. Freeze:} apply the deterministic byte/FP16/lexicographic tie-break; if no proposal is eligible, return $M_0$ and record the fallback reason.
-\end{minipage}}
+\includegraphics[width=\textwidth]{figures/dypac_fcp_freeze_api_v2.png}
 \caption{The selector is fail-closed: the additive solver proposes masks, but only complete-policy paired evidence can change the frozen configuration.}
 \label{fig:fcp_algorithm}
 \end{figure}

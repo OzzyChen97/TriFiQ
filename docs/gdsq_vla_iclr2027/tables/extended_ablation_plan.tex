@@ -1,20 +1,24 @@
-\begin{table}[ht]
+\begin{table}[h!]
 \centering
-\caption{Planned secondary ablations. These experiments are not complete and provide no numerical evidence in the current paper.}
+\caption{Registered pending experiments. These studies are not complete and provide no numerical evidence in the current paper.}
 \label{tab:extended_ablation_plan}
 \small
 \setlength{\tabcolsep}{4.0pt}
 \renewcommand{\arraystretch}{1.08}
-\begin{tabular}{@{}p{0.17\linewidth}p{0.38\linewidth}p{0.24\linewidth}p{0.12\linewidth}@{}}
+\begin{tabular}{@{}p{0.17\linewidth}p{0.39\linewidth}p{0.25\linewidth}p{0.10\linewidth}@{}}
 \toprule
 Family & Variants & Controlled readout & Status \\
 \midrule
-$D_{\mathrm{PAC}}$ terms & Remove prefix, pose, stitch, gripper, or CVaR one at a time & Mask change, objective, component bounds & Planned \\
-Context coverage & Omit one task split; early-only windows; no candidate-state rescore & Cross-split worst-case objective & Planned \\
-Quantizer choices & W4 group size 32/128; non-identity row rotation; coarser A8 scale granularity & Objective, bytes, kernel metadata & Planned \\
-Budget sensitivity & $1.00$, $1.05$, and $1.10\times$ the QuantVLA static-byte cell & Success--storage Pareto curve & Planned \\
+Full-policy audit behavior & Multiple initial masks and byte budgets; compare accepted masks with their initializers & Acceptance/abstention rate; paired success and byte deltas & Pending \\
+\dpac predictive validity & Rank a broad library of masks and activation variants using \dpac, \dfunc, and MSE & Spearman/Kendall correlation with rollout success & Pending \\
+\dpac components & Remove prefix, pose, stitch, gripper, or CVaR one at a time & Rank stability, selected mask, paired success & Pending \\
+Static A8 controls & Max, clipped percentile, per-flow, and sequence-aware static calibration & Paired success, objective, saturation rate & Pending \\
+$\pi_{0.5}$ paired inference & Register the four-flow-step Ours--reference paired comparison family & Exact McNemar, Holm correction, and task-level deltas & Pending \\
+QVLA/ActQuant extension & Complete the registered GR00T and $\pi_{0.5}$ formal rows & Coverage audit, task-macro success, exact bytes & Pending \\
+Guard validation & Relate pose, stitch, and gripper deviation bounds to observed control failures & Calibration/AUROC; failure-category rates & Pending \\
+Budget sensitivity & $1.00$, $1.05$, and $1.10\times$ the QuantVLA static-byte cell & Independently selected success--storage points & Pending \\
 \bottomrule
 \end{tabular}
 \vspace{2pt}
-\parbox{0.99\textwidth}{\footnotesize Each variant changes one factor and otherwise reuses the frozen checkpoint, task-stratified context buffer, exact-byte accounting, and paired evaluation protocol. ``Planned'' means specified but not yet claim-eligible.}
+\parbox{0.99\textwidth}{\footnotesize Each row is a protocol commitment rather than a result. \emph{Pending} means that no value from the experiment is used in the Abstract, main claims, or statistical comparisons. The guard-validation row evaluates surrogate control deviations and is not a physical-safety certification protocol.}
 \end{table}

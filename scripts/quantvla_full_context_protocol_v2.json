@@ -35,7 +35,7 @@
     },
     "pi05": {
       "quantvla_anchor_compression": 2.96,
-      "table1_flow_steps": 10
+      "table1_flow_steps": 4
     }
   },
   "byte_budget": {

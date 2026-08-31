@@ -37,8 +37,20 @@ def _configure_pytorch_precision(model, requested: str) -> dict[str, Any]:
     # Preserve upstream's mixed BF16/FP32 behavior by default.  Formal FP16
     # explicitly converts all GEMM modules, after which the PaliGemma helper
     # restores known numerically sensitive embeddings/norms to FP32.
+    qvla_uniform_bf16 = False
     if normalized == "bfloat16":
         model.paligemma_with_expert.to_bfloat16_for_selected_params("bfloat16")
+        # QVLA's frozen protocol requires every excluded/projector/action
+        # module to remain BF16.  Preserve OpenPI's historical FP32 islands
+        # for all ordinary callers, but remove them in the explicitly scoped
+        # QVLA calibration and formal-runtime environments.
+        qvla_uniform_bf16 = (
+            os.environ.get("QVLA_ACTQUANT_METHOD", "").strip().lower() == "qvla"
+            or os.environ.get("QVLA_ACTQUANT_CALIBRATION_DTYPE", "").strip().lower()
+            in {"bf16", "bfloat16"}
+        )
+        if qvla_uniform_bf16:
+            model.to(dtype=torch.bfloat16)
     elif normalized == "float16":
         model.to(dtype=torch.float16)
         model.paligemma_with_expert.to_bfloat16_for_selected_params("float16")
@@ -62,6 +74,7 @@ def _configure_pytorch_precision(model, requested: str) -> dict[str, Any]:
         "parameter_elements_by_dtype": parameter_dtypes,
         "linear_layers_by_weight_dtype": linear_dtypes,
         "matmul_allow_tf32": bool(torch.backends.cuda.matmul.allow_tf32),
+        "qvla_uniform_bf16": qvla_uniform_bf16,
     }
 
 

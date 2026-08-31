@@ -32,28 +32,31 @@ and Table 1 uses only FP16, QuantVLA, Uniform W6, and $\Omega$-QVLA baselines.
   - sha256 `874f553d932ceba3c2d11f9ac7e19955ed08f248d3f575fd4bbaa62fbc8ebfcf`
   - H=31 > M=25 (W7/L1); M=25 ~ C=26; C16=26 ~ C=26 (A8 exonerated); proxy alive.
 
-## pi0.5 — DyPAC-VLA compression anchor
+## pi0.5 — DyPAC-VLA (formal Table-1 result)
 
 - Frozen plan: `runs/full_context_v2/pi05_p2/pi05_full_context_v2_frozen.json`
-  - sha256 `75d03ac67f17e44570055b54b1a25e44b88ee22bc2282d91bda5acc1f1c61b98`
+  - sha256 `e502f7cd7d126517c000f8b5b8e7c6e5537b31226910a2dd6834caaebf736c83`
   - mask: 121 W4 + 59 FP16 (main mask pruned to the 1.10x QuantVLA budget;
     41 lowest-benefit FP16 layers flipped to W4), common runtime
   - total static bytes: 1,634,828,288 (1.097x QuantVLA cell; <= 1.10x budget;
     0.886x exact-main bytes); 2.702x compression vs FP16 (floor 2.691x)
-- Combined quick (v1 seeds 50-59 + expansion 60-69, 100 episodes/config):
-  `runs/full_context_v2/pi05_quick/combined_aggregate.json`
-  - sha256 `9633554be93cdfd88448b8e2ebec8e0999e26a7351520752c20ee2eb6d3fbade`
-  - main 33/100 vs candidate 29/100, W=7 L=11 -> not superior
-- Non-inferiority anchor: `runs/full_context_v2/pi05_quick/non_inferiority_anchor.json`
-  - sha256 `b7922b77071480e5d7d5b37e0492ad22bb42fac23c25f83f22ff872fb190f7b8`
-  - the superiority gate failed; the many-more-W4 result (121 vs the 80-W4
-    reference) is a compression anchor, not success parity or improvement
+- Formal protocol: four flow steps, execute/replan horizon 16, target split,
+  50 seeds per task, paired deterministic action noise, and fresh rendered
+  environments under the official horizons.
+- Formal aggregate: `runs/full_context_v2/pi05_table1/aggregate.json`
+  - sha256 `512480a2e0836423254217b5215489bcb218e17a4c7d0fff1cdf5aba9acf4f73`
+  - 693/2,500 = 27.7% task-macro success; splits 59.6/15.4/4.3
+  - the protocol metadata correction from 10 to 4 flow steps changes no
+    episode outcome, coverage key, timing observation, or storage value
+  - correction audit: `runs/full_context_v2/pi05_table1/protocol_correction.json`,
+    sha256 `cd5e07baaaf7b40e53c1ace9a881eb49aabb9407d8d20189d46e3a11b2186770`
 - Formal Table-1 baselines, all with 2,500 target-split episodes:
   - FP16 and QuantVLA: `runs/pi05_gdsq_gr00t_aligned/official_target_paired50/aggregate/summary.json`
   - Uniform W6: `runs/gdsq_week1_preregistered_v1/execution/runs/pi05_uniform_w6_official50/aggregate/summary.json`
   - $\Omega$-QVLA: `runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/summary.json`
-  - the 29/100 ours cell is visibly separated from these formal rows and is
-    never used for a cross-row success comparison
+  - all completed $\pi_{0.5}$ rows use four flow steps; Ours is 1.6 points
+    above FP16 and 2.9 points above QuantVLA W4A8, reported descriptively
+    until the paired significance family is registered
 
 ## Claims
 
@@ -66,7 +69,7 @@ and Table 1 uses only FP16, QuantVLA, Uniform W6, and $\Omega$-QVLA baselines.
   improves over QuantVLA by 23.6 points and its difference from the FP16
   teacher is not significant. FCP validates the existing mask as a local
   optimum; it does not discover a different GR00T mask.
-- pi0.5: the budget-pruned main mask reaches 2.702x compression versus FP16
-  (1.097x the QuantVLA byte cell), but its 29/100 quick result does not exceed
-  the 80-W4 reference plan's 33/100. This is explicitly a compression anchor,
-  not a success-rate or formal non-inferiority claim.
+- pi0.5: the budget-pruned main mask reaches 27.7% RoboCasa365 success at
+  2.702x compression versus FP16 (1.097x the QuantVLA byte cell) under the
+  protocol-matched four-flow-step evaluation. Cross-row gaps are descriptive
+  until the registered paired significance analysis is complete.
