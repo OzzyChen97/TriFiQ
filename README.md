@@ -2,76 +2,87 @@
 
 ### Full-Context Mixed-Precision Quantization for Vision-Language-Action Models
 
-[Under review — ICLR 2027 anonymous submission] · [Apache-2.0](LICENSE)
+[Apache-2.0](LICENSE)
 
 **DyPAC-VLA** (*Dynamic-Range and Prefix-Accumulated Control-aware Quantization*) is a
-training-free mixed-precision PTQ framework for VLA policies. It evaluates precision choices in
-the complete policy, freezes one global W4/FP16 mask under an exact byte budget, and deploys the
-mask with Hessian-aware group-64 W4 weights and dynamic per-forward A8 ranges. It uses no task
-routing, success labels, retraining, or runtime correction.
+training-free mixed-precision post-training quantization framework for vision-language-action
+policies. It evaluates precision decisions in the complete policy, freezes one global W4/FP16 mask
+under an exact byte budget, and deploys the mask with Hessian-aware group-64 W4 weights and dynamic
+per-forward A8 ranges.
 
-The paper source remains in the legacy directory
-[`docs/gdsq_vla_iclr2027`](docs/gdsq_vla_iclr2027/) so existing build and Overleaf automation do
-not break; the manuscript identity and all active labels are **DyPAC-VLA**.
+DyPAC-VLA uses no task routing, success-label feedback, retraining, runtime selector, or action
+correction.
 
 ## Architecture
 
-1. **Prefix-Accumulated Control Divergence ($D_{PAC}$).** Compares paired FP16 and quantized
-   action chunks using local error, prefix accumulation, composed SE(3) pose drift, inter-replan
-   stitching, gripper-event timing, and CVaR tail risk.
-2. **Full-Context Precision Protection (FCP).** Generates exact-budget counterfactual W4/FP16
-   plans, then lets whole-network cross-context rescoring and component safety decide.
-3. **Dynamic-range deployment.** Uses signed-nibble group-64 Hessian W4 and **DyRange-A8**, which
-   recomputes each input-channel scale on every forward call.
+1. **Prefix-Accumulated Control Divergence (D-PAC).** Measures local action error, prefix
+   accumulation, composed SE(3) pose drift, inter-replan discontinuity, gripper-event timing, and
+   tail risk on paired FP16 and quantized action chunks.
+2. **Full-Context Precision Protection (FCP).** Generates exact-budget W4/FP16 candidates and
+   accepts changes only after whole-network, cross-context adjudication with component-safety
+   checks.
+3. **DyRange-A8 deployment.** Combines signed-nibble group-64 Hessian W4 weights with deterministic
+   per-forward, per-input-channel A8 scales.
 
-For GR00T, FCP retains the initialized 100-W4/16-FP16 mask as a local optimum in the tested
-one-layer-flip neighborhood. The audit finds no positive-benefit single-layer flip and no eligible
-structured alternative; this is not claimed as a newly discovered mask or a global optimum.
+## RoboCasa365 Results
 
-## Frozen Results
+All reported configurations use the complete 50-task target split with 50 scenarios per task.
+The pi0.5 DyPAC-VLA row uses four flow-matching integration steps per action prediction, matching
+the corrected frozen protocol and result metadata.
 
-| Model / role | W4 / FP16 | Success | Static bytes | Compression | Claim |
-|---|---:|---:|---:|---:|---|
-| GR00T N1.5 / DyPAC-VLA (ours) | 100 / 16 | **54.0%** (1350/2500) | 962,068,480 | 2.224× | +23.6pp over QuantVLA, Holm $p<10^{-4}$; difference from FP16 is not significant |
-| $\pi_{0.5}$ / compression anchor | 121 / 59 | 29/100 screen | 1,634,828,288 | 2.702× | Compression only; no success-rate superiority claim |
+| Policy | Atomic | Composite-Seen | Composite-Unseen | Overall | Static size | Compression |
+|---|---:|---:|---:|---:|---:|---:|
+| GR00T N1.5 DyPAC-VLA | **74.7%** | **43.9%** | **40.9%** | **54.0%** (1350/2500) | 0.896 GiB | 2.22x |
+| pi0.5 DyPAC-VLA | **59.6%** | **15.4%** | **4.3%** | **27.7%** (693/2500) | 1.523 GiB | 2.70x |
 
-The GR00T split success rates are 74.7% Atomic-Seen, 43.9% Composite-Seen, and 40.9%
-Composite-Unseen. FP16 obtains 55.1%; the paired comparison with ours has $p=0.2929$ and a
-95% hierarchical-bootstrap interval of [-3.88, 1.76] points.
+For GR00T N1.5, DyPAC-VLA improves over QuantVLA W4A8 by 23.6 percentage points under
+the paired protocol. The difference from the 55.1% FP16 teacher is not statistically significant
+(`p=0.2929`). For pi0.5, the 27.7% versus 26.2% FP16 comparison is descriptive because no paired
+significance claim is registered for those rows.
 
-Table 1 includes formal GR00T and $\pi_{0.5}$ baselines; the $\pi_{0.5}$ ours row is visibly marked
-as a non-comparable quick-screen compression anchor. The paper places audited mechanism evidence
-and the three core closed-loop ablation contrasts in its exact nine-page main text. The pending
-LIBERO comparison and lower-priority planned diagnostics are appendix-only and claim-disabled.
+Compression denotes exact packed static model-component storage, not end-to-end latency or peak
+live memory.
 
-## Paper and Evidence
+## Repository Layout
 
-- Paper: [`docs/gdsq_vla_iclr2027/main.tex`](docs/gdsq_vla_iclr2027/main.tex)
-- Frozen version map: [`FINAL_VERSIONS.md`](FINAL_VERSIONS.md)
-- Generated evidence registry:
-  [`docs/gdsq_vla_iclr2027/dypac_evidence_registry.json`](docs/gdsq_vla_iclr2027/dypac_evidence_registry.json)
-- GR00T frozen plan: `runs/full_context_v2/p2/gr00t_full_context_v2_frozen.json`
-- GR00T formal aggregate: `runs/full_context_v2/table1/aggregate.json`
-- $\pi_{0.5}$ frozen plan: `runs/full_context_v2/pi05_p2/pi05_full_context_v2_frozen.json`
+- `scripts/`: evaluation, calibration, scheduling, and inference entry points.
+- `scripts/tools/`: plan construction, aggregation, auditing, and quantization utilities.
+- `code/`: model-family integrations and evaluation backends.
+- `environments/`: environment specifications.
+- `tests/`: unit and protocol tests.
+- `assets/`: non-paper project assets.
+- `docs/gdsq_vla_iclr2027/`: paper source, generated figures and tables, and the compiled PDF.
 
-Build and audit the anonymous paper with:
+Large model checkpoints, datasets, rollout outputs, and export caches are intentionally excluded
+from version control.
+
+## Installation
+
+Create the model-specific environments described under `environments/`, then install the project
+in editable mode:
 
 ```bash
-make test-paper
+pip install -e .
 ```
 
-Regenerate or verify paper cells with:
+Run the repository-level checks with:
 
 ```bash
-/home1/gyy/probe/miniforge3/envs/robocasa365/bin/python \
-  scripts/tools/render_dypac_paper.py
-/home1/gyy/probe/miniforge3/envs/robocasa365/bin/python \
-  scripts/tools/render_dypac_paper.py --check
+make run-checks
 ```
 
-## Scope
+GR00T and pi0.5 use separate runtime environments; evaluation scripts under `scripts/` activate
+the appropriate backend and preserve frozen protocol metadata.
 
-Reported compression is exact packed **static model-component** storage. The eager fake-quant
-implementation does not establish end-to-end latency or live-memory gains. The $\pi_{0.5}$ result
-is deliberately kept outside the formal headline because its quick screen did not pass the
-success-rate gate.
+## Reproducibility and Scope
+
+Frozen manifests bind model plans, task/seed coverage, environment settings, and artifact hashes.
+Formal result cells require complete coverage with no missing, duplicate, conflicting, or failed
+episode rows.
+
+The current eager fake-quant implementation validates numerical behavior and exact static storage
+accounting. Fused low-bit kernel latency, peak-memory improvements, and real-robot transfer remain
+outside the present claim scope.
+
+The paper source and compiled PDF are versioned under `docs/gdsq_vla_iclr2027/`. Run `make check`
+in that directory to regenerate the paper and validate its registered evidence.
