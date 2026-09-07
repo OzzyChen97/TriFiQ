@@ -1,6 +1,29 @@
 \begin{figure}[t]
   \centering
-  \includegraphics[width=\textwidth]{figures/dypac_main_architecture.pdf}
-  \caption{The full-context gap in VLA quantization. Conventional PTQ treats calibration data as fixed, but a quantized controller changes actions, future states, and the activation ranges on which later error depends. \method restores temporal context with a physical-sequence contract, whole-policy context with an abstaining acceptance audit, and deployment context with input-conditioned activation ranges. Dataset-specific audit outcomes are reported in Section~\ref{sec:attribution}.}
+  \fbox{\begin{minipage}[t]{0.29\textwidth}
+    \footnotesize\raggedright
+    \textbf{Fixed-buffer calibration}\par\smallskip
+    Teacher observations\par
+    $\downarrow$\par
+    Local reconstruction error\par
+    $\downarrow$\par
+    Precision and range choices
+  \end{minipage}}\hfill
+  \fbox{\begin{minipage}[t]{0.29\textwidth}
+    \footnotesize\raggedright
+    \textbf{Closed-loop dependency}\par\smallskip
+    Quantized policy actions\par
+    $\downarrow$\par
+    Environment and observations\par
+    $\downarrow$\par
+    Next inputs and quantized actions
+  \end{minipage}}\hfill
+  \fbox{\begin{minipage}[t]{0.29\textwidth}
+    \footnotesize\raggedright
+    \textbf{Design response}\par\smallskip
+    \textit{Offline:} adapt and audit complete masks under a byte ceiling.\par\smallskip
+    \textit{Deployment:} keep the mask fixed; compute A8 ranges from each input.
+  \end{minipage}}
+  \caption{Why closed-loop policy compression differs from fixed-data calibration. The center depicts a feedback dependency: each action can affect the inputs to later decisions. The right separates offline precision adaptation from input-conditioned deployment. This dependency motivates the method; matched experiments test deployment choices without isolating every source of state-distribution shift.}
   \label{fig:pipeline}
 \end{figure}

@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "protocol_id": "gr00t-dpac-predictive-validity-v1",
+  "model": "gr00t",
+  "benchmark": "RoboCasa365",
+  "split": "target",
+  "mask_library": {
+    "reference_plan": "runs/full_context_v2/p2/gr00t_full_context_v2_frozen.json",
+    "full_w4_plan": "runs/full_context_v2/mask_causal/full_w4_current_protocol.json",
+    "byte_inventory": "runs/full_context_v2/p2/interventions_dynamic/manifest.json",
+    "rng_seed": 20260901,
+    "swap_counts": [1, 2, 4, 8, 12, 16],
+    "masks_per_swap_count": 10,
+    "candidate_count": 60,
+    "expected_w4_layers": 100,
+    "expected_fp16_layers": 16,
+    "expected_candidate_bytes": 634716160,
+    "expected_table1_static_bytes": 962068480,
+    "swap_rule": "replace each selected FP16 layer with a distinct W4 layer from the identical extra-FP16-byte group",
+    "metric_independent_generation": true,
+    "success_independent_generation": true
+  },
+  "offline": {
+    "selection_buffer": "runs/full_context_v2/selection_buffer.npz",
+    "selection_buffer_splits": "runs/full_context_v2/selection_buffer_splits",
+    "observations": 144,
+    "observations_per_split": 48,
+    "noise": "A",
+    "teacher": "original_native_fp16_checkpoint",
+    "metrics": {
+      "mse": "raw_elementwise_mse_over_inverse_normalized_physical_action_chunks",
+      "d_func": "frozen_d_func_v1",
+      "d_pac": "frozen_d_pac_v2"
+    }
+  },
+  "runtime": {
+    "weight": "hessian_aware_signed_group64_w4",
+    "activation": "dynamic_per_forward_per_input_channel_amax_a8",
+    "flow_steps": 4,
+    "executed_actions_per_replan": 16,
+    "paired_action_noise": true,
+    "runtime_selector": false,
+    "runtime_correction": false,
+    "superset_server_evaluation_only": true,
+    "server_gpu": 7,
+    "egl_gpu": 7,
+    "max_clients": 6,
+    "minimum_free_gpu_mib": 30000
+  },
+  "closed_loop": {
+    "environment_seed": 70,
+    "tasks": "all_50_target_tasks_from_quantvla_full_context_protocol_v2",
+    "episodes_per_mask": 50,
+    "mask_episodes": 3000,
+    "fp16_baseline_episodes": 50,
+    "success_drop": "fp16_task_macro_success_rate_minus_mask_task_macro_success_rate",
+    "missing_or_failed_episode": "hard_error",
+    "duplicate_episode": "hard_error",
+    "withhold_outcomes_until_complete": true
+  },
+  "statistics": {
+    "primary_unit": "mask",
+    "primary_scope": "all_50_tasks",
+    "rank_metrics": ["spearman_rho", "kendall_tau_b"],
+    "comparisons": ["d_pac_minus_mse", "d_pac_minus_d_func"],
+    "secondary_scopes": [
+      "atomic_seen",
+      "composite_seen",
+      "composite_unseen",
+      "within_swap_count"
+    ],
+    "stratified_bootstrap_draws": 10000,
+    "stratified_bootstrap_seed": 20260902,
+    "claim_scope": "descriptive_only",
+    "undefined_policy": "report_null_never_replace_with_zero"
+  },
+  "execution": {
+    "root": "runs/full_context_v2/dpac_predictive_validity",
+    "smoke_mask_count": 2,
+    "smoke_tasks": ["OpenDrawer", "LoadDishwasher", "MakeIceLemonade"],
+    "equivalence_masks": "first_lexicographic_mask_from_each_swap_count",
+    "equivalence_atol": 0.002,
+    "equivalence_rtol": 0.002,
+    "paper_sources_must_not_change": true
+  }
+}

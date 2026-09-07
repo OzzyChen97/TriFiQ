@@ -27,6 +27,7 @@ from collections import Counter
 import fcntl
 import hashlib
 import json
+import math
 import os
 import platform
 import signal
@@ -234,7 +235,11 @@ def environment_record() -> dict[str, Any]:
 
 
 def formal_provenance(checkpoint: Path) -> dict[str, Any]:
-    """Transitive launch attestation used only by new week-1 manifests."""
+    """Transitive launch attestation used only by new week-1 manifests.
+
+    Legacy week-1 launchers were removed from the tree after their frozen runs
+    completed; they are recorded as absent instead of aborting new launches.
+    """
     source_paths = {
         "matrix_runner": Path(__file__).resolve(),
         "week1_orchestrator": REPO / "scripts/run_gr00t_week1.sh",
@@ -246,12 +251,24 @@ def formal_provenance(checkpoint: Path) -> dict[str, Any]:
         "strict_parser": REPO / "scripts/tools/parse_robocasa_atomic_matrix.py",
         "official_aggregator": REPO / "scripts/tools/aggregate_robocasa365_official.py",
         "paper_memory": REPO / "scripts/tools/robocasa_paper_memory.py",
+        "byte_ablation_mask_selector": REPO
+        / "scripts/tools/select_byte_ablation_masks.py",
+        "byte_ablation_hessian_subset": REPO
+        / "scripts/tools/materialize_full_context_hessian_subset.py",
+        "byte_ablation_aggregator": REPO
+        / "scripts/tools/aggregate_robocasa365_byte_ablation.py",
     }
+    sources = {}
+    for name, path in source_paths.items():
+        if path.is_file():
+            sources[name] = artifact(str(path))
+        else:
+            sources[name] = {"path": str(path), "missing": True}
     return {
         "schema_version": 2,
         "kind": "robocasa365_formal_launch_provenance",
         "checkpoint_tree": tree_artifact(str(checkpoint)),
-        "sources": {name: artifact(str(path)) for name, path in source_paths.items()},
+        "sources": sources,
         "source_trees": {
             "gr00t": source_tree_artifact(REPO / "code/gr00t"),
             "robocasa_task_adapter": source_tree_artifact(
@@ -321,6 +338,93 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--gpu-sample-interval", type=float, default=10.0)
     p.add_argument("--server-timeout", type=int, default=1200)
+    p.add_argument(
+        "--client-round-robin",
+        action="store_true",
+        help=(
+            "Dispatch pending client shards round-robin across configurations "
+            "(shard-major interleave) so a multi-arm matrix never lets the first "
+            "config monopolize a client wave. EGL pool devices are reassigned in "
+            "the same global interleave for balanced per-GPU concurrency."
+        ),
+    )
+    p.add_argument(
+        "--server-memory-budget-mib",
+        type=float,
+        default=None,
+        help=(
+            "Explicit per-server memory contract (MiB) used for the shared-GPU "
+            "free-memory gate instead of the conservative default budgets."
+        ),
+    )
+    p.add_argument(
+        "--client-memory-budget-mib",
+        type=float,
+        default=None,
+        help="Explicit per-EGL-client memory contract (MiB) for the gate.",
+    )
+    p.add_argument(
+        "--gpu-reserve-mib",
+        type=float,
+        default=None,
+        help="Per-GPU safety reserve (MiB) required in addition to the contracts.",
+    )
+    p.add_argument(
+        "--concurrent-client-memory",
+        action="store_true",
+        help=(
+            "Size the gate from the concurrently active client cap "
+            "(--max-concurrent-clients) instead of the total shard count."
+        ),
+    )
+    p.add_argument(
+        "--dynamic-client-cap",
+        action="store_true",
+        help=(
+            "Operational mode: the launch gate requires only that every GPU can "
+            "host its placed model servers plus the reserve; the concurrent "
+            "client cap is re-sampled from live free memory before every wave "
+            "(2,000 MiB per client, at most 13 per GPU and 104 in total, and "
+            "never evicting other processes). Shards on a GPU with zero "
+            "capacity wait for a later wave. Requires the explicit resource "
+            "contract and --allow-shared-gpus."
+        ),
+    )
+    p.add_argument(
+        "--client-per-gpu-cap",
+        type=int,
+        default=20,
+        help=(
+            "Runtime-only ceiling on concurrent clients per GPU in dynamic "
+            "mode (memory is the binding constraint; this only guards the "
+            "tail). Not recorded in the immutable manifest. Raised from the "
+            "original 13/GPU by user instruction; the global "
+            "--max-concurrent-clients ceiling is unchanged."
+        ),
+    )
+    p.add_argument(
+        "--client-gpu-allowlist",
+        default=None,
+        help=(
+            "Operational subset: restrict EGL client rendering to these "
+            "comma-separated GPUs. Shards are re-mapped round-robin over the "
+            "allowlist (runtime-only; the frozen shard schedule is unchanged). "
+            "Requires --dynamic-client-cap. Not recorded in the immutable "
+            "manifest; logged in <run-dir>/launch_ops.jsonl."
+        ),
+    )
+    p.add_argument(
+        "--server-gpu-allowlist",
+        default=None,
+        help=(
+            "Operational subset: only start model-server instances placed on "
+            "these comma-separated GPUs (indices 0-7). Remaining placements "
+            "stay in the frozen manifest, so expanding the allowlist later "
+            "resumes by task-seed key without touching the manifest. Requires "
+            "--dynamic-client-cap. Not recorded in the immutable manifest; "
+            "each launch is logged in <run-dir>/launch_ops.jsonl."
+        ),
+    )
     p.add_argument("--smoke-task", default="OpenCabinet")
     p.add_argument("--skip-gpu-preflight", action="store_true")
     p.add_argument(
@@ -399,7 +503,9 @@ def gpu_free_memory_mib() -> dict[int, float]:
     return result
 
 
-def egl_pool_memory_requirements(manifest: dict) -> dict[int, float]:
+def egl_pool_memory_requirements(
+    manifest: dict, server_gpu_allowlist: list[int] | None = None
+) -> dict[int, float]:
     """Conservative free-memory gate for shared EGL-client scheduling.
 
     The observed RoboCasa EGL contexts use roughly 1.5--2.0 GiB each.  Shared
@@ -408,29 +514,109 @@ def egl_pool_memory_requirements(manifest: dict) -> dict[int, float]:
     FP16/quantized servers and a separate 2 GiB device guard.
     This does not evict existing jobs: the detached chain simply retries while
     a pool device lacks headroom.
+
+    With an explicit ``resource_contract`` (byte-ablation matrices) the gate is
+    sized from the concurrent client cap instead of the total shard count:
+    ``reserve + concurrent_clients*client + servers*server`` per GPU.
+    ``server_gpu_allowlist`` restricts the server term to the GPUs whose
+    instances actually start (operational subset mode).
     """
     pool = manifest["protocol"].get("egl_device_pool")
     if not pool:
         return {}
+    contract = manifest["protocol"].get("resource_contract") or {}
+    server_budget = contract.get("server_memory_budget_mib")
+    client_budget = contract.get("client_memory_budget_mib")
+    reserve = contract.get("gpu_reserve_mib")
+    allowlist = set(server_gpu_allowlist or [])
     client_counts = {int(gpu): 0 for gpu in pool}
     for devices in manifest["protocol"]["shard_egl_devices"].values():
         for gpu in devices:
             client_counts[int(gpu)] = client_counts.get(int(gpu), 0) + 1
-    client_budget = (
-        2000.0 if manifest["protocol"].get("allow_shared_gpus") else 2300.0
-    )
-    requirements = {
-        gpu: 2048.0 + count * client_budget
-        for gpu, count in client_counts.items()
-    }
+    if server_budget is None:
+        client_budget = (
+            2000.0 if manifest["protocol"].get("allow_shared_gpus") else 2300.0
+        )
+        requirements = {
+            gpu: 2048.0 + count * client_budget
+            for gpu, count in client_counts.items()
+        }
+        server_budget_per_config = {}
+        for config in manifest["configs"]:
+            server_budget_per_config[config["id"]] = (
+                16384.0 if int(config["expected_wrapped"]) else 12288.0
+            )
+        for config in manifest["configs"]:
+            server_gpus = [int(config["gpu"])] + [
+                int(replica["gpu"]) for replica in config.get("replicas", [])
+            ]
+            for gpu in server_gpus:
+                requirements[gpu] = requirements.get(gpu, 2048.0) + (
+                    server_budget_per_config[config["id"]]
+                )
+        return requirements
+    # Explicit resource contract: concurrent-client model.
+    requirements = {int(gpu): float(reserve) for gpu in pool}
+    cap = int(manifest["protocol"].get("max_concurrent_clients") or 0)
+    server_counts = {int(gpu): 0 for gpu in pool}
     for config in manifest["configs"]:
-        server_budget = 16384.0 if int(config["expected_wrapped"]) else 12288.0
-        server_gpus = [int(config["gpu"])] + [
-            int(replica["gpu"]) for replica in config.get("replicas", [])
-        ]
-        for gpu in server_gpus:
-            requirements[gpu] = requirements.get(gpu, 2048.0) + server_budget
+        for instance in server_instances(config):
+            if allowlist and int(instance["gpu"]) not in allowlist:
+                continue
+            server_counts[int(instance["gpu"])] += 1
+    for gpu in pool:
+        requirements[gpu] += server_counts.get(int(gpu), 0) * float(server_budget)
+    if manifest["protocol"].get("dynamic_client_cap"):
+        # Dynamic mode: the launch gate covers started servers + reserve only;
+        # client concurrency is re-sampled from live memory before each wave.
+        return requirements
+    if cap > 0 and len(pool) > 0:
+        # Distribute the concurrency cap as evenly as possible over the pool
+        # (104 clients on 8 GPUs -> exactly 13 each), independent of the
+        # one-shard remainder in the interleaved assignment.
+        base, remainder = divmod(cap, len(pool))
+        concurrent = {
+            int(gpu): base + (1 if position < remainder else 0)
+            for position, gpu in enumerate(pool)
+        }
+    else:
+        concurrent = {int(gpu): count for gpu, count in client_counts.items()}
+    for gpu in pool:
+        requirements[gpu] += concurrent.get(int(gpu), 0) * float(client_budget)
     return requirements
+
+
+def sample_dynamic_client_capacity(
+    manifest: dict, per_gpu_cap: int = 20, gpu_filter: list[int] | None = None
+) -> dict[int, dict]:
+    """Live per-GPU client capacity for dynamic mode.
+
+    The servers are already running, so ``memory.free`` excludes them.  Each
+    GPU may host at most ``per_gpu_cap`` clients and the reserve stays
+    untouched; capacity is the floor of the remaining free memory divided by
+    the 2,000 MiB client budget.  ``gpu_filter`` zeroes every GPU outside the
+    operational render subset.
+    """
+    contract = manifest["protocol"]["resource_contract"]
+    reserve = float(contract["gpu_reserve_mib"])
+    client_budget = float(contract["client_memory_budget_mib"])
+    pool = manifest["protocol"]["egl_device_pool"]
+    allowed = set(gpu_filter) if gpu_filter is not None else None
+    free = gpu_free_memory_mib()
+    sampled_at = datetime.now(timezone.utc).isoformat()
+    capacity = {}
+    for gpu in pool:
+        headroom = free.get(int(gpu), 0.0) - reserve
+        count = int(math.floor(max(0.0, headroom) / client_budget))
+        count = min(per_gpu_cap, count)
+        if allowed is not None and int(gpu) not in allowed:
+            count = 0
+        capacity[int(gpu)] = count
+    return {
+        "sampled_at": sampled_at,
+        "free_memory_mib": {int(gpu): free.get(int(gpu)) for gpu in pool},
+        "capacity": capacity,
+    }
 
 
 def monitor_gpus(
@@ -610,6 +796,10 @@ def build_manifest(
     formal_provenance_v2: bool = False,
     diagnostic_only: bool = False,
     allow_shared_gpus: bool = False,
+    client_round_robin: bool = False,
+    resource_contract: dict | None = None,
+    max_concurrent_clients: int = 0,
+    dynamic_client_cap: bool = False,
 ) -> dict:
     spec = json.loads(spec_path.read_text())
     configs = spec.get("configs") or []
@@ -847,6 +1037,8 @@ def build_manifest(
             config["atm_application"] = str(raw["atm_application"])
         if raw.get("ohb_application") is not None:
             config["ohb_application"] = str(raw["ohb_application"])
+        if raw.get("strict_hessian_runtime") is not None:
+            config["strict_hessian_runtime"] = bool(raw["strict_hessian_runtime"])
         if act_scale_meta is not None:
             config["act_scale_meta"] = act_scale_meta
         if quant_selection_attestation is not None:
@@ -915,7 +1107,11 @@ def build_manifest(
         for config_index, config in enumerate(enriched):
             offset = config_index * len(shards)
             config["shard_egl_devices"] = [
-                egl_device_pool[(offset + shard_index) % len(egl_device_pool)]
+                egl_device_pool[
+                    (shard_index * len(enriched) + config_index) % len(egl_device_pool)
+                    if client_round_robin
+                    else (offset + shard_index) % len(egl_device_pool)
+                ]
                 for shard_index in range(len(shards))
             ]
             # The shard-to-render-device schedule is experiment-defining and
@@ -962,6 +1158,26 @@ def build_manifest(
         protocol["gpu_efficiency_scope"] = (
             "model-GPU device totals; replicas and EGL clients use shared GPUs 0-7"
         )
+    if client_round_robin:
+        protocol["client_dispatch"] = (
+            "shard-major round-robin across configurations; "
+            "EGL devices follow the same global interleave"
+        )
+    if resource_contract:
+        protocol["resource_contract"] = dict(resource_contract)
+        protocol["max_concurrent_clients"] = int(max_concurrent_clients)
+        protocol["resource_contract_note"] = (
+            "free-memory gate = gpu_reserve + concurrent_clients*client_budget "
+            "+ servers*server_budget per GPU; existing processes are never evicted"
+        )
+    if dynamic_client_cap:
+        protocol["dynamic_client_cap"] = True
+        protocol["dynamic_client_cap_note"] = (
+            "launch gate covers placed servers + reserve only; the concurrent "
+            "client count is re-sampled from live free memory before every wave "
+            "(client_budget MiB per client, <=13 per GPU, <= max_concurrent_clients "
+            "in total, no eviction)"
+        )
     if any(config.get("replicas") for config in enriched):
         protocol["server_instances"] = {
             config["id"]: server_instances(config) for config in enriched
@@ -1003,6 +1219,23 @@ def write_or_validate_manifest(path: Path, manifest: dict) -> tuple[dict, str]:
         # must match the already frozen manifest.
         proposed = dict(manifest)
         proposed["created_at"] = saved.get("created_at")
+        # The runner's own source hash is inherently unstable across
+        # operational patches and is excluded from the immutable comparison;
+        # the per-launch runner identity is logged in launch_ops.jsonl.
+        for document in (saved, proposed):
+            provenance = document.get("formal_provenance")
+            if isinstance(provenance, dict) and isinstance(
+                provenance.get("sources"), dict
+            ):
+                provenance["sources"] = {
+                    key: value
+                    for key, value in provenance["sources"].items()
+                    if not (
+                        isinstance(value, dict)
+                        and str(Path(value.get("path", "")).resolve())
+                        == str(Path(__file__).resolve())
+                    )
+                }
         if saved != proposed:
             raise SystemExit(f"immutable manifest mismatch: {path}")
         manifest = saved
@@ -1309,6 +1542,24 @@ def wait_and_verify(
                 or int(runtime_contract.get("fp_weight_sized_buffers", -1)) != 0
             ):
                 raise RuntimeError(f"inference-only W4 residency is required: {info}")
+            if config.get("strict_hessian_runtime"):
+                runtime_contract = info.get("quantization_contract") or {}
+                if int(info.get("hessian_group_size", 0)) != 64:
+                    raise RuntimeError(
+                        f"strict Hessian runtime requires group size 64: {info}"
+                    )
+                if runtime_contract.get("row_rotation") != "0":
+                    raise RuntimeError(
+                        f"strict Hessian runtime requires identity row rotation: {info}"
+                    )
+                if (info.get("runtime_selector") or {}).get("enabled") is True:
+                    raise RuntimeError(
+                        f"strict Hessian runtime forbids a runtime selector: {info}"
+                    )
+                if info.get("runtime_correction"):
+                    raise RuntimeError(
+                        f"strict Hessian runtime forbids output correction: {info}"
+                    )
             if config.get("errorfold"):
                 if int(info.get("hessian_group_size", 0)) != 64:
                     raise RuntimeError(f"v3 Hessian group size mismatch: {info}")
@@ -1345,6 +1596,10 @@ def start_clients(
     instance_mode: str = "all",
     candidate_state_archive_dir: Path | None = None,
     max_children: int | None = None,
+    gpu_capacity: dict[int, int] | None = None,
+    status_out: dict | None = None,
+    running_instances: dict[str, list[dict]] | None = None,
+    client_gpu_allowlist: list[int] | None = None,
 ) -> list[tuple[subprocess.Popen, Any, str]]:
     """Start incomplete client shards, rebalancing them over active instances.
 
@@ -1352,13 +1607,25 @@ def start_clients(
     unseen quantized half-matrix on GPUs 2/6/7 while seen is still running.
     The ordinary full runner uses all instances.  On resume, completed shard
     files are skipped and only remaining shards are round-robin redistributed.
+    ``gpu_capacity`` caps how many clients may render on each GPU in this wave
+    (dynamic mode); shards on exhausted GPUs stay pending for a later wave.
+    ``running_instances`` (operational allowlist mode) overrides the frozen
+    placements with the subset of servers that actually started.
     """
+    if running_instances is not None and instance_mode != "all":
+        raise ValueError("running_instances requires instance_mode='all'")
     children = []
     shard_seed_groups = manifest.get("shard_seeds")
+    pending_by_config = []
     for config in manifest["configs"]:
         if config_ids is not None and config["id"] not in config_ids:
             continue
-        instances = server_instances(config)
+        if running_instances is not None:
+            instances = running_instances.get(config["id"])
+            if not instances:
+                raise RuntimeError(f"{config['id']}: no running instance available")
+        else:
+            instances = server_instances(config)
         if instance_mode == "replica_only":
             instances = instances[1:]
             if not instances:
@@ -1395,46 +1662,88 @@ def start_clients(
             if completed >= expected:
                 continue
             pending_shards.append((shard_index, tasks, seeds))
-        for pending_index, (shard_index, tasks, seeds) in enumerate(pending_shards):
-            if max_children is not None and len(children) >= max_children:
-                return children
-            out = config["result_files"][shard_index]
+        pending_by_config.append((config, instances, pending_shards))
+    dispatch_order = []
+    if manifest["protocol"].get("client_dispatch") and len(pending_by_config) > 1:
+        # Shard-major round-robin across configurations: each wave fills
+        # roughly equally from every arm instead of exhausting the first
+        # config's shards.  Dispatch rank doubles as the EGL device interleave.
+        pending_indices = {
+            shard_index
+            for _, _, entries in pending_by_config
+            for shard_index, _, _ in entries
+        }
+        for shard_index in sorted(pending_indices):
+            for config, instances, entries in pending_by_config:
+                entry = next(
+                    (item for item in entries if item[0] == shard_index), None
+                )
+                if entry is not None:
+                    dispatch_order.append((config, instances, entry))
+    else:
+        for config, instances, entries in pending_by_config:
+            for entry in entries:
+                dispatch_order.append((config, instances, entry))
+    instance_counters: dict[str, int] = {}
+    gpu_used: dict[int, int] = {}
+    pending_total = sum(len(entries) for _, _, entries in pending_by_config)
+    dispatched = 0
+    for config, instances, (shard_index, tasks, seeds) in dispatch_order:
+        if max_children is not None and len(children) >= max_children:
+            break
+        out = config["result_files"][shard_index]
+        if client_gpu_allowlist:
+            # Operational render subset: remap shards round-robin over the
+            # allowlist instead of the frozen 8-GPU schedule.
+            egl_device = client_gpu_allowlist[dispatched % len(client_gpu_allowlist)]
+        else:
             shard_egl_devices = config.get("shard_egl_devices")
             egl_device = (
                 int(shard_egl_devices[shard_index])
                 if shard_egl_devices else int(config["egl_device"])
             )
-            instance = instances[pending_index % len(instances)]
-            cmd = [
-                str(GROOT_PY), str(DRIVER), "--port", str(instance["port"]),
-                "--config", config["id"], "--tasks", ",".join(tasks),
-                "--n-trials", str(len(seeds)),
-                "--trial-seeds", ",".join(str(seed) for seed in seeds), "--max-steps", "0",
-                "--manifest-sha256", manifest_sha,
-                "--config-sha256", config["config_sha256"], "--out", out,
-                "--trial-timeout", str(manifest["protocol"]["trial_timeout_seconds"]),
-                "--trial-batch-size", str(manifest["protocol"]["trial_batch_size"]),
-                "--egl-device", str(egl_device),
-            ]
-            if manifest["protocol"]["paired_action_noise"]:
-                cmd.append("--paired-action-noise")
-            if candidate_state_archive_dir is not None:
-                candidate_state_archive_dir.mkdir(parents=True, exist_ok=True)
-                cmd.append(
-                    "--candidate-state-archive",
-                    str(candidate_state_archive_dir / f"{config['id']}_s{shard_index}.npz"),
-                )
-            if config.get("meta", {}).get("formal_failure_on_crash") is True:
-                cmd.append("--terminal-crash-as-failure")
-            log_handle = open(
-                run_dir / f"driver_{config['id']}_s{shard_index}.log", "a", buffering=1
+        if gpu_capacity is not None:
+            used = gpu_used.get(egl_device, 0)
+            if used >= gpu_capacity.get(egl_device, 0):
+                continue  # GPU at capacity this wave; retry in a later wave
+            gpu_used[egl_device] = used + 1
+        counter = instance_counters.setdefault(config["id"], 0)
+        instance = instances[counter % len(instances)]
+        instance_counters[config["id"]] = counter + 1
+        dispatched += 1
+        cmd = [
+            str(GROOT_PY), str(DRIVER), "--port", str(instance["port"]),
+            "--config", config["id"], "--tasks", ",".join(tasks),
+            "--n-trials", str(len(seeds)),
+            "--trial-seeds", ",".join(str(seed) for seed in seeds), "--max-steps", "0",
+            "--manifest-sha256", manifest_sha,
+            "--config-sha256", config["config_sha256"], "--out", out,
+            "--trial-timeout", str(manifest["protocol"]["trial_timeout_seconds"]),
+            "--trial-batch-size", str(manifest["protocol"]["trial_batch_size"]),
+            "--egl-device", str(egl_device),
+        ]
+        if manifest["protocol"]["paired_action_noise"]:
+            cmd.append("--paired-action-noise")
+        if candidate_state_archive_dir is not None:
+            candidate_state_archive_dir.mkdir(parents=True, exist_ok=True)
+            cmd.append(
+                "--candidate-state-archive",
+                str(candidate_state_archive_dir / f"{config['id']}_s{shard_index}.npz"),
             )
-            proc = subprocess.Popen(
-                cmd, cwd=REPO, stdout=log_handle, stderr=subprocess.STDOUT,
-                env=clean_client_env(os.environ),
-                start_new_session=True,
-            )
-            children.append((proc, log_handle, f"{config['id']}/s{shard_index}"))
+        if config.get("meta", {}).get("formal_failure_on_crash") is True:
+            cmd.append("--terminal-crash-as-failure")
+        log_handle = open(
+            run_dir / f"driver_{config['id']}_s{shard_index}.log", "a", buffering=1
+        )
+        proc = subprocess.Popen(
+            cmd, cwd=REPO, stdout=log_handle, stderr=subprocess.STDOUT,
+            env=clean_client_env(os.environ),
+            start_new_session=True,
+        )
+        children.append((proc, log_handle, f"{config['id']}/s{shard_index}"))
+    if status_out is not None:
+        status_out["pending_shards"] = pending_total - dispatched
+        status_out["dispatched"] = dispatched
     return children
 
 
@@ -1501,6 +1810,21 @@ def main() -> None:
     args = parse_args()
     if args.max_concurrent_clients < 0:
         raise SystemExit("--max-concurrent-clients must be >= 0")
+    if args.dynamic_client_cap:
+        if (
+            args.server_memory_budget_mib is None
+            or args.client_memory_budget_mib is None
+            or args.gpu_reserve_mib is None
+        ):
+            raise SystemExit(
+                "--dynamic-client-cap requires the explicit resource contract "
+                "(--server-memory-budget-mib/--client-memory-budget-mib/"
+                "--gpu-reserve-mib)"
+            )
+        if not args.allow_shared_gpus:
+            raise SystemExit(
+                "--dynamic-client-cap requires --allow-shared-gpus (no eviction)"
+            )
     spec_path = Path(args.spec).resolve()
     run_dir = Path(args.run_dir).resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1530,11 +1854,83 @@ def main() -> None:
         args.formal_provenance_v2,
         args.diagnostic_only,
         args.allow_shared_gpus,
+        client_round_robin=args.client_round_robin,
+        resource_contract=(
+            {
+                "server_memory_budget_mib": args.server_memory_budget_mib,
+                "client_memory_budget_mib": args.client_memory_budget_mib,
+                "gpu_reserve_mib": args.gpu_reserve_mib,
+            }
+            if (
+                args.server_memory_budget_mib is not None
+                or args.client_memory_budget_mib is not None
+                or args.gpu_reserve_mib is not None
+            )
+            else None
+        ),
+        max_concurrent_clients=(
+            args.max_concurrent_clients
+            if (args.concurrent_client_memory or args.dynamic_client_cap)
+            else 0
+        ),
+        dynamic_client_cap=args.dynamic_client_cap,
     )
     manifest, manifest_sha = write_or_validate_manifest(
         run_dir / "manifest.json", manifest
     )
     verify_client_task_registration(manifest["tasks"])
+    server_allowlist = None
+    if args.server_gpu_allowlist:
+        if not args.dynamic_client_cap:
+            raise SystemExit("--server-gpu-allowlist requires --dynamic-client-cap")
+        try:
+            server_allowlist = [
+                int(value.strip())
+                for value in args.server_gpu_allowlist.split(",")
+                if value.strip()
+            ]
+        except ValueError as exc:
+            raise SystemExit("--server-gpu-allowlist must be comma-separated integers") from exc
+        if not server_allowlist or any(
+            gpu not in range(0, 8) for gpu in server_allowlist
+        ):
+            raise SystemExit("--server-gpu-allowlist must be non-empty GPU indices 0-7")
+        server_allowlist = sorted(set(server_allowlist))
+        with open(run_dir / "launch_ops.jsonl", "a", encoding="utf-8") as ops_log:
+            ops_log.write(json.dumps({
+                "sampled_at": datetime.now(timezone.utc).isoformat(),
+                "server_gpu_allowlist": server_allowlist,
+                "note": (
+                    "operational instance subset; frozen manifest and protocol "
+                    "unchanged; expanding the allowlist later resumes by task-seed key"
+                ),
+            }) + "\n")
+    client_allowlist = None
+    if args.client_gpu_allowlist:
+        if not args.dynamic_client_cap:
+            raise SystemExit("--client-gpu-allowlist requires --dynamic-client-cap")
+        try:
+            client_allowlist = [
+                int(value.strip())
+                for value in args.client_gpu_allowlist.split(",")
+                if value.strip()
+            ]
+        except ValueError as exc:
+            raise SystemExit("--client-gpu-allowlist must be comma-separated integers") from exc
+        if not client_allowlist or any(
+            gpu not in range(0, 8) for gpu in client_allowlist
+        ):
+            raise SystemExit("--client-gpu-allowlist must be non-empty GPU indices 0-7")
+        client_allowlist = sorted(set(client_allowlist))
+        with open(run_dir / "launch_ops.jsonl", "a", encoding="utf-8") as ops_log:
+            ops_log.write(json.dumps({
+                "sampled_at": datetime.now(timezone.utc).isoformat(),
+                "client_gpu_allowlist": client_allowlist,
+                "note": (
+                    "operational render subset; shards re-mapped round-robin over "
+                    "the allowlist; frozen shard schedule unchanged"
+                ),
+            }) + "\n")
     requested_gpus = [
         instance["gpu"]
         for config in manifest["configs"] for instance in server_instances(config)
@@ -1544,19 +1940,20 @@ def main() -> None:
         conflicts = {g: busy.get(g, []) for g in requested_gpus if busy.get(g)}
         if conflicts:
             raise SystemExit(f"authorized GPUs are not idle; refusing to kill jobs: {conflicts}")
-    memory_requirements = egl_pool_memory_requirements(manifest)
+    memory_requirements = egl_pool_memory_requirements(manifest, server_allowlist)
     if memory_requirements:
         free_memory = gpu_free_memory_mib()
         insufficient = {
             gpu: {"free_mib": free_memory.get(gpu), "required_mib": required}
             for gpu, required in memory_requirements.items()
-            if free_memory.get(gpu, 0.0) < required
+            if required > 0 and free_memory.get(gpu, 0.0) < required
         }
         preflight = {
             "sampled_at": datetime.now(timezone.utc).isoformat(),
             "free_memory_mib": free_memory,
             "required_free_memory_mib": memory_requirements,
             "insufficient": insufficient,
+            "server_gpu_allowlist": server_allowlist,
             "policy": (
                 "no eviction; shared processes allowed; retry until every GPU has conservative headroom"
                 if args.allow_shared_gpus
@@ -1583,10 +1980,21 @@ def main() -> None:
     server_monitor_stop = threading.Event()
     server_monitor_thread = None
     try:
+        running_instances: dict[str, list[dict]] | None = None
+        if server_allowlist is not None:
+            running_instances = {config["id"]: [] for config in manifest["configs"]}
         for config in manifest["configs"]:
             for instance in server_instances(config):
+                if server_allowlist is not None and int(instance["gpu"]) not in server_allowlist:
+                    print(
+                        f"[matrix] skip server {config['id']}/r{instance['replica']} "
+                        f"gpu={instance['gpu']} (not in allowlist {server_allowlist})"
+                    )
+                    continue
                 proc, handle = start_server(config, instance, manifest, run_dir)
                 servers.append((proc, handle, config, instance))
+                if running_instances is not None:
+                    running_instances[config["id"]].append(instance)
                 print(
                     f"[matrix] server {config['id']}/r{instance['replica']} pid={proc.pid} "
                     f"gpu={instance['gpu']} port={instance['port']}"
@@ -1628,6 +2036,21 @@ def main() -> None:
 
         client_wave = 0
         while True:
+            gpu_capacity = None
+            status: dict = {}
+            if args.dynamic_client_cap:
+                sample = sample_dynamic_client_capacity(
+                    manifest,
+                    per_gpu_cap=args.client_per_gpu_cap,
+                    gpu_filter=client_allowlist,
+                )
+                gpu_capacity = sample["capacity"]
+                with open(run_dir / "client_dispatch.jsonl", "a", encoding="utf-8") as cap_log:
+                    cap_log.write(json.dumps(sample) + "\n")
+                print(
+                    f"[matrix] dynamic capacity sample: {sample['capacity']} "
+                    f"(free={sample['free_memory_mib']})"
+                )
             clients = start_clients(
                 manifest, manifest_sha, run_dir,
                 candidate_state_archive_dir=args.candidate_state_archive_dir,
@@ -1635,13 +2058,25 @@ def main() -> None:
                     args.max_concurrent_clients
                     if args.max_concurrent_clients > 0 else None
                 ),
+                gpu_capacity=gpu_capacity,
+                status_out=status,
+                running_instances=running_instances,
+                client_gpu_allowlist=client_allowlist,
             )
             if not clients:
+                if args.dynamic_client_cap and status.get("pending_shards", 0) > 0:
+                    print(
+                        f"[matrix] {status['pending_shards']} shards pending but no "
+                        f"GPU capacity; re-sampling in {args.gpu_sample_interval}s"
+                    )
+                    time.sleep(args.gpu_sample_interval)
+                    continue
                 break
             client_wave += 1
             print(
                 f"[matrix] client wave {client_wave}: {len(clients)} active "
-                f"(cap={args.max_concurrent_clients or 'all'})"
+                f"(cap={args.max_concurrent_clients or 'all'}, "
+                f"pending={status.get('pending_shards', 0)})"
             )
             failures = []
             for proc, handle, label in clients:

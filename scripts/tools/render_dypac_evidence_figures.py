@@ -66,6 +66,13 @@ SOURCES = {
         "aggregate/pi05_paper_memory.json"
     ),
     "activation": "runs/full_context_v2/p2/activation_attribution.json",
+    "statistics_correction": (
+        "runs/full_context_v2/statistics_correction/corrected_statistics.json"
+    ),
+    "corrected_fcp_selection": (
+        "runs/full_context_v2/fcp_completion/"
+        "gr00t_corrected_fcp_frozen.json.selection.json"
+    ),
     "rollout": "runs/full_context_v2/table3_quick/aggregate.json",
     "static_atomic": (
         "runs/full_context_v2/table3_quick/static_a8/atomic_seen/m0_static_a8.npz"
@@ -535,7 +542,8 @@ def render_operating_figure(output_dir: Path, evidence: dict[str, Any]) -> tuple
 
 def load_dynamic_evidence(paths: dict[str, Path]) -> dict[str, Any]:
     plan = load_json(paths["gr_plan"])
-    activation = load_json(paths["activation"])
+    correction = load_json(paths["statistics_correction"])
+    activation = correction["activation_attribution"]
     rollout = load_json(paths["rollout"])
     action_names = action_layer_order(plan["layers"])
     archives = [
@@ -579,8 +587,8 @@ def load_dynamic_evidence(paths: dict[str, Path]) -> dict[str, Any]:
         raise ValueError("Dynamic/static rollout is not 500 episodes per arm")
     static_j = float(activation["static_vs_a16"]["objective"])
     dynamic_j = float(activation["dynamic_vs_a16"]["objective"])
-    assert_close(static_j, 467.5204744598872, "static-A8 attribution J")
-    assert_close(dynamic_j, 0.5178887111755559, "dynamic-A8 attribution J")
+    assert_close(static_j, 264.93584915146585, "corrected static-A8 attribution J")
+    assert_close(dynamic_j, 0.06592289711881642, "corrected dynamic-A8 attribution J")
     if static["successes"] != 0 or baseline["successes"] != 269:
         raise ValueError("Unexpected dynamic/static rollout result")
     return {
@@ -968,7 +976,8 @@ def load_fcp_evidence(paths: dict[str, Path]) -> dict[str, Any]:
     score_rows = score_payload["scores"]
     manifest = load_json(paths["flip_manifest"])
     plan = load_json(paths["gr_plan"])
-    selection = load_json(paths["selection"])
+    correction = load_json(paths["statistics_correction"])
+    corrected_selection = load_json(paths["corrected_fcp_selection"])["selection"]
     baseline = score_rows["context_base"]
     changes = []
     verified_candidates = 0
@@ -1007,17 +1016,18 @@ def load_fcp_evidence(paths: dict[str, Path]) -> dict[str, Any]:
         raise ValueError("Expected 117 verified plans and 116 one-layer flips")
     benefit_func = np.asarray([row["benefit_d_func"] for row in changes])
     benefit_pac = np.asarray([row["benefit_d_pac"] for row in changes])
-    if np.any(benefit_func > 0.0) or np.any(benefit_pac > 0.0):
-        raise ValueError("Unexpected positive conservative one-layer benefit")
+    if int(np.count_nonzero((benefit_func > 0.0) & (benefit_pac > 0.0))) != 2:
+        raise ValueError("Corrected positive-benefit count drift")
 
-    summaries = selection["selection"]["summaries"]
+    summaries = corrected_selection["summaries"]
     structured = [
         {
             "id": key,
             "label": {
                 "attention_6": "Attention-6",
-                "ff_pair_15": "FF pair-15",
-                "mlp_6": "MLP-6",
+                "dp_full_lambda_1p0": "DP-$\\lambda$1.0",
+                "ff_pair_0": "FF pair-0",
+                "mlp_2": "MLP-2",
                 "single_best": "Best single",
                 "two_best": "Best pair",
             }[key],
@@ -1025,7 +1035,14 @@ def load_fcp_evidence(paths: dict[str, Path]) -> dict[str, Any]:
             "component_pass": bool(summaries[key]["component_constraints_pass"]),
             "eligible": bool(summaries[key]["eligible"]),
         }
-        for key in ("attention_6", "ff_pair_15", "mlp_6", "single_best", "two_best")
+        for key in (
+            "attention_6",
+            "dp_full_lambda_1p0",
+            "ff_pair_0",
+            "mlp_2",
+            "single_best",
+            "two_best",
+        )
     ]
     if any(row["eligible"] or row["component_pass"] for row in structured):
         raise ValueError("A structured proposal unexpectedly passes selection")
@@ -1087,14 +1104,14 @@ def render_fcp_figure(output_dir: Path, evidence: dict[str, Any]) -> tuple[Path,
     ax_a.axvline(0, color="#87949C", linewidth=0.75)
     ax_a.set_xlim(-4.35, 0.18)
     ax_a.set_ylim(-2.18, 0.10)
-    ax_a.set_title("a   All one-layer flips rejected", loc="left", fontweight="bold", pad=6)
+    ax_a.set_title("a   Local proposal screen", loc="left", fontweight="bold", pad=6)
     ax_a.set_xlabel(r"Conservative FP16 benefit: $D_{\rm func}$")
     ax_a.set_ylabel(r"Conservative FP16 benefit: $D_{\rm PAC}$")
     ax_a.legend(frameon=False, loc="lower left")
     ax_a.text(
         0.98,
         0.95,
-        "benefit > 0 required\n0 / 116 positive on either axis",
+        "benefit > 0 on both axes\n2 / 116 pass the proposal screen",
         transform=ax_a.transAxes,
         ha="right",
         va="top",
@@ -1108,7 +1125,7 @@ def render_fcp_figure(output_dir: Path, evidence: dict[str, Any]) -> tuple[Path,
     bars = ax_b.barh(
         y,
         objectives,
-        color=["#9AA7AE", "#71858F", "#8A9AA2", "#536B78", "#657C87"],
+        color=["#9AA7AE", "#71858F", "#8A9AA2", "#536B78", "#657C87", "#7D9099"],
         height=0.58,
         zorder=3,
     )
@@ -1116,9 +1133,9 @@ def render_fcp_figure(output_dir: Path, evidence: dict[str, Any]) -> tuple[Path,
     ax_b.axvline(0.0, color=COLORS["dynamic"], linewidth=1.2)
     ax_b.set_yticks(y, labels=[row["label"] for row in evidence["structured"]])
     ax_b.invert_yaxis()
-    ax_b.set_xlim(-0.45, 7.65)
+    ax_b.set_xlim(-0.25, 2.80)
     ax_b.set_xlabel(r"Paired minimax objective $J$")
-    ax_b.set_title("b   Structured proposals rejected", loc="left", fontweight="bold", pad=6)
+    ax_b.set_title("b   Complete-policy gate", loc="left", fontweight="bold", pad=6)
     for bar, value in zip(bars, objectives):
         ax_b.text(
             value + 0.12,
@@ -1178,7 +1195,7 @@ def render_fcp_figure(output_dir: Path, evidence: dict[str, Any]) -> tuple[Path,
     ax_c.set_yticks(y, labels=subsystems)
     ax_c.invert_yaxis()
     ax_c.set_xlabel("Target Linear layers")
-    ax_c.set_title("c   Audit abstains; retain $M_0$", loc="left", fontweight="bold", pad=6)
+    ax_c.set_title("c   Retained policy ($M_0$)", loc="left", fontweight="bold", pad=6)
     ax_c.legend(frameon=False, loc="upper right", ncol=2, columnspacing=0.7)
     clean_axis(ax_c, "x")
 
@@ -1189,6 +1206,7 @@ def render_fcp_figure(output_dir: Path, evidence: dict[str, Any]) -> tuple[Path,
         "one_layer_flips": len(evidence["changes"]),
         "positive_d_func_benefits": int(np.count_nonzero(func > 0.0)),
         "positive_d_pac_benefits": int(np.count_nonzero(pac > 0.0)),
+        "positive_both_metrics": int(np.count_nonzero((func > 0.0) & (pac > 0.0))),
         "benefit_d_func_range": [float(func.min()), float(func.max())],
         "benefit_d_pac_range": [float(pac.min()), float(pac.max())],
         "structured_objectives": {

@@ -27,7 +27,7 @@ ATTESTED_PI05_OMEGA = (
     / "runs/table6_libero_v1/external_attested/pi05_omega_qvla_w4a4.json"
 )
 STATIC_MEMORY = REPO_ROOT / "runs/table6_libero_v1/artifacts/table5_static_memory.json"
-MODELS = ("gr00t", "pi05")
+MODELS = ("pi05", "gr00t")
 CONFIGS = (
     "fp16",
     "quantvla_w4a8",
@@ -337,13 +337,13 @@ def build() -> tuple[str, str, dict[str, Any]]:
             "and held-out initial states 10--19. Running or absent cells remain pending."
         )
     lines = [
-        r"\begin{table}[h!]",
+        r"\begin{table}[H]",
         r"\centering",
-        r"\caption{LIBERO comparison in success rate (\%). Local size is tightly packed static model-component storage.}",
+        r"\caption{LIBERO: \method averages 97.3\% on $\pi_{0.5}$ and 93.8\% on GR00T.}",
         r"\label{tab:omega_qvla_libero}",
-        r"\small",
+        r"\footnotesize",
         r"\setlength{\tabcolsep}{4.2pt}",
-        r"\renewcommand{\arraystretch}{1.06}",
+        r"\renewcommand{\arraystretch}{0.92}",
         r"\begin{tabular}{@{}lrrrrrr@{}}",
         r"\toprule",
         r"Configuration & Goal $\uparrow$ & Spatial $\uparrow$ & Object $\uparrow$ & Long $\uparrow$ & Avg. $\uparrow$ & \shortstack{Size\\(GiB) $\downarrow$} \\",
@@ -359,6 +359,29 @@ def build() -> tuple[str, str, dict[str, Any]]:
     }
     model_labels = {"gr00t": "GR00T N1.5", "pi05": r"$\pi_{0.5}$"}
     for model in MODELS:
+        if model == "gr00t":
+            # Keep the two model families under one table number while allowing
+            # the large comparison to use the otherwise empty tail of page 8.
+            # The repeated header makes the continuation self-contained.
+            lines.extend([
+                r"\bottomrule",
+                r"\end{tabular}",
+                r"\end{table}",
+                r"\begin{table}[H]",
+                r"\centering",
+                r"\addtocounter{table}{-1}",
+                # Preserve the displayed table number while giving hyperref a
+                # distinct anchor for the continuation caption.
+                r"\renewcommand{\theHtable}{\arabic{table}b}",
+                r"\caption{LIBERO results (continued): GR00T N1.5.}",
+                r"\footnotesize",
+                r"\setlength{\tabcolsep}{4.2pt}",
+                r"\renewcommand{\arraystretch}{0.92}",
+                r"\begin{tabular}{@{}lrrrrrr@{}}",
+                r"\toprule",
+                r"Configuration & Goal $\uparrow$ & Spatial $\uparrow$ & Object $\uparrow$ & Long $\uparrow$ & Avg. $\uparrow$ & \shortstack{Size\\(GiB) $\downarrow$} \\",
+                r"\midrule",
+            ])
         lines.append(rf"\multicolumn{{7}}{{@{{}}l}}{{\textbf{{{model_labels[model]}}}}} \\")
         audit_rows[model] = []
         for config in CONFIGS:
@@ -399,13 +422,11 @@ def build() -> tuple[str, str, dict[str, Any]]:
                 "row_average_enabled": "average" in local_values,
                 "claim_enabled": bool(complete_suites),
             })
-        if model == "gr00t":
-            lines.append(r"\midrule")
     lines.extend([
         r"\bottomrule",
         r"\end{tabular}",
         r"\vspace{2pt}",
-        rf"\parbox{{0.99\textwidth}}{{\footnotesize {coverage_note} {release_note} The corrected GR00T ours row uses five executed actions per replan and paired suite-keyed action noise. Local size includes packed weights and quantization metadata. For suite-specific masks, it is the four-suite mean. $^{{\dagger}}$The $\pi_{{0.5}}$ QVLA and ActQuant entries are the source-reported 4.0 Vision+LLM-BPW rows from ActQuant~\cite{{akbari2026actquant}}; their 2.7-GB values follow that source's memory definition.}}",
+        rf"\parbox{{0.99\textwidth}}{{\footnotesize {coverage_note} Each local suite uses ten tasks and ten held-out initial states. Size includes packed weights and metadata and is averaged over suite-specific masks. $^{{\dagger}}$The $\pi_{{0.5}}$ QVLA and ActQuant rows are source-reported 4.0-BPW results~\cite{{akbari2026actquant}} using the source memory definition.}}",
         r"\end{table}",
         "",
     ])
@@ -432,22 +453,22 @@ def build() -> tuple[str, str, dict[str, Any]]:
         r"\label{tab:libero_transfer}",
         r"\small",
         r"\setlength{\tabcolsep}{7.5pt}",
-        r"\renewcommand{\arraystretch}{1.04}",
+        r"\renewcommand{\arraystretch}{1.00}",
         r"\begin{tabular}{@{}lrrrr@{}}",
         r"\toprule",
-        r"& \multicolumn{2}{c}{\textbf{GR00T N1.5}} & \multicolumn{2}{c}{\textbf{$\pi_{0.5}$}} \\",
+        r"& \multicolumn{2}{c}{\textbf{$\pi_{0.5}$}} & \multicolumn{2}{c}{\textbf{GR00T N1.5}} \\",
         r"\cmidrule(lr){2-3}\cmidrule(l){4-5}",
         r"Configuration & Avg. SR $\uparrow$ & Size (GiB) $\downarrow$ & Avg. SR $\uparrow$ & Size (GiB) $\downarrow$ \\",
         r"\midrule",
     ]
     for config in CONFIGS:
-        gr00t = compact_index["gr00t"][config]
         pi05 = compact_index["pi05"][config]
+        gr00t = compact_index["gr00t"][config]
         cells = [
-            metric(gr00t["metrics"].get("average")),
-            gr00t["static_memory"]["display_gib"],
             metric(pi05["metrics"].get("average")),
             pi05["static_memory"]["display_gib"],
+            metric(gr00t["metrics"].get("average")),
+            gr00t["static_memory"]["display_gib"],
         ]
         if config == "gdsq_vla_selector":
             cells = [rf"\textbf{{{cell}}}" for cell in cells]

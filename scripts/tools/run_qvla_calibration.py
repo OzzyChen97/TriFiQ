@@ -212,6 +212,7 @@ def collect(args) -> None:
             "members": sorted(groups[group]),
             "columns": proxy.columns,
             "nsamples": proxy.nsamples,
+            "hessian_diagnostics": proxy.last_diagnostics,
         }
         for name in groups[group]:
             output_proxies[name] = {

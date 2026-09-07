@@ -306,6 +306,8 @@ def main() -> None:
     parser.add_argument("--resize", type=int, default=224)
     parser.add_argument("--replan-steps", type=int, default=16)
     parser.add_argument("--max-episodes", type=int, default=0)
+    parser.add_argument("--start-gate", type=Path)
+    parser.add_argument("--ready-file", type=Path)
     args = parser.parse_args()
     if not 0 <= args.shard_index < args.shard_count:
         raise SystemExit("invalid shard")
@@ -325,16 +327,21 @@ def main() -> None:
     episode_dir = output / "episodes"
     journal = output / f"worker_{args.shard_index:03d}_of_{args.shard_count:03d}.jsonl"
     output.mkdir(parents=True, exist_ok=True)
-    existing: dict[str, dict] = {}
-    for path in sorted(output.glob("worker_*.jsonl")):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            key = row["episode_key"]
-            if key in existing and existing[key] != row:
-                raise ValueError(f"conflicting calibration row: {key}")
-            existing[key] = row
+
+    def read_existing() -> dict[str, dict]:
+        result: dict[str, dict] = {}
+        for path in sorted(output.glob("worker_*.jsonl")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                key = row["episode_key"]
+                if key in result and result[key] != row:
+                    raise ValueError(f"conflicting calibration row: {key}")
+                result[key] = row
+        return result
+
+    existing = read_existing()
     # ``worker`` alone is ambiguous after a deterministic shard-count change
     # (for example 8 -> 12 workers).  Preserve exactly the rows already in this
     # layout-specific journal instead of copying same-index rows from older
@@ -370,6 +377,35 @@ def main() -> None:
         else canonical_hash(server_metadata)
     )
     teacher_precision = require_fp16_teacher(args.model, server_metadata)
+    if args.start_gate is not None:
+        if args.ready_file is None:
+            raise ValueError("--start-gate requires --ready-file")
+        ready = args.ready_file.resolve()
+        ready.parent.mkdir(parents=True, exist_ok=True)
+        temporary = ready.with_name(f".{ready.name}.tmp.{os.getpid()}")
+        temporary.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "shard_index": args.shard_index,
+                    "shard_count": args.shard_count,
+                    "server_metadata_sha256": server_metadata_sha256,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, ready)
+        gate = args.start_gate.resolve()
+        print(f"[teacher] ready; waiting for start gate {gate}", flush=True)
+        while not gate.is_file():
+            time.sleep(0.5)
+        # The previous layout remains live during warm-up.  Refresh only after
+        # the controller closes the gate transition so rows committed while we
+        # waited are skipped rather than duplicated.
+        existing = read_existing()
+        print(f"[teacher] start gate opened; refreshed {len(existing)} rows", flush=True)
     for index, spec in enumerate(episodes, start=1):
         key = spec["episode_key"]
         if key in existing:

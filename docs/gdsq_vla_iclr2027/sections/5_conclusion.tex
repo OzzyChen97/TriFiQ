@@ -1,8 +1,19 @@
 \section{Conclusion and Limitations}
 \label{sec:conclusion}
 
-VLA quantization is a closed-loop, distribution-dependent problem: quantized actions change future observations and hence the data used to judge the policy. \method restores temporal context with a physical-sequence contract, whole-policy context with an abstaining exact-budget audit, and deployment context with input-conditioned activation ranges, using one static W4/FP16 mask without task routing or output correction.
+Quantizing a policy that influences its future inputs requires evaluating more than local tensor fidelity. \method combines exact-byte precision adaptation with input-conditioned activation quantization, yielding 54.0\% GR00T success at 2.22$\times$ static compression and 27.7\% on $\pi_{0.5}$ at 2.70$\times$. Fixed-mask interventions identify deployment range construction as consequential, while the non-monotonic compression sweep cautions against treating FP16 layer count as a proxy for behavioral quality.
 
-On GR00T, this yields 54.0\% RoboCasa365 success at 2.22$\times$ static compression, versus 30.4\% for size-matched \quantvla W4A8 and 55.1\% for FP16; the latter comparison does not establish equivalence. In a paired 500-episode intervention, the registered frozen A8 table obtains 0.0\% and input-conditioned A8 53.8\%. The GR00T audit abstains, and alternative masks isolate no separate mean-success gain.
+The evidence bounds these results. The static-range intervention does not isolate every source of distribution shift. Deviation guards do not predict success reliably, and GR00T retains its initializer without candidate-state adjudication. Its finite candidate set establishes no optimality. Evaluation is in simulation, some baselines require non-equivalent adaptations, and the generic backend saves memory but increases latency and energy. The supported result is a practical success--storage tradeoff whose behavior depends on deployment quantization.
+\label{sec:main-paper-end}
 
-The protocol-matched, four-flow-step $\pi_{0.5}$ point is 27.7\% at 2.702$\times$ compression, but its gaps and mask change remain descriptive. Missing tests include teacher-forced feedback isolation, \dpac predictive validation, a closed-loop FP16-activation arm, FP16 non-inferiority, and real latency, memory, and physical-safety measurements. They bound the present claim and define the next experiments.
+% Revision self-review (not typeset).
+% Contribution: deployment-sensitive closed-loop compression; standard dynamic
+% quantization is acknowledged, and universal novelty remains a literature task.
+% Clarity: the introduction question determines the experiment order; each
+% subsection distinguishes the evaluation goal from the selection proxy.
+% Experimental strength: size-matched GR00T superiority is supported; pi0.5
+% versus FP16 is descriptive, and signal fusion is statistically unresolved.
+% Completeness: cross-benchmark results and adapted-baseline limits are retained;
+% simulation-only evaluation and absent real-robot validation remain limitations.
+% Method soundness: M0 retention is disclosed without safety/optimality claims;
+% the finite proposal family and unexercised candidate-state branch are explicit.

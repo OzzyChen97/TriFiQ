@@ -1,0 +1,21 @@
+diff --git a/tools/pi0.5/export_pi05.py b/tools/pi0.5/export_pi05.py
+--- a/tools/pi0.5/export_pi05.py
++++ b/tools/pi0.5/export_pi05.py
+@@ -359,7 +359,7 @@ def load_norm_stats(model_dir: str) -> dict:
+                             norm_stats["action_std"] = np.array(action_stats["std"], dtype=np.float32)
+                             print(f"  Loaded action mean/std from JSON: dim={len(norm_stats['action_mean'])}")
+                         # Load q01/q99 (for OpenPI Pi0.5 quantile normalization)
+-                        if "q01" in action_stats and "q99" in action_stats:
++                        if action_stats.get("q01") is not None and action_stats.get("q99") is not None:
+                             norm_stats["action_q01"] = np.array(action_stats["q01"], dtype=np.float32)
+                             norm_stats["action_q99"] = np.array(action_stats["q99"], dtype=np.float32)
+                             print(f"  Loaded action q01/q99 from JSON: dim={len(norm_stats['action_q01'])}")
+@@ -373,7 +373,7 @@ def load_norm_stats(model_dir: str) -> dict:
+                             norm_stats["state_std"] = np.array(state_stats["std"], dtype=np.float32)
+                             print(f"  Loaded state mean/std from JSON: dim={len(norm_stats['state_mean'])}")
+                         # Load q01/q99 (for OpenPI Pi0.5 quantile normalization)
+-                        if "q01" in state_stats and "q99" in state_stats:
++                        if state_stats.get("q01") is not None and state_stats.get("q99") is not None:
+                             norm_stats["state_q01"] = np.array(state_stats["q01"], dtype=np.float32)
+                             norm_stats["state_q99"] = np.array(state_stats["q99"], dtype=np.float32)
+                             print(f"  Loaded state q01/q99 from JSON: dim={len(norm_stats['state_q01'])}")

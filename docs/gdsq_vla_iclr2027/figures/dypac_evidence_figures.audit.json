@@ -12,23 +12,23 @@
         0.16792976404600485,
         0.24858765814465714
       ],
-      "dynamic_objective": 0.5178887111755559,
+      "dynamic_objective": 0.06592289711881642,
       "dynamic_successes": 269,
       "maximum_drift": 0.4898800881748424,
       "maximum_drift_flow_step": 4,
       "maximum_drift_layer": "action_head.model.transformer_blocks.13.ff.net.2",
-      "objective_ratio": 902.7431267977674,
-      "static_objective": 467.5204744598872,
+      "objective_ratio": 4018.8744841410344,
+      "static_objective": 264.93584915146585,
       "static_successes": 0
     },
     "fcp": {
       "benefit_d_func_range": [
-        -4.095794789036966,
-        -0.00974803817845168
+        -2.049786258441286,
+        0.1042670754511812
       ],
       "benefit_d_pac_range": [
-        -2.033144100806619,
-        -0.011853260322656578
+        -0.7632944448811605,
+        0.06591870298790001
       ],
       "mask_allocation": {
         "Action head": {
@@ -41,14 +41,16 @@
         }
       },
       "one_layer_flips": 116,
-      "positive_d_func_benefits": 0,
-      "positive_d_pac_benefits": 0,
+      "positive_both_metrics": 2,
+      "positive_d_func_benefits": 5,
+      "positive_d_pac_benefits": 9,
       "structured_objectives": {
-        "attention_6": 3.971455774253541,
-        "ff_pair_15": 6.863139689501505,
-        "mlp_6": 4.924525042406161,
-        "single_best": 6.865465599405064,
-        "two_best": 6.672907330889926
+        "attention_6": 1.6580054442339807,
+        "dp_full_lambda_1p0": 1.5914462204590942,
+        "ff_pair_0": 2.36031518928543,
+        "mlp_2": 0.9483594348498502,
+        "single_best": 2.0215483715055944,
+        "two_best": 2.0095857039836194
       },
       "verified_candidate_plans": 117
     },
@@ -164,19 +166,19 @@
     },
     {
       "path": "docs/gdsq_vla_iclr2027/figures/dypac_dynamic_range_evidence.png",
-      "sha256": "7fe745f9c819af590f749c0dc031fc3b0a3075481b80e7515a399eceb9a72f1d"
+      "sha256": "7d44288d3b0e90e972d38864455ae7e470c72c39f19ce03045fcf9da5fe5afa4"
     },
     {
       "path": "docs/gdsq_vla_iclr2027/figures/dypac_dynamic_range_evidence.pdf",
-      "sha256": "b0360e7594d59fe6043c288c5df74f0694a638df076b1b13705af277d35c8e1e"
+      "sha256": "2bfa5b25700896e11b4b2a9466de49efbf451098ee44a8780b7ba5620d555973"
     },
     {
       "path": "docs/gdsq_vla_iclr2027/figures/dypac_fcp_audit.png",
-      "sha256": "1761fa853b002b0bb74c7c9304dffdc4ceaead4fb62144555725af2ffc4df34e"
+      "sha256": "712a1f8b8d6380307494248748b5ec0d8438bc2fb6137d1f115906c92d4501d6"
     },
     {
       "path": "docs/gdsq_vla_iclr2027/figures/dypac_fcp_audit.pdf",
-      "sha256": "573040174fc78266506c20477f1a20c82fed12b4ba72e2bd15f076dd2eb0fe83"
+      "sha256": "036d2a864e71f47941f1129b70bca71552bd21da5973d7d3643bd6d9a5c94b0d"
     }
   ],
   "schema_version": 1,
@@ -185,6 +187,11 @@
       "name": "activation",
       "path": "runs/full_context_v2/p2/activation_attribution.json",
       "sha256": "3c59f27bf648b575bf87864ba9ed4a44590d077d8a57c298d841e6ff4bd879b9"
+    },
+    {
+      "name": "corrected_fcp_selection",
+      "path": "runs/full_context_v2/fcp_completion/gr00t_corrected_fcp_frozen.json.selection.json",
+      "sha256": "7e7830c749d501b516c82ead5e416437e4408ba519914a5b47d0f29613914987"
     },
     {
       "name": "flip_manifest",
@@ -280,6 +287,11 @@
       "name": "static_unseen",
       "path": "runs/full_context_v2/table3_quick/static_a8/composite_unseen/m0_static_a8.npz",
       "sha256": "69990ab5cc767fc6dafea931038b2e7d3ed7458bdc7c81b496ebc78ad94682ef"
+    },
+    {
+      "name": "statistics_correction",
+      "path": "runs/full_context_v2/statistics_correction/corrected_statistics.json",
+      "sha256": "5ed6ce1efe409dccfc38af9e1473455563772c646941efcd913349717a01b3ec"
     }
   ]
 }

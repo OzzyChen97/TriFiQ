@@ -1,0 +1,63 @@
+{
+  "protocol_id": "budget-projection-comparison-v1",
+  "scope": "Prospective closed-loop comparison of deletion rules; existing outcomes informed motivation, not new candidate selection.",
+  "hypothesis": "Full-policy deviation-ranked removal improves task success over final-action-relative-error-ranked or size-ranked removal at exactly matched static bytes.",
+  "models": {
+    "gr00t": {
+      "interventions": "runs/full_context_v2/p2/interventions_dynamic/manifest.json",
+      "scores": "runs/full_context_v2/p2/flip_scores/flip_scores_cross_split.json",
+      "budgets": [["init95", "initializer", 95, 100], ["init90", "initializer", 90, 100]]
+    },
+    "pi05": {
+      "interventions": "runs/full_context_v2/pi05_p2/interventions_round_main/manifest.json",
+      "scores": "runs/full_context_v2/pi05_p2/flip_scores_round_main/flip_scores_cross_split.json",
+      "budgets": [["ceiling100", "registered_ceiling", 1, 1], ["ceiling90", "registered_ceiling", 9, 10]]
+    }
+  },
+  "arms": ["full_policy", "final_action_error", "largest_first"],
+  "selection": {
+    "initializer": "Unchanged protected set from context_base of each frozen intervention manifest.",
+    "allowed_changes": "Only remove existing FP16 protections; no restore, success tuning, or candidate-state acceptance gate.",
+    "full_policy": "Use the existing prune_main_plan algorithm: ascending paired_candidate_summary objective for FP16-to-W4 removals until below nominal ceiling.",
+    "final_action_error": "Rank by recorded d_func_summary.d_final(candidate)-d_func_summary.d_final(initializer), ascending: relative squared error of final physical action chunks, preserving the recorded cross-split aggregation. No pose, prefix, stitch, grip, tail, or SE terms. Existing flip artifacts do not contain raw MSE; this arm is explicitly not named MSE.",
+    "largest_first": "Rank by saved static bytes descending, then layer name; no offline action scores.",
+    "exact_matching": "Keep full_policy unchanged. Match each control to its actual saved bytes using suffix subset-sum feasibility while lexicographically prioritizing its removal ordering. This byte-matching repair is disclosed, not called unconstrained greedy deletion.",
+    "ties": "Ascending full layer name, without random search or outcome-based tie resolution.",
+    "score_versions": "Use current corrected task-mean SE for both models and bind code hashes. The pi05 arm is a new prospective projection, not silently substituted for the historical 41-removal mask.",
+    "guard_scope": "All originally protected target layers are eligible for removal, as in the existing projection routine; no arm has extra mandatory FP16 protections.",
+    "known_outcomes": "Prior formal, compression-sweep, and M0 diagnostic outcomes are already known. The new budgets are fixed before new rollout; this is not preregistration of historical results."
+  },
+  "evaluation": {
+    "task_protocol": "scripts/quantvla_full_context_protocol.json",
+    "tasks_field": "table1.tasks",
+    "tasks": 50,
+    "seeds": [20000, 20001, 20002, 20003, 20004, 20005, 20006, 20007, 20008, 20009],
+    "episodes_per_configuration": 500,
+    "initializer_control_per_model": true,
+    "reuse_old_rollouts": false,
+    "flow_steps": 4,
+    "action_horizon": 16,
+    "replan_steps": 16,
+    "activation": "dynamic per-forward per-input-channel A8",
+    "weight_quantizer": "frozen parent Hessian group64; copy subsets, never requantize",
+    "paired_noise": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+    "horizon": "Official RoboCasa365 horizon inherited from existing evaluator",
+    "deduplication": "Identical deployed masks under identical runtime share one physical run; retain all logical comparisons, including ties."
+  },
+  "statistics": {
+    "primary_estimand": "Task-macro success difference: full_policy minus each byte-matched control, separately for each model and budget.",
+    "primary_tests": "Exact two-sided paired McNemar; Holm adjustment over all eight predeclared comparisons at family alpha 0.05.",
+    "uncertainty": "Paired task-cluster bootstrap, 10000 resamples of 50 tasks with replacement, retain all 10 paired seeds within task; percentile 95% intervals; RNG seed 20260906. Intervals are descriptive, not simultaneous.",
+    "secondary": "Success relative to unchanged initializer, split success, removed layer count and actual bytes; descriptive only.",
+    "sample_size_scope": "Fixed 500-episode mechanism diagnostic per unique configuration, not powered non-inferiority or a guarantee to resolve small differences.",
+    "stopping": "Complete all predeclared configurations; no success-dependent stopping, seed extension, candidate replacement, or threshold tuning. Report failures and incomplete coverage separately.",
+    "invalid_coverage": "Missing or duplicate task-seed keys, runtime mismatch, and execution errors invalidate a cell; do not silently score them as task failure or omit them.",
+    "negative_findings": "Report null results, control wins, identical masks and unresolved uncertainty. Non-significance is not equivalence."
+  },
+  "execution": {
+    "output_root": "runs/budget_projection_comparison_v1",
+    "gpu_launch_enabled": false,
+    "preflight_required": ["Plan hashes and exact-byte matching", "Parent Hessian subset inventory and content", "Same-input same-noise offline versus deployment action parity", "Confirm evaluation keys not previously used for selecting these masks", "Available GPU resources and launch authorization", "Bind executable specs and runtime code hashes before rollout"],
+    "existing_paper_results_modified": false
+  }
+}

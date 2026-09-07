@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "kind": "pi05_fcp_same_protocol_diagnostic_protocol",
+  "frozen_at": "2026-09-03T11:17:23+08:00",
+  "model": "pi0.5",
+  "scope": "Prospective post-selection mechanism diagnostic of the pi0.5 FCP budget projection; it cannot change the frozen model selection.",
+  "disclosure": {
+    "known_before_freeze": {
+      "projected_anchor_successes": 141,
+      "projected_anchor_episodes": 500,
+      "projected_anchor_success_rate": 0.282
+    },
+    "unknown_before_freeze": [
+      "all transferred_initializer closed-loop outcomes",
+      "all single_best closed-loop outcomes",
+      "all two_best closed-loop outcomes",
+      "all pi0.5 hardware latency, memory, and energy outcomes"
+    ],
+    "result_feedback_allowed": false
+  },
+  "frozen_inputs": {
+    "checkpoint": {
+      "path": "checkpoints/robocasa/pi05_pretrain_human300_pytorch/model.safetensors",
+      "sha256": "4174133479c6a51d79cac90d6a1739f32f928624eb529bf791cd5be942afdf1c"
+    },
+    "calibration_buffer": {
+      "path": "runs/pi05_gdsq_gr00t_aligned/calibration/pi05_robocasa365_seed0_n256.npz",
+      "sha256": "c4de41b304d33b15240538a45006f1cf560fb050d0641610a9d38ede91d1999c"
+    },
+    "hardware_input_buffer": {
+      "path": "runs/pi05_gdsq_gr00t_aligned/diagnostics/fp16_onpolicy_probe/fp16_onpolicy_target_4tasks_s0-1_r4_n32.npz",
+      "sha256": "c221532ef7d79ef29ba2724f33f695ea1f946b7b963255b0dd760cef8a6e3be7"
+    },
+    "parent_hessian_w4": {
+      "path": "runs/archive_previous_versions/errorfold_v4_iter/calibration/pi05_full_w4/hessian_w4.npz",
+      "sha256": "823ae67bd031abb3ebee7d0e513dc1c99ec9017b57f4c464c1cea709ac57d327",
+      "layers": 180,
+      "group_size": 64
+    },
+    "identity_pack_manifest": {
+      "path": "runs/archive_previous_versions/errorfold_v4_iter/calibration/pi05_full_w4/identity_pack/manifest.json",
+      "sha256": "67ac38608fa807462f27ad7d0ad161fdc4b47592989743cf60c033088990a0d1"
+    },
+    "task_protocol": {
+      "path": "scripts/quantvla_full_context_protocol.json",
+      "sha256": "de7d45262e2158309cc62d51ff92f2e2b025f35b9154140ff5a41ad13dedd9e3"
+    },
+    "cross_model_protocol": {
+      "path": "scripts/quantvla_cross_model_protocol.json",
+      "sha256": "7bf9c89d2925a506d5dcd32a5ae8066e93651e8c46b6b6becf30c27d3c1498a6"
+    }
+  },
+  "configurations": {
+    "transferred_initializer": {
+      "role": "pre_projection_initializer",
+      "plan": "runs/full_context_v2/pi05_p2/interventions_round_main/context_base.json",
+      "plan_sha256": "461531ea2c48cdd5e0f063bc944c882ede6a36ed73482beeb19134ec7e55e42b",
+      "w4_layers": 80,
+      "fp16_layers": 100,
+      "table1_total_static_bytes": 1845100544,
+      "deployment_budget_compliant": false,
+      "new_rollouts": true
+    },
+    "projected_anchor": {
+      "role": "post_projection_frozen_anchor",
+      "plan": "runs/full_context_v2/pi05_p2/pi05_full_context_v2_frozen.json",
+      "plan_sha256": "e502f7cd7d126517c000f8b5b8e7c6e5537b31226910a2dd6834caaebf736c83",
+      "w4_layers": 121,
+      "fp16_layers": 59,
+      "table1_total_static_bytes": 1634828288,
+      "deployment_budget_compliant": true,
+      "new_rollouts": false
+    },
+    "single_best": {
+      "role": "post_selection_structural_candidate",
+      "plan": "runs/full_context_v2/pi05_p2/proposals_dynamic/single_best.json",
+      "plan_sha256": "4e38389f73b31dc3374c0798682e2e73694e2463b4369be010131723fc59dc11",
+      "w4_layers": 179,
+      "fp16_layers": 1,
+      "table1_total_static_bytes": 1290403840,
+      "deployment_budget_compliant": true,
+      "new_rollouts": true
+    },
+    "two_best": {
+      "role": "post_selection_structural_candidate",
+      "plan": "runs/full_context_v2/pi05_p2/proposals_dynamic/two_best.json",
+      "plan_sha256": "7ddaec6a4b69192be0da3db4a37061cc9280887a4786f094dc23f755bfbf30e3",
+      "w4_layers": 178,
+      "fp16_layers": 2,
+      "table1_total_static_bytes": 1338638336,
+      "deployment_budget_compliant": true,
+      "new_rollouts": true
+    }
+  },
+  "closed_loop": {
+    "benchmark": "RoboCasa365 target split",
+    "task_sets": {
+      "atomic_seen": 18,
+      "composite_seen": 16,
+      "composite_unseen": 16
+    },
+    "tasks": 50,
+    "seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    "episodes_per_configuration": 500,
+    "new_configurations": ["transferred_initializer", "single_best", "two_best"],
+    "new_episodes": 1500,
+    "flow_steps": 4,
+    "action_horizon": 16,
+    "replan_steps": 16,
+    "environment_seed_pairing": true,
+    "paired_action_noise": true,
+    "coverage_key": ["configuration", "task_set", "task", "seed"]
+  },
+  "statistics": {
+    "primary": {
+      "orientation": "projected_anchor minus transferred_initializer",
+      "family": "singleton preregistered projection-effect hypothesis",
+      "multiplicity_adjustment": "none"
+    },
+    "secondary": {
+      "orientations": [
+        "single_best minus projected_anchor",
+        "two_best minus projected_anchor"
+      ],
+      "multiplicity_adjustment": "Holm over the two exact McNemar tests"
+    },
+    "reported": [
+      "unweighted task-macro success-rate difference",
+      "split task-macro success rate",
+      "micro success rate",
+      "paired wins, losses, and ties",
+      "two-sided exact McNemar p-value",
+      "task-then-seed hierarchical bootstrap 95% interval"
+    ],
+    "bootstrap": {"draws": 10000, "seed": 0},
+    "noninferiority_margin": null,
+    "interpretation": "A non-significant result is not evidence of equivalence."
+  },
+  "hardware": {
+    "configurations": ["transferred_initializer", "projected_anchor"],
+    "device": "one otherwise idle NVIDIA A40 48GB, identical physical UUID for every trial",
+    "batch_size": 1,
+    "flow_steps": 4,
+    "trials": 3,
+    "warmup_requests_per_trial": 10,
+    "measured_requests_per_trial": 60,
+    "total_measured_requests": 360,
+    "order": [
+      [0, "transferred_initializer"],
+      [0, "projected_anchor"],
+      [1, "projected_anchor"],
+      [1, "transferred_initializer"],
+      [2, "transferred_initializer"],
+      [2, "projected_anchor"]
+    ],
+    "power_sample_interval_ms": 100,
+    "idle_baseline_seconds": 5,
+    "scope": "model-only policy inference; latency excludes model load and simulator; energy is GPU-board-only"
+  },
+  "acceptance": {
+    "closed_loop_new_rows": 1500,
+    "closed_loop_reused_anchor_rows": 500,
+    "hardware_measured_requests": 360,
+    "write_paper_only_after_complete_audit": true
+  }
+}

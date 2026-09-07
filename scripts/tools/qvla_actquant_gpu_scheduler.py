@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import signal
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -70,6 +71,28 @@ def gpu_process_snapshot() -> list[dict[str, Any]]:
     return [{"raw": row} for row in completed.stdout.splitlines() if row.strip()]
 
 
+def gpu_process_memory_mib() -> dict[int, int]:
+    """Return visible CUDA allocation by PID, excluding no-process rows."""
+    completed = subprocess.run(
+        [
+            "nvidia-smi",
+            "--query-compute-apps=pid,used_memory",
+            "--format=csv,noheader,nounits",
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        check=False,
+    )
+    result: dict[int, int] = {}
+    for line in completed.stdout.splitlines():
+        fields = [field.strip() for field in line.split(",")]
+        if len(fields) != 2 or not all(field.isdigit() for field in fields):
+            continue
+        pid, used = (int(field) for field in fields)
+        result[pid] = result.get(pid, 0) + used
+    return result
+
+
 def normalize_job(job: dict[str, Any], root: Path) -> dict[str, Any]:
     required = {"id", "argv", "required_mib", "expected_outputs"}
     if not required <= set(job):
@@ -106,13 +129,22 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--reserve-mib", type=int, default=4096)
+    parser.add_argument(
+        "--visible-growth-mib",
+        type=int,
+        default=4096,
+        help=(
+            "additional headroom reserved for each running job after its CUDA "
+            "allocation is visible; invisible jobs still reserve required_mib"
+        ),
+    )
     parser.add_argument("--poll-seconds", type=float, default=15.0)
     parser.add_argument("--launch-settle-seconds", type=float, default=30.0)
     args = parser.parse_args()
     manifest_path = args.manifest.resolve()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("kind") != "qvla_actquant_gpu_jobs_v1":
-        raise ValueError("not a QVLA/ActQuant GPU job manifest")
+    if manifest.get("kind") not in ("qvla_actquant_gpu_jobs_v1", "daptq_gpu_jobs_v1"):
+        raise ValueError("not a supported quantization GPU job manifest")
     run_dir = args.run_dir.resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
     jobs = [normalize_job(job, manifest_path.parent) for job in manifest["jobs"]]
@@ -162,6 +194,17 @@ def main() -> None:
                 }
                 atomic_json(receipts / f"{job_id}.failed.json", receipt)
                 append_event(events, receipt)
+                # Every child is launched in its own session.  Fail closed and
+                # release only this scheduler's sibling jobs, so a controller
+                # retry cannot leave duplicate models resident on the GPUs.
+                for sibling_id, sibling in running.items():
+                    if sibling_id == job_id or sibling["process"].poll() is not None:
+                        continue
+                    try:
+                        os.killpg(sibling["process"].pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    sibling["handle"].close()
                 raise RuntimeError(f"GPU job failed: {job_id}; see {item['log']}")
             outputs = []
             for output in job["expected_outputs"]:
@@ -180,13 +223,39 @@ def main() -> None:
             del running[job_id]
 
         snapshot = gpu_snapshot()
+        # nvidia-smi free memory already subtracts allocations that are
+        # visible.  Before a process has a visible CUDA allocation, reserve its
+        # full declared peak.  Afterwards reserve a bounded growth allowance:
+        # required_mib is a conservative cross-stage launch bound, not a claim
+        # that a stable process will necessarily grow to that value.
+        visible_memory = gpu_process_memory_mib()
+        reserved_mib = {
+            gpu: sum(
+                (
+                    int(item["job"]["required_mib"])
+                    if visible_memory.get(int(item["process"].pid), 0) <= 0
+                    else min(
+                        args.visible_growth_mib,
+                        max(
+                            0,
+                            int(item["job"]["required_mib"])
+                            - visible_memory[int(item["process"].pid)],
+                        ),
+                    )
+                )
+                for item in running.values()
+                if int(item["gpu"]) == gpu
+            )
+            for gpu in eligible
+        }
         launched_gpus: set[int] = set()
         for job in list(pending):
             candidates = [
                 gpu for gpu in eligible
                 if gpu not in launched_gpus
                 and time.monotonic() - last_launch[gpu] >= args.launch_settle_seconds
-                and snapshot.get(gpu, {}).get("free_mib", 0) >= job["required_mib"] + args.reserve_mib
+                and snapshot.get(gpu, {}).get("free_mib", 0) - reserved_mib[gpu]
+                >= job["required_mib"] + args.reserve_mib
             ]
             if not candidates:
                 continue
@@ -203,6 +272,7 @@ def main() -> None:
             }
             pending.remove(job)
             launched_gpus.add(gpu); last_launch[gpu] = time.monotonic()
+            reserved_mib[gpu] += int(job["required_mib"])
             event = {
                 "status": "started", "job_id": job["id"], "job_sha256": job["job_sha256"],
                 "gpu": gpu, "pid": process.pid, "required_mib": job["required_mib"],
@@ -216,6 +286,7 @@ def main() -> None:
                         for job_id, item in running.items()},
             "complete": sorted(complete_ids),
             "gpus": snapshot,
+            "unallocated_headroom_mib": reserved_mib,
         })
         if pending or running:
             time.sleep(max(1.0, args.poll_seconds))

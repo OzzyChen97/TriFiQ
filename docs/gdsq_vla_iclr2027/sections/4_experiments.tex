@@ -4,44 +4,65 @@
 \subsection{Experimental Setup}
 \label{sec:setup}
 
-\paragraph{Benchmark and models.}
-We evaluate GR00T N1.5 and $\pi_{0.5}$~\cite{intelligence2025pi05} on RoboCasa365 v1.0.1~\cite{nasiriany2026robocasa365}: 18 Atomic-Seen, 16 Composite-Seen, and 16 Composite-Unseen tasks. Each completed row uses 50 fresh scenarios per task and official horizons (2,500 episodes). All target-split rows use four flow steps and shared task--seed--replan noise; formal paired claims are restricted to registered significance families.
+\paragraph{Models, tasks, and evaluation.}
+We evaluate GR00T N1.5 and $\pi_{0.5}$~\cite{bjorck2025groot,intelligence2025pi05} on RoboCasa365 v1.0.1~\cite{nasiriany2026robocasa365}: 18 Atomic-Seen, 16 Composite-Seen, and 16 Composite-Unseen tasks. Headline configurations use 50 seeds per task, the official horizon, four flow steps, and shared task--seed--replan noise (2,500 episodes each). Focused interventions use the same tasks with seeds 0--9. LIBERO tests transfer to four additional suites.
 
-\paragraph{Configurations and storage.}
-FP16 is the teacher; \quantvla W4A8~\cite{zhang2026quantvla}, Uniform W6, and $\Omega$-QVLA W4A4~\cite{wang2026omegaqvla} are low-bit references. The GR00T \method plan has 100 W4 and 16 native-FP16 layers without output correction. Exact static bytes include fixed components and packing metadata, but not activations, workspaces, simulator state, or fake-quant caches. Its 962,068,480 bytes are 0.998$\times$ the \quantvla cell and 2.22$\times$ smaller than FP16.
+\paragraph{Comparators and storage.}
+FP16 is the reference; QuantVLA W4A8~\cite{zhang2026quantvla}, Uniform W6, $\Omega$-QVLA W4A4~\cite{wang2026omegaqvla}, and local ActQuant/DA-PTQ adaptations provide compressed comparisons. W4 and A8 denote four-bit weights and eight-bit activations. Static storage includes fixed components, packed weights, scales, and metadata, but excludes activations and runtime workspaces. GR00T occupies 962,068,480 bytes, or 0.998$\times$ the QuantVLA footprint. The projected $\pi_{0.5}$ mask occupies 1,634,828,288 bytes and satisfies its registered ceiling; this is not an exactly size-matched comparison to every baseline.
 
-\paragraph{Statistics and evidence gate.}
-We report task- and split-macro success and exact paired two-sided McNemar tests with Holm correction. The headline uses 50 seeds per task; component tests use seeds 0--9 on all 50 tasks. Frozen manifests bind plans, code, environments, coverage, and hashes; any failed gate suppresses the cell.
+\paragraph{Statistics and selection provenance.}
+We report task/split-macro success and exact paired two-sided McNemar tests, with Holm correction within registered families. Inferential claims are restricted to those comparisons; non-significance does not establish equivalence or non-inferiority. A four-task development sweep selected the GR00T initializer weighting from seven choices, and these tasks remain in the headline. On the other 46 tasks, post-freeze success is 51.8/27.6/52.8\% for ours/QuantVLA/FP16. Frozen manifests bind configurations, code, coverage, and hashes; incomplete or invalid cells are suppressed.
 
-\subsection{Main Results}
+\subsection{Can Compact Policies Retain Closed-Loop Success?}
 \label{sec:main_results}
 
 \input{tables/main_results}
 
-\paragraph{GR00T headline.}
-\method obtains \textbf{54.0\%} success versus 30.4\% for \quantvla, a 23.6-point paired gain (Holm $p<10^{-4}$); it is higher/tied/lower on 48/1/1 tasks. FP16 obtains 55.1\% ($p=0.2929$ versus ours), which establishes neither equivalence nor superiority. Figure~\ref{fig:operating_points} shows the measured success--storage tradeoff and task-level consistency; it is not a total ordering.
+\paragraph{GR00T: a size-matched behavioral contrast.}
+\method reaches 54.0\% at 2.22$\times$ static compression, compared with 30.4\% for essentially size-matched QuantVLA and 55.1\% for FP16. The 23.6-point gain over QuantVLA is significant under the registered paired family (Holm $p<10^{-4}$); the comparison with FP16 gives $p=0.2929$. Thus the compressed policy approaches the observed reference success rate, without an equivalence claim. Its precision mask is unchanged by FCP, so this system-level gain cannot be attributed to selector-induced mask improvement.
 
-\input{figures/dypac_operating_points_figure}
+\paragraph{$\pi_{0.5}$: cross-architecture budget adaptation.}
+The feasible policy reaches 27.7\% at 2.702$\times$ compression, compared with 26.2\% for FP16 and 24.8\% for QuantVLA. It has the highest observed success among the displayed compressed configurations, whose storage and calibration protocols differ. The 1.5-point margin over FP16 is descriptive, not evidence that compression generally improves capability. Section~\ref{sec:pi05_fcp_main} isolates how the transferred precision configuration meets the budget.
 
-\paragraph{$\pi_{0.5}$ transfer.}
-Exact-budget pruning converts 41 protected $\pi_{0.5}$ layers to W4, giving 121/180 W4 layers, 1.523~GiB, and 2.702$\times$ compression. The four-flow-step policy records 693/2,500 successes: \textbf{27.7\%} overall and 59.6/15.4/4.3\% across the three groups. Its 1.6- and 2.9-point gaps over FP16 and \quantvla are descriptive; without a paired initializer comparison, this row isolates no audit gain.
+\paragraph{Adapted-baseline scope.}
+Local ActQuant reaches 52.9/25.2\% on GR00T/$\pi_{0.5}$ versus our 54.0/27.7\% (Holm $p=0.3102/0.0011$). Local DA-PTQ reaches 3.0/26.2\% ($p=0.0648$ on $\pi_{0.5}$). Both require architecture adapters and proxy calibration and are labeled source-protocol-nonequivalent. In particular, the low GR00T DA-PTQ result characterizes this adaptation, not the native method's performance on its original benchmark.
 
-\paragraph{Cross-benchmark transfer.}
+\subsection{Does the Success--Storage Tradeoff Transfer?}
+\label{sec:libero_main}
+
 \input{tables/libero_transfer_compact}
-The separate 4,000-episode LIBERO matrix in Table~\ref{tab:libero_transfer} gives 93.8\% at 0.948~GiB on GR00T and 97.3\% at 1.788~GiB on $\pi_{0.5}$. Because $\Omega$-QVLA reaches 98.0\% at 1.307~GiB on $\pi_{0.5}$, this supports cross-benchmark and cross-model transfer, not universal dominance.
 
-\subsection{Evidence for the Full-Context Diagnosis}
-\label{sec:attribution}
+The complete 4,000-episode LIBERO matrix yields 97.3\% mean success on $\pi_{0.5}$ at 1.788~GiB and 93.8\% on GR00T at 0.948~GiB. On GR00T, ours has the highest displayed success; on $\pi_{0.5}$, $\Omega$-QVLA achieves 98.0\% at a smaller 1.307~GiB. Transfer therefore supports competitive compressed policies, not universal dominance. Appendix~\ref{sec:libero_comparison} reports suite-level coverage and size scope.
 
-\input{tables/core_ablation}
+\subsection{Which Deployment Choices Change Behavior?}
+\label{sec:core_ablation_main}
 
-Table~\ref{tab:core_ablation} separates offline admission from behavior. The paired objective rejects the registered per-layer/channel/flow-step static control, while \dyrange remains close to the FP16-activation control. None of 116 flips or five structured masks passes the whole-policy rule, so the audit retains $M_0$; this shows neither selector gain nor global optimality.
+\paragraph{Post-allocation quantization at a fixed mask.}
+GR00T permits a matched 100-W4/16-FP16 comparison. Replacing the initializer-stage DuQuant/static-A8 stack with Hessian-aware W4 and input-conditioned A8 raises success from 50.8\% to 54.0\% (370/289 paired wins/losses; Holm $p=0.0036$). Precision placement is identical, so this identifies a combined post-allocation effect rather than a gain from mask search.
 
-\input{tables/core_rollout_plan}
+\paragraph{Activation-range construction.}
+Holding the mask and runtime fixed, the registered frozen-range control obtains 0/500 successes versus 269/500 for input-conditioned A8. All frozen-range episodes complete without a runtime or numerical failure. Independently, the measured median scale drift across applicable action-head layers is 10.8\%, 16.8\%, and 24.9\% at flow steps 2--4, with a worst layer--step value of 49.0\% (Appendix~\ref{sec:dynamic_range_visualization}). The intervention establishes the behavioral importance of range construction in this configuration. It does not isolate policy-induced state shift from calibration coverage or flow-step effects, nor establish failure of all static calibration schemes.
 
-Table~\ref{tab:core_rollout_plan} gives the matched 500-episode test: $M_0$ with \dyrange obtains 53.8\%, but the frozen table obtains 0.0\% (Holm $p=6.33\times10^{-81}$). This isolates failure of that static construction. Because the FP16-activation control is offline and compression excludes activations and workspaces, the result establishes neither A8 necessity nor runtime gains. Appendix~\ref{sec:dynamic_range_visualization} gives supporting diagnostics.
+\paragraph{Precision count is not a monotonic predictor.}
+A preregistered six-arm GR00T sweep holds the Hessian-g64/input-conditioned-A8 stack and layer ordering fixed. Success ranges from 51.4\% to 55.4\% while static compression spans 1.166$\times$--2.556$\times$ across 3,000 episodes. The all-W4 endpoint ties the least-compressed arm at 55.4\%. At 2,500-episode scale, the descriptive all-W4 endpoint reaches 52.8\% versus the anchor's 54.0\% (Table~\ref{tab:main_results}). These results do not establish that mixed precision is universally necessary, or that every extra protected layer improves behavior.
 
-The Local-MSE and unchecked-proposal masks each obtain 53.0\% ($-0.8$ points; Holm $p=1.0$), establishing neither equivalence nor a separate \dpac/audit gain. Appendices~\ref{sec:component_rollout_detail} and~\ref{sec:fcp_visualization} give mask and paired details.
+\subsection{What Does Complete-Policy Adaptation Establish?}
+\label{sec:pi05_fcp_main}
 
-\paragraph{Protocol separation and deployment scope.}
-Only the CKA/CS ratio uses outcomes on four retained development tasks. The subsequent 12-task audit sees paired FP16 actions but no success labels, after which the mask and analysis family are frozen. Eager fake quantization retains floating-point execution, so we claim no latency, live-memory, or physical-safety gain.
+\paragraph{Feasibility projection on $\pi_{0.5}$.}
+The transferred initializer protects 100 of 180 targets and exceeds the byte ceiling by 205,587,047 bytes. FCP evaluates all 180 one-layer interventions in complete-policy context and converts 41 protected targets to W4, yielding a feasible 121-W4/59-FP16 anchor. Later proposals fail the guards, leaving this projected configuration deployed.
+
+Appendix Table~\ref{tab:pi05_fcp_diagnostic} reports the paired mask diagnostic.
+
+The registered 500-key diagnostic gives 28.2\% for the projected anchor versus 26.0\% for the initializer ($p=0.235$). The projection demonstrably enforces the budget; the observed success difference is positive but does not prove non-inferiority or an optimal choice of removals.
+
+\paragraph{Retention on GR00T.}
+The GR00T initializer already fits the budget. All six emitted proposals fail the teacher-state deviation screen, so FCP returns $M_0$ without candidate-state adjudication. These proposals retain one to five FP16 layers rather than the anchor's 16; the ``single-layer'' proposal is a one-protected-layer configuration, not a one-flip neighbor. A subsequent 3,000-episode diagnostic finds no Holm-significant success difference from the paired anchor (minimum adjusted $p=0.891$; Appendix~\ref{sec:fcp_visualization}). This records conservative proxy-based retention, not evidence that rejecting the proposals prevented task failure or exhausted local improvements.
+
+\subsection{How Much Do Offline Proxies Explain?}
+
+\paragraph{Initializer signal ablation.}
+At identical static bytes and with the same post-allocation stack, CS+CKA-DiT reaches 53.26\% on the Primary-46 slice, versus 51.52\% for CKA-DiT alone and 50.65\% for CS alone. The $+1.74$ and $+2.61$ point differences favor fusion descriptively, but both have Holm $p=0.5796$ (Appendix~\ref{sec:signal_ablation}). They do not establish a statistically resolved benefit of the fused signal.
+
+\paragraph{Deviation is not success ranking.}
+A separate 60-mask, exact-byte diagnostic tests offline proxy validity across six distances from $M_0$. Pooled Spearman correlations with success degradation are $-0.116$ for \dpac and $-0.028$ for MSE. Distance confounds this comparison; within-distance \dpac correlations are positive but imprecise, and it does not consistently outperform MSE or \dfunc (Appendix~\ref{sec:predictive_validity}). We therefore interpret the metric as a predeclared deviation guard, not a validated surrogate optimizer for closed-loop success.

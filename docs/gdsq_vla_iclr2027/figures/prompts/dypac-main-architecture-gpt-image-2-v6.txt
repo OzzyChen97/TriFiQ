@@ -1,0 +1,54 @@
+Use case: infographic-diagram
+Asset type: full-width Figure 1 for a top-tier ICLR machine-learning paper
+
+Create a polished scientific overview figure for a paper on high-success vision-language-action model compression. The figure must communicate one argument in under five seconds: fixed-data PTQ misses closed-loop feedback; DyPAC-VLA restores the missing contexts; on pi0.5 this changes an invalid transferred initializer into a compressed policy whose observed success exceeds FP16.
+
+Canvas and style: exact 3:1 landscape composition; pure white background; crisp flat vector-like scientific infographic; restrained ICLR paper aesthetic; thin navy outlines; muted blue, teal, and orange accents; Helvetica/Arial-like sans-serif typography; generous whitespace; consistent rounded rectangles and arrow weights. No gradients, shadows, texture, decorative background, robot photograph, logo, citation, watermark, or 3D rendering. Make every label legible after reduction to a 6.5-inch-wide two-column figure.
+
+Use three left-to-right panels of equal visual weight with subtle vertical separators.
+
+Panel A exact title: "FULL-CONTEXT GAP"
+Show a fixed teacher-data card feeding a quantized-policy card. From the quantized policy, draw a clear clockwise closed loop through exactly these three short nodes:
+"Action drift"
+"Future states"
+"Range shift"
+Return the loop to the quantized policy. Put the exact short statement "The policy changes its own inputs" inside the loop. Use muted orange for error and teal/blue for state and range changes. This panel should make the feedback failure immediately obvious.
+
+Panel B exact title: "DYPAC-VLA"
+Show three compact, aligned method cards connected left to right. Each card has one bold heading and one subtitle, using exactly this text:
+"CS + CKA"
+"Allocate FP16 under exact bytes"
+
+"FCP"
+"Audit complete policies"
+
+"Dynamic A8"
+"Adapt ranges per forward"
+
+Connect the three cards into one decisive navy output card with the exact text:
+"One frozen W4/FP16 policy"
+Use blue for CS + CKA, orange for FCP, and teal for Dynamic A8. Do not expand the acronyms.
+
+Panel C exact title: "pi0.5: PROJECTION THAT MATTERS"
+Show a compact before-to-after transformation. The left card must contain exactly:
+"Transferred initializer"
+"80 W4 / 100 FP16"
+"OVER BUDGET"
+
+The center arrow must contain exactly:
+"41 precision changes"
+
+The right card must contain exactly:
+"Deployable mask"
+"121 W4 / 59 FP16"
+"2.702x compression"
+
+Below the right card, show a very simple three-bar success comparison with exact labels and values:
+"DyPAC-VLA 27.7%"
+"FP16 26.2%"
+"QuantVLA 24.8%"
+Make the DyPAC-VLA bar navy and visually dominant, FP16 gray, and QuantVLA muted orange. Keep the chart compact and do not add an axis, confidence intervals, significance marks, or other numbers.
+
+Composition constraints: mark the panels with small navy squares labeled "A", "B", and "C"; align all panel titles; keep arrows from crossing text; keep adequate inner margins; avoid tiny captions. Panel C should be the visual payoff and pi0.5 should be more prominent than any mention of GR00T. Do not mention GR00T anywhere in the image.
+
+Text constraints: render every quoted phrase verbatim, including capitalization, spaces, slash marks, and numbers. Add no other prose. In particular, spell exactly "DYPAC-VLA", "CS + CKA", "FCP", "Dynamic A8", "W4/FP16", "pi0.5", "2.702x", "27.7%", "26.2%", and "24.8%".

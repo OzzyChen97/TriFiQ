@@ -1,0 +1,19 @@
+diff --git a/tools/quantize-vision/quantize-vision.cpp b/tools/quantize-vision/quantize-vision.cpp
+--- a/tools/quantize-vision/quantize-vision.cpp
++++ b/tools/quantize-vision/quantize-vision.cpp
+@@ -471,8 +471,14 @@ int main(int argc, char **argv) {
+         bool needs_padding = false;
+         int64_t padded_ne0 = tensor_in->ne[0];
+ 
+-        // Check if we should skip this tensor
+-        bool skip = should_skip_tensor(name);
++        // An exact tensor manifest is authoritative for graph-free component
++        // exports.  The generic vision skip patterns exist for native model
++        // exports (for example, 4-D patch convolutions), but component tensors
++        // are explicitly selected, flattened to matrices, and assigned a type
++        // by the caller.  Applying the name-based skip here would silently
++        // violate that frozen allocation.
++        bool skip = tensor_types_path ? false : should_skip_tensor(name);
+ 
+         if (!skip && (type_in == GGML_TYPE_F32 || type_in == GGML_TYPE_F16)) {
+             // Check if dimensions are compatible with block size

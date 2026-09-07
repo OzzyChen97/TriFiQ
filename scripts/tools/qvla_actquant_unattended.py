@@ -206,6 +206,9 @@ def freeze_all() -> None:
     finalizer = ROOT / "scripts" / "tools" / "finalize_qvla_actquant_calibration.py"
     for unit in UNITS:
         frozen = RUN / "frozen" / f"{unit}.json"
+        if validate_export(unit):
+            append_event({"event": "calibration_freeze_reused", "unit": unit})
+            continue
         run_command(
             [
                 PYTHON,
@@ -301,7 +304,11 @@ def disk_available_bytes() -> int:
 
 
 def run_phase(phase: str, shards: int) -> None:
-    manifest = RUN / "jobs" / f"{phase}.json"
+    # Keep manifests and scheduler receipts from different layer-sharding
+    # layouts separate.  A numerically equivalent throughput retune must not
+    # overwrite the audit trail of an earlier layout.
+    run_id = f"{phase}_s{shards:03d}"
+    manifest = RUN / "jobs" / f"{run_id}.json"
     run_command(
         [
             PYTHON,
@@ -328,7 +335,7 @@ def run_phase(phase: str, shards: int) -> None:
             "--manifest",
             str(manifest),
             "--run-dir",
-            str(RUN / "scheduler" / phase),
+            str(RUN / "scheduler" / run_id),
             "--reserve-mib",
             "4096",
             "--poll-seconds",
@@ -414,7 +421,14 @@ def status(stage: str, **extra: Any) -> None:
     )
 
 
-def execute(*, poll_seconds: int, shards: int, run_formal: bool) -> None:
+def execute(
+    *,
+    poll_seconds: int,
+    qvla_shards: int,
+    hsic_shards: int,
+    fisher_shards: int,
+    run_formal: bool,
+) -> None:
     lock_path = RUN / "unattended" / "controller.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+", encoding="utf-8") as lock:
@@ -438,8 +452,22 @@ def execute(*, poll_seconds: int, shards: int, run_formal: bool) -> None:
             raise RuntimeError(
                 f"less than 150 GiB free before real-pack stages: {available / 1024**3:.1f} GiB"
             )
+        phase_shards = {
+            "qvla": qvla_shards,
+            "qvla-pack": qvla_shards,
+            "actquant-hsic": hsic_shards,
+            "actquant-allocate": hsic_shards,
+            "actquant-fisher": fisher_shards,
+            "actquant-pack": fisher_shards,
+        }
         for phase in PHASES:
-            status("gpu_phase", phase=phase, disk_available_bytes=disk_available_bytes())
+            shards = phase_shards[phase]
+            status(
+                "gpu_phase",
+                phase=phase,
+                shards=shards,
+                disk_available_bytes=disk_available_bytes(),
+            )
             run_phase(phase, shards)
         inventory = verify_packs()
         status("packs_complete", pack_inventory=inventory)
@@ -460,17 +488,25 @@ def main() -> None:
     parser.add_argument("command", choices=("run", "status"))
     parser.add_argument("--poll-seconds", type=int, default=60)
     parser.add_argument("--shards", type=int, default=16)
+    parser.add_argument("--qvla-shards", type=int)
+    parser.add_argument("--hsic-shards", type=int)
+    parser.add_argument("--fisher-shards", type=int)
     parser.add_argument("--no-formal", action="store_true")
     args = parser.parse_args()
     if args.command == "status":
         print(json.dumps({"calibration": collector_state()}, indent=2, sort_keys=True))
         return
-    if args.shards < 1:
+    qvla_shards = args.qvla_shards if args.qvla_shards is not None else args.shards
+    hsic_shards = args.hsic_shards if args.hsic_shards is not None else args.shards
+    fisher_shards = args.fisher_shards if args.fisher_shards is not None else args.shards
+    if min(qvla_shards, hsic_shards, fisher_shards) < 1:
         raise ValueError("shards must be positive")
     try:
         execute(
             poll_seconds=args.poll_seconds,
-            shards=args.shards,
+            qvla_shards=qvla_shards,
+            hsic_shards=hsic_shards,
+            fisher_shards=fisher_shards,
             run_formal=not args.no_formal,
         )
     except Exception as error:

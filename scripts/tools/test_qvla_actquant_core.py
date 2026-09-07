@@ -85,8 +85,9 @@ class ToyPi05(nn.Module):
         super().__init__()
         self.paligemma_with_expert = nn.Module()
         self.paligemma_with_expert.paligemma = nn.Module()
+        self.paligemma_with_expert.paligemma.model = nn.Module()
         language = nn.Module()
-        self.paligemma_with_expert.paligemma.language_model = language
+        self.paligemma_with_expert.paligemma.model.language_model = language
         language.layers = nn.ModuleList([nn.Module()])
         language.layers[0].input_layernorm = nn.LayerNorm(300, elementwise_affine=False)
         language.layers[0].self_attn = nn.Module()
@@ -227,13 +228,29 @@ class ReproductionCoreTest(unittest.TestCase):
         self.assertTrue(all(np.isfinite(value) for value in record.values()))
         self.assertAlmostEqual(record["sens"], record["F_out"] - record["F_in"])
 
+    def test_actquant_fp16_pool_nonfinite_policy_is_counted_and_finite(self):
+        value = torch.tensor(
+            [[[float("inf"), -float("inf"), float("nan")]]],
+            dtype=torch.float16,
+        )
+        counter = torch.zeros((), dtype=torch.int64)
+        pooled = self.actquant_driver.pool_activation_tensors(
+            value, 1, nonfinite_counter=counter
+        )
+        self.assertEqual(int(counter), 3)
+        self.assertEqual(len(pooled), 1)
+        self.assertTrue(torch.isfinite(pooled[0]).all())
+        self.assertEqual(float(pooled[0][0, 0]), torch.finfo(torch.float16).max)
+        self.assertEqual(float(pooled[0][0, 1]), -torch.finfo(torch.float16).max)
+        self.assertEqual(float(pooled[0][0, 2]), 0.0)
+
     def test_actquant_hsic_reference_is_first_transformer_input(self):
         model = ToyPi05()
         inventory = target_inventory(model, "pi05")
         references = hsic_reference_modules(model, inventory)
         self.assertEqual(
             references["paligemma_language"],
-            "paligemma_with_expert.paligemma.language_model.layers.0.input_layernorm",
+            "paligemma_with_expert.paligemma.model.language_model.layers.0.input_layernorm",
         )
 
     def test_actquant_fisher_is_exact_gradient_square(self):
@@ -265,7 +282,7 @@ class ReproductionCoreTest(unittest.TestCase):
         source = ToyPi05().to(torch.bfloat16)
         restored = ToyPi05().to(torch.bfloat16)
         restored.load_state_dict(source.state_dict())
-        name = "paligemma_with_expert.paligemma.language_model.layers.0.self_attn.q_proj"
+        name = "paligemma_with_expert.paligemma.model.language_model.layers.0.self_attn.q_proj"
         mapping = tensor_name_map([name])
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

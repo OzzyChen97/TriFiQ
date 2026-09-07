@@ -281,6 +281,7 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
     runtime_selector = configure_runtime_selector_from_env()
     model = policy._model
     reproduction_runtime = {"enabled": False, "method": None}
+    daptq_runtime = {"enabled": False, "method": None}
     if os.environ.get("QVLA_ACTQUANT_METHOD"):
         from qvla_actquant.runtime import apply_reproduction_artifact_from_env
 
@@ -291,6 +292,12 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             reproduction_runtime["method"],
             reproduction_runtime,
         )
+    if os.environ.get("DAPTQ_ENABLE", "0") not in ("0", "false", "False", ""):
+        from daptq.runtime import apply_daptq_from_env
+
+        daptq_runtime = apply_daptq_from_env(model, "pi05")
+        setattr(model, "_daptq_runtime", daptq_runtime)
+        logging.info("loaded DA-PTQ artifact: %s", daptq_runtime)
     adapter_only = os.environ.get("QUANTVLA_ADAPTER_ONLY", "0") not in (
         "0", "false", "False", ""
     )
@@ -319,6 +326,7 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
     }
     runtime["omega_qvla"] = omega_runtime
     runtime["qvla_actquant"] = reproduction_runtime
+    runtime["daptq"] = daptq_runtime
     runtime["atm_ohb"] = atm_runtime
     runtime["errorfold"] = {
         "enabled": bool(duquant_runtime.get("errorfold_path")),
@@ -342,7 +350,9 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
     )
     quantization_contract = {
         "logical_profile": (
-            (
+            "daptq_w4a8"
+            if daptq_runtime.get("enabled")
+            else (
                 "qvla_code_wavg4_a16"
                 if reproduction_runtime.get("method") == "QVLA-code"
                 else "actquant_4bpw_a16"
@@ -357,7 +367,9 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             )
         ),
         "quantization_method": (
-            (
+            "daptq_mixed_w4_bf16_static_a8_fake_quant"
+            if daptq_runtime.get("enabled")
+            else (
                 "qvla_mixed_row_pack_dequant_native"
                 if reproduction_runtime.get("method") == "QVLA-code"
                 else "actquant_gguf_dequant_native"
@@ -372,7 +384,9 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             )
         ),
         "layer_selection_policy": (
-            "vision_and_language_backbones_only_action_expert_protected"
+            "daptq_backbone_mlp_plus_drift_ranked_action_expert_mlp"
+            if daptq_runtime.get("enabled")
+            else "vision_and_language_backbones_only_action_expert_protected"
             if reproduction_runtime.get("enabled")
             else "omega_qvla_all_paligemma_and_gemma_expert_projection_layers"
             if omega_enabled
@@ -384,7 +398,9 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             )
         ),
         "weight_quantizer": (
-            (
+            "daptq_mse_per_output_channel_mixed_w4_bf16"
+            if daptq_runtime.get("enabled")
+            else (
                 "released_qvla_per_output_channel_mixed_symmetric"
                 if reproduction_runtime.get("method") == "QVLA-code"
                 else "actquant_hsic_amf_ggml"
@@ -399,12 +415,18 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             )
         ),
         "activation_quantizer": (
-            "none_a16"
+            "static_per_input_channel_99.9_percentile"
+            if daptq_runtime.get("enabled")
+            else "none_a16"
             if reproduction_runtime.get("enabled")
             else "omega_qvla_per_input_channel_per_step"
             if omega_enabled else "signed_symmetric_per_input_channel"
         ),
-        "execution_backend": duquant_runtime.get("execution_backend"),
+        "execution_backend": (
+            "pytorch_fake_quant_after_offline_nibble_pack_decode"
+            if daptq_runtime.get("enabled")
+            else duquant_runtime.get("execution_backend")
+        ),
         "integer_gemm": bool(duquant_runtime.get("integer_gemm", False)),
         "packed_low_bit_residency": bool(
             duquant_runtime.get("packed_low_bit_residency", False)
@@ -423,17 +445,21 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
             duquant_runtime.get("fp_weight_sized_buffers", 0)
         ),
         "weight_bits": (
-            reproduction_runtime.get("precision")
+            "mixed_w4_bf16"
+            if daptq_runtime.get("enabled")
+            else reproduction_runtime.get("precision")
             if reproduction_runtime.get("enabled")
             else int(omega_runtime.get("weight_bits", duquant_runtime.get("weight_bits", 4)))
         ),
-        "activation_bits": 16 if reproduction_runtime.get("enabled") else int(omega_runtime.get("activation_bits", duquant_runtime.get("act_bits", 8))),
+        "activation_bits": 8 if daptq_runtime.get("enabled") else 16 if reproduction_runtime.get("enabled") else int(omega_runtime.get("activation_bits", duquant_runtime.get("act_bits", 8))),
         "block_in": int(duquant_runtime.get("block_in", 64)),
         "block_out": int(duquant_runtime.get("block_out", 64)),
         "lambda_smooth": float(os.environ.get("OPENPI_DUQUANT_LS", "0.15")),
-        "activation_percentile": float(duquant_runtime.get("act_percentile", 99.9)),
+        "activation_percentile": 99.9 if daptq_runtime.get("enabled") else float(duquant_runtime.get("act_percentile", 99.9)),
         "calibration_policy": (
-            "online_dynamic_per_forward_per_channel_amax"
+            "offline_static_per_channel_99.9_percentile"
+            if daptq_runtime.get("enabled")
+            else "online_dynamic_per_forward_per_channel_amax"
             if duquant_runtime.get("act_dynamic")
             else (
                 "offline_static_prefix_single_dit_per_flow_step"
@@ -441,14 +467,15 @@ def apply_quantization(policy: _policy.Policy, *, denoising_steps: int = 4) -> _
                 else "offline_static_per_channel_percentile"
             )
         ),
-        "calibration_batches": int(duquant_runtime.get("calib_batches", 32)),
-        "calibration_batch_size": 8,
-        "calibration_samples": int(duquant_runtime.get("calib_batches", 32)) * 8,
-        "permutation": os.environ.get("OPENPI_DUQUANT_PERMUTE", "0") == "1",
-        "row_rotation": os.environ.get("OPENPI_DUQUANT_ROW_ROT", "restore"),
-        "static_activation_scales": not bool(duquant_runtime.get("act_dynamic")),
+        "calibration_batches": 64 if daptq_runtime.get("enabled") else int(duquant_runtime.get("calib_batches", 32)),
+        "calibration_batch_size": 1 if daptq_runtime.get("enabled") else 8,
+        "calibration_samples": 64 if daptq_runtime.get("enabled") else int(duquant_runtime.get("calib_batches", 32)) * 8,
+        "permutation": True if daptq_runtime.get("enabled") else os.environ.get("OPENPI_DUQUANT_PERMUTE", "0") == "1",
+        "row_rotation": "csrc_block_svd_restore" if daptq_runtime.get("enabled") else os.environ.get("OPENPI_DUQUANT_ROW_ROT", "restore"),
+        "static_activation_scales": True if daptq_runtime.get("enabled") else not bool(duquant_runtime.get("act_dynamic")),
         "activation_scales_ready": bool(
-            duquant_runtime.get("act_dynamic")
+            daptq_runtime.get("enabled")
+            or duquant_runtime.get("act_dynamic")
             or duquant_runtime.get("act_scales_ready", False)
         ),
         "denoising_steps": int(denoising_steps),
@@ -678,6 +705,56 @@ def _validate_formal_runtime(runtime: dict) -> None:
             raise RuntimeError(f"{config_id}: ATM/OHB must be disabled")
         if (runtime.get("runtime_selector") or {}).get("enabled"):
             raise RuntimeError(f"{config_id}: selector must be disabled")
+        if (runtime.get("errorfold") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: ErrorFold must be disabled")
+        return
+    if config_id == "daptq_w4a8":
+        daptq = runtime.get("daptq") or {}
+        contract = runtime.get("cross_model_quantization_contract") or {}
+        required = {
+            "enabled": True,
+            "method": "DA-PTQ",
+            "activation_bits": 8,
+            "flow_steps": 4,
+            "runtime_memory_claim_allowed": False,
+            "latency_claim_allowed": False,
+        }
+        mismatches = {
+            key: (daptq.get(key), value)
+            for key, value in required.items()
+            if daptq.get(key) != value
+        }
+        if mismatches:
+            raise RuntimeError(f"{config_id}: DA-PTQ runtime mismatch: {mismatches}")
+        contract_required = {
+            "logical_profile": "daptq_w4a8",
+            "weight_bits": "mixed_w4_bf16",
+            "activation_bits": 8,
+            "calibration_policy": "offline_static_per_channel_99.9_percentile",
+            "static_activation_scales": True,
+            "denoising_steps": 4,
+            "n_action_steps": 16,
+            "replan_steps": 16,
+        }
+        contract_mismatches = {
+            key: (contract.get(key), value)
+            for key, value in contract_required.items()
+            if contract.get(key) != value
+        }
+        if contract_mismatches:
+            raise RuntimeError(
+                f"{config_id}: DA-PTQ quantization contract mismatch: {contract_mismatches}"
+            )
+        if (runtime.get("duquant") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: DuQuant must be disabled")
+        if (runtime.get("omega_qvla") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: Omega-QVLA must be disabled")
+        if (runtime.get("qvla_actquant") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: QVLA/ActQuant must be disabled")
+        if (runtime.get("atm_ohb") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: ATM/OHB must be disabled")
+        if (runtime.get("runtime_selector") or {}).get("enabled"):
+            raise RuntimeError(f"{config_id}: runtime selector must be disabled")
         if (runtime.get("errorfold") or {}).get("enabled"):
             raise RuntimeError(f"{config_id}: ErrorFold must be disabled")
         return

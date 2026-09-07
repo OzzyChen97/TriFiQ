@@ -1,20 +1,810 @@
 {
+  "daptq_formal": {
+    "arms": {
+      "daptq_gr00t": {
+        "allocation": {
+          "bf16_layers": 9,
+          "w4_layers": 55
+        },
+        "episodes": 2500,
+        "source_protocol_equivalent": false,
+        "split_task_macro_success_rate": {
+          "atomic_seen": 0.08111111111111112,
+          "composite_seen": 0.0,
+          "composite_unseen": 0.00375
+        },
+        "storage": {
+          "checkpoint_count": 3,
+          "compression_ratio_total_deployed_checkpoint_set": 1.79557489726151,
+          "fp16_baseline_bytes_total_deployed_checkpoint_set": 6418612224,
+          "scope": "sum across three split-specific checkpoints",
+          "static_bytes_total_deployed_checkpoint_set": 3574683648,
+          "static_gib_total_deployed_checkpoint_set": 3.329183578491211
+        },
+        "successes": 76,
+        "task_macro_success_rate": 0.0304
+      },
+      "daptq_pi05": {
+        "allocation": {
+          "bf16_layers": 15,
+          "w4_layers": 87
+        },
+        "episodes": 2500,
+        "source_protocol_equivalent": false,
+        "split_task_macro_success_rate": {
+          "atomic_seen": 0.5855555555555555,
+          "composite_seen": 0.1225,
+          "composite_unseen": 0.0375
+        },
+        "storage": {
+          "checkpoint_count": 1,
+          "compression_ratio_total_deployed_checkpoint_set": 2.9591111733154403,
+          "fp16_baseline_bytes_total_deployed_checkpoint_set": 4416602112,
+          "scope": "single global checkpoint",
+          "static_bytes_total_deployed_checkpoint_set": 1492543488,
+          "static_gib_total_deployed_checkpoint_set": 1.3900394439697266
+        },
+        "successes": 655,
+        "task_macro_success_rate": 0.262
+      }
+    },
+    "claim_status": "complete_local_cross_architecture_adaptation",
+    "comparisons": {
+      "daptq_gr00t_vs_dypac_gr00t": {
+        "holm_adjusted_mcnemar_p": 0.0,
+        "paired_losses": 1282,
+        "paired_wins": 8
+      },
+      "daptq_pi05_vs_dypac_pi05": {
+        "holm_adjusted_mcnemar_p": 0.06484658024456472,
+        "paired_losses": 220,
+        "paired_wins": 182
+      }
+    },
+    "formal_episode_count_new": 5000
+  },
   "gr00t": {
     "compression": 2.223893051771117,
     "core_mechanism_evidence": {
-      "beneficial_one_layer_flips": 0,
-      "dynamic_a8_objective": 0.5178887111755559,
-      "eligible_structured_alternatives": 0,
+      "candidate_closed_loop_diagnostic": {
+        "best_observed_candidate": "ff_pair_0",
+        "best_observed_delta": 0.024000000000000132,
+        "candidate_task_macro_success_rate_max": 0.562,
+        "candidate_task_macro_success_rate_min": 0.5059999999999999,
+        "candidates": 6,
+        "claim": "no candidate differs significantly from the frozen anchor after Holm correction; non-significance is not equivalence",
+        "minimum_holm_adjusted_p": 0.8914580856633723,
+        "new_episodes": 3000,
+        "paired_control_task_macro_success_rate": 0.5379999999999999,
+        "role": "preregistered_post_selection_diagnostic",
+        "selection_feedback_allowed": false
+      },
+      "candidate_state_audit_triggered": false,
+      "compression_sweep": {
+        "all_w4_matches_least_compressed_success_rate": true,
+        "candidate_target_range": [
+          1.2,
+          3.5555555555555554
+        ],
+        "claim": "broad_nonmonotonic_success_plateau",
+        "endpoint_static_size_ratio": 2.192232401534727,
+        "episodes": 3000,
+        "frozen_reference": {
+          "all50_task_macro_sr": 0.54,
+          "fp16": 16,
+          "rate": null,
+          "source": "FINAL_VERSIONS.md frozen DyPAC Table-1 row (cited, not re-run)",
+          "static_bytes": 962068480,
+          "static_compression": 2.2239,
+          "w4": 100
+        },
+        "rates": {
+          "rate12": {
+            "achieved_candidate_compression": 1.201982436309886,
+            "all50_task_macro_sr": 0.5540000000000002,
+            "formal_failure_rate_all50": 0.44599999999999984,
+            "fp16_layers": 86,
+            "rate": 1.2,
+            "splits": {
+              "atomic_seen": 0.7444444444444447,
+              "composite_seen": 0.4625000000000001,
+              "composite_unseen": 0.43125
+            },
+            "static_bytes": 1834811392,
+            "static_compression": 1.1660802943172484,
+            "w4_layers": 30
+          },
+          "rate16": {
+            "achieved_candidate_compression": 1.6004630969609261,
+            "all50_task_macro_sr": 0.5280000000000001,
+            "formal_failure_rate_all50": 0.47199999999999986,
+            "fp16_layers": 53,
+            "rate": 1.6,
+            "splits": {
+              "atomic_seen": 0.7166666666666667,
+              "composite_seen": 0.4375,
+              "composite_unseen": 0.40625000000000006
+            },
+            "static_bytes": 1459486720,
+            "static_compression": 1.4659519533004042,
+            "w4_layers": 63
+          },
+          "rate20": {
+            "achieved_candidate_compression": 2.006531678641411,
+            "all50_task_macro_sr": 0.5459999999999999,
+            "formal_failure_rate_all50": 0.45400000000000007,
+            "fp16_layers": 36,
+            "rate": 2.0,
+            "splits": {
+              "atomic_seen": 0.7444444444444445,
+              "composite_seen": 0.41875,
+              "composite_unseen": 0.45000000000000007
+            },
+            "static_bytes": 1230372864,
+            "static_compression": 1.7389341642697347,
+            "w4_layers": 80
+          },
+          "rate24": {
+            "achieved_candidate_compression": 2.403755868544601,
+            "all50_task_macro_sr": 0.5139999999999998,
+            "formal_failure_rate_all50": 0.4860000000000002,
+            "fp16_layers": 25,
+            "rate": 2.4,
+            "splits": {
+              "atomic_seen": 0.7166666666666666,
+              "composite_seen": 0.42500000000000004,
+              "composite_unseen": 0.3750000000000001
+            },
+            "static_bytes": 1081147392,
+            "static_compression": 1.9789507183124204,
+            "w4_layers": 91
+          },
+          "rate28": {
+            "achieved_candidate_compression": 2.801499645354139,
+            "all50_task_macro_sr": 0.54,
+            "formal_failure_rate_all50": 0.45999999999999996,
+            "fp16_layers": 18,
+            "rate": 2.8,
+            "splits": {
+              "atomic_seen": 0.7388888888888889,
+              "composite_seen": 0.44375000000000003,
+              "composite_unseen": 0.41250000000000003
+            },
+            "static_bytes": 974127104,
+            "static_compression": 2.1963636975242196,
+            "w4_layers": 98
+          },
+          "ratemax": {
+            "achieved_candidate_compression": 3.5555555555555554,
+            "all50_task_macro_sr": 0.5539999999999998,
+            "formal_failure_rate_all50": 0.4460000000000002,
+            "fp16_layers": 0,
+            "rate": 3.5555555555555554,
+            "splits": {
+              "atomic_seen": 0.7166666666666667,
+              "composite_seen": 0.48125000000000007,
+              "composite_unseen": 0.4437500000000001
+            },
+            "static_bytes": 836960256,
+            "static_compression": 2.5563190039934227,
+            "w4_layers": 116
+          }
+        },
+        "scope": "GR00T six-arm frozen-rule sweep over all 50 tasks and seeds 0--9",
+        "static_bytes_range": [
+          836960256,
+          1834811392
+        ],
+        "static_compression_range": [
+          1.1660802943172484,
+          2.5563190039934227
+        ],
+        "task_macro_success_rate_range": [
+          0.5139999999999998,
+          0.5540000000000002
+        ]
+      },
+      "corrected_candidate_objective_max": 2.36031518928543,
+      "corrected_candidate_objective_min": 0.9483594348498502,
+      "corrected_candidates_tested": 6,
+      "corrected_selection": "context_base",
+      "dynamic_a8_vs_a16_objective": 0.06592289711881642,
+      "dynamic_a8_vs_static_objective": -0.24143020495712125,
+      "eligible_corrected_candidates": 0,
+      "eligible_existing_complete_policy_alternatives": 0,
+      "existing_complete_policy_alternatives_tested": 5,
+      "existing_complete_policy_objective_max": 3.0017926943250557,
+      "existing_complete_policy_objective_min": 1.539694531392783,
+      "new_corrected_candidates_require_scoring": false,
       "one_layer_flips_tested": 116,
-      "static_a8_objective": 467.5204744598872,
-      "structured_alternatives_tested": 5,
-      "structured_objective_max": 6.865465599405064,
-      "structured_objective_min": 3.971455774253541
+      "positive_benefit_interpretation": "both coordinates already FP16; retention value, not improving removals",
+      "positive_fp16_retention_benefits": 2,
+      "signal_ablation": {
+        "arms": {
+          "cka_only": {
+            "all50_task_macro_sr": 0.5319999999999999,
+            "formal_failure_rate_all50": 0.4680000000000001,
+            "formal_failure_rate_primary46": 0.48478260869565226,
+            "primary46_task_macro_sr": 0.5152173913043477
+          },
+          "cs_cka": {
+            "all50_task_macro_sr": 0.5519999999999999,
+            "formal_failure_rate_all50": 0.44800000000000006,
+            "formal_failure_rate_primary46": 0.46739130434782616,
+            "primary46_task_macro_sr": 0.5326086956521738
+          },
+          "cs_only": {
+            "all50_task_macro_sr": 0.5239999999999999,
+            "formal_failure_rate_all50": 0.4760000000000001,
+            "formal_failure_rate_primary46": 0.49347826086956526,
+            "primary46_task_macro_sr": 0.5065217391304347
+          }
+        },
+        "claim": "directional_evidence_only",
+        "comparisons": {
+          "cs_cka_vs_cka_only": {
+            "delta_task_macro_sr": 0.017391304347826098,
+            "discordant_fused_success_other_fail": 50,
+            "discordant_other_success_fused_fail": 42,
+            "exact_two_sided_mcnemar_p": 0.46570744577306195,
+            "holm_p": 0.5795964308101232,
+            "paired_losses": 13,
+            "paired_ties": 17,
+            "paired_wins": 16
+          },
+          "cs_cka_vs_cs_only": {
+            "delta_task_macro_sr": 0.02608695652173909,
+            "discordant_fused_success_other_fail": 60,
+            "discordant_other_success_fused_fail": 48,
+            "exact_two_sided_mcnemar_p": 0.2897982154050616,
+            "holm_p": 0.5795964308101232,
+            "paired_losses": 14,
+            "paired_ties": 11,
+            "paired_wins": 21
+          }
+        },
+        "compression": 2.223893051771117,
+        "episodes": 1500,
+        "scope": "GR00T exact-byte Primary-46 directional evidence",
+        "static_component_bytes": 962068480
+      },
+      "static_a8_vs_a16_objective": 264.93584915146585
     },
     "episodes": 2500,
     "fp16_layers": 16,
+    "initializer_selection_disclosure": {
+      "descriptive_heldout46_task_macro_success_rate": {
+        "fp16": 0.5278260869565216,
+        "ours": 0.5178260869565217,
+        "quantvla_w4a8": 0.2756521739130434
+      },
+      "development_episodes_per_configuration": 200,
+      "development_successes_selected_configuration": 161,
+      "development_tasks": [
+        "CoffeeSetupMug",
+        "OpenCabinet",
+        "OpenStandMixerHead",
+        "PickPlaceDrawerToCounter"
+      ],
+      "development_tasks_included_in_headline_aggregate": true,
+      "selected_geometry_to_distribution_ratio": "16:1"
+    },
+    "offline_proxy_predictive_validity": {
+      "claim": "none of the three offline metrics provides a positive global mask ordering in this library; DPAC is a behavioral guard, not a success-ranking oracle",
+      "coverage_gate_passed": true,
+      "fp16_episodes": 50,
+      "mask_episodes": 3000,
+      "primary": {
+        "d_func": {
+          "kendall_tau_b": {
+            "status": "defined",
+            "value": -0.051655425012627695
+          },
+          "spearman_rho": {
+            "status": "defined",
+            "value": -0.06534801861394221
+          }
+        },
+        "d_pac": {
+          "kendall_tau_b": {
+            "status": "defined",
+            "value": -0.0792850709496146
+          },
+          "spearman_rho": {
+            "status": "defined",
+            "value": -0.11576255531095257
+          }
+        },
+        "mse": {
+          "kendall_tau_b": {
+            "status": "defined",
+            "value": -0.033636090705897105
+          },
+          "spearman_rho": {
+            "status": "defined",
+            "value": -0.027902032002688378
+          }
+        }
+      },
+      "primary_gaps": {
+        "d_func": {
+          "delta_kendall_tau_b": {
+            "status": "defined",
+            "value": -0.0276296459369869
+          },
+          "delta_spearman_rho": {
+            "status": "defined",
+            "value": -0.05041453669701036
+          }
+        },
+        "mse": {
+          "delta_kendall_tau_b": {
+            "status": "defined",
+            "value": -0.04564898024371749
+          },
+          "delta_spearman_rho": {
+            "status": "defined",
+            "value": -0.08786052330826419
+          }
+        }
+      },
+      "registered_positive_direction": "larger offline distortion implies larger signed closed-loop success degradation",
+      "scope": "frozen 60-mask exact-budget GR00T library"
+    },
     "ours_successes": 1350,
     "ours_task_macro_success_rate": 0.54,
+    "real_hardware": {
+      "claim": "real packed W4 reduces measured CUDA peak allocation, but the current generic packed-W4 path increases latency and GPU-board energy",
+      "configurations": {
+        "attention_6": {
+          "activation_mode": "dynamic_a8",
+          "energy_joules_per_request": {
+            "gross_board": {
+              "mean": 41.319971864777045,
+              "sd": 0.27049597769593736
+            },
+            "idle_adjusted_board": {
+              "mean": 23.601894272460342,
+              "sd": 0.16514453072061167
+            }
+          },
+          "latency_ms": {
+            "median_of_trial_p50": 245.46744814142585,
+            "pooled_p50": 244.67836925759912,
+            "pooled_p95": 258.0315272323787,
+            "trial_mean": {
+              "mean": 245.78818742496273,
+              "sd": 3.101403858220009
+            }
+          },
+          "peak_memory": {
+            "allocated_bytes_median": 4471934976,
+            "allocated_gib_median": 4.164813995361328,
+            "nvml_device_used_mib_median": 6574.0,
+            "reserved_bytes_median": 5005901824
+          },
+          "quantized_w4_layers": 112,
+          "relative_to_native_fp16": {
+            "gross_energy_ratio": 2.2161231574153293,
+            "latency_ratio": 2.284166615376581,
+            "peak_allocated_ratio": 0.7732926777442523
+          },
+          "requests": 180,
+          "trials": 3
+        },
+        "context_base": {
+          "activation_mode": "dynamic_a8",
+          "energy_joules_per_request": {
+            "gross_board": {
+              "mean": 39.80961975044194,
+              "sd": 0.46198572342663585
+            },
+            "idle_adjusted_board": {
+              "mean": 22.76610685167219,
+              "sd": 0.5380342861005581
+            }
+          },
+          "latency_ms": {
+            "median_of_trial_p50": 232.22207557410002,
+            "pooled_p50": 232.51104727387428,
+            "pooled_p95": 258.2595400046557,
+            "trial_mean": {
+              "mean": 236.6868594661355,
+              "sd": 4.360077741870728
+            }
+          },
+          "peak_memory": {
+            "allocated_bytes_median": 4581355520,
+            "allocated_gib_median": 4.266719818115234,
+            "nvml_device_used_mib_median": 6720.0,
+            "reserved_bytes_median": 5158993920
+          },
+          "quantized_w4_layers": 100,
+          "relative_to_native_fp16": {
+            "gross_energy_ratio": 2.1351181096049636,
+            "latency_ratio": 2.16091345877441,
+            "peak_allocated_ratio": 0.7922138172340034
+          },
+          "requests": 180,
+          "trials": 3
+        },
+        "dp_full_lambda_1p0": {
+          "activation_mode": "dynamic_a8",
+          "energy_joules_per_request": {
+            "gross_board": {
+              "mean": 40.938980668983426,
+              "sd": 0.8384786635400594
+            },
+            "idle_adjusted_board": {
+              "mean": 23.173934993482355,
+              "sd": 0.6239902818269476
+            }
+          },
+          "latency_ms": {
+            "median_of_trial_p50": 238.24633564800024,
+            "pooled_p50": 238.36823599413037,
+            "pooled_p95": 293.5058077331631,
+            "trial_mean": {
+              "mean": 246.30659239677092,
+              "sd": 4.874988898298262
+            }
+          },
+          "peak_memory": {
+            "allocated_bytes_median": 4529442816,
+            "allocated_gib_median": 4.218372344970703,
+            "nvml_device_used_mib_median": 6686.0,
+            "reserved_bytes_median": 5123342336
+          },
+          "quantized_w4_layers": 111,
+          "relative_to_native_fp16": {
+            "gross_energy_ratio": 2.195689372645758,
+            "latency_ratio": 2.2169714568810304,
+            "peak_allocated_ratio": 0.7832370065020611
+          },
+          "requests": 180,
+          "trials": 3
+        },
+        "ff_pair_0": {
+          "activation_mode": "dynamic_a8",
+          "energy_joules_per_request": {
+            "gross_board": {
+              "mean": 41.48307886450978,
+              "sd": 0.5684771298485353
+            },
+            "idle_adjusted_board": {
+              "mean": 23.46045236678061,
+              "sd": 0.6201286072330282
+            }
+          },
+          "latency_ms": {
+            "median_of_trial_p50": 244.42416056990623,
+            "pooled_p50": 245.00887608155608,
+            "pooled_p95": 267.545713018626,
+            "trial_mean": {
+              "mean": 249.84007411532932,
+              "sd": 2.5958069245399167
+            }
+          },
+          "peak_memory": {
+            "allocated_bytes_median": 4480126976,
+            "allocated_gib_median": 4.172443389892578,
+            "nvml_device_used_mib_median": 6652.0,
+            "reserved_bytes_median": 5087690752
+          },
+          "quantized_w4_layers": 114,
+          "relative_to_native_fp16": {
+            "gross_energy_ratio": 2.2248711110786856,
+            "latency_ratio": 2.274458433460218,
+            "peak_allocated_ratio": 0.7747092487923731
+          },
+          "requests": 180,
+          "trials": 3
+        },
+        "mlp_2": {
+          "activation_mode": "dynamic_a8",
+          "energy_joules_per_request": {
+            "gross_board": {
+              "mean": 40.445294886193345,
+              "sd": 0.22515500806801989
+            },
+            "idle_adjusted_board": {
+              "mean": 22.75689845736491,
+              "sd": 0.21207512771324433
+            }
+          },
+          "latency_ms": {
+            "median_of_trial_p50": 240.59719685465097,
+            "pooled_p50": 241.82760436087847,
+            "pooled_p95": 261.18111037649203,
+            "trial_mean": {
+              "mean": 244.70024892749885,
+              "sd": 2.1428108139696773
+            }
+          },
+          "peak_memory": {
+            "allocated_bytes_median": 4509347840,
+            "allocated_gib_median": 4.199657440185547,
+            "nvml_device_used_mib_median": 6648.0,
+            "reserved_bytes_median": 5083496448
+          },
+          "quantized_w4_layers": 113,
+          "relative_to_native_fp16": {
+            "gross_energy_ratio": 2.169211414255364,
+            "latency_ratio": 2.2388471016000064,
+            "peak_allocated_ratio": 0.7797621577210205
+          },
+          "requests": 180,
+          "trials": 3
+        },
+        "native_fp16": {
+          "activation_mode": "fp16",
+          "energy_joules_per_request": {
+            "gross_board": {
+              "mean": 18.645160458035484,
+              "sd": 4.230825436499598
+            },
+            "idle_adjusted_board": {
+              "mean": 10.650129813023609,
+              "sd": 3.2298663486231036
+            }
+          },
+          "latency_ms": {
+            "median_of_trial_p50": 107.46477358043194,
+            "pooled_p50": 106.82050185278058,
+            "pooled_p95": 143.2292347308247,
+            "trial_mean": {
+              "mean": 111.53128908222747,
+              "sd": 13.520823123220477
+            }
+          },
+          "peak_memory": {
+            "allocated_bytes_median": 5782978560,
+            "allocated_gib_median": 5.3858184814453125,
+            "nvml_device_used_mib_median": 7644.0,
+            "reserved_bytes_median": 6129975296
+          },
+          "quantized_w4_layers": 0,
+          "relative_to_native_fp16": {
+            "gross_energy_ratio": 1.0,
+            "latency_ratio": 1.0,
+            "peak_allocated_ratio": 1.0
+          },
+          "requests": 180,
+          "trials": 3
+        },
+        "quantvla_w4a8": {
+          "activation_mode": "static_a8",
+          "energy_joules_per_request": {
+            "gross_board": {
+              "mean": 40.76329845866698,
+              "sd": 1.1497510235901862
+            },
+            "idle_adjusted_board": {
+              "mean": 21.519737128849425,
+              "sd": 0.7383142569694934
+            }
+          },
+          "latency_ms": {
+            "median_of_trial_p50": 269.5662025362253,
+            "pooled_p50": 268.59220350161195,
+            "pooled_p95": 297.16171654872596,
+            "trial_mean": {
+              "mean": 269.04718833458094,
+              "sd": 2.519535481777313
+            }
+          },
+          "peak_memory": {
+            "allocated_bytes_median": 4636982272,
+            "allocated_gib_median": 4.318526268005371,
+            "nvml_device_used_mib_median": 6752.0,
+            "reserved_bytes_median": 5194645504
+          },
+          "quantized_w4_layers": 100,
+          "relative_to_native_fp16": {
+            "gross_energy_ratio": 2.1862669699417507,
+            "latency_ratio": 2.5084145581386132,
+            "peak_allocated_ratio": 0.8018328658648874
+          },
+          "requests": 180,
+          "trials": 3
+        },
+        "single_best": {
+          "activation_mode": "dynamic_a8",
+          "energy_joules_per_request": {
+            "gross_board": {
+              "mean": 41.57701946979617,
+              "sd": 0.2417729334916912
+            },
+            "idle_adjusted_board": {
+              "mean": 23.678081719499342,
+              "sd": 0.19605559217121718
+            }
+          },
+          "latency_ms": {
+            "median_of_trial_p50": 245.2116785570979,
+            "pooled_p50": 245.33201660960913,
+            "pooled_p95": 270.9885227959603,
+            "trial_mean": {
+              "mean": 248.609048107432,
+              "sd": 1.2212827499173216
+            }
+          },
+          "peak_memory": {
+            "allocated_bytes_median": 4471934976,
+            "allocated_gib_median": 4.164813995361328,
+            "nvml_device_used_mib_median": 6640.0,
+            "reserved_bytes_median": 5075107840
+          },
+          "quantized_w4_layers": 115,
+          "relative_to_native_fp16": {
+            "gross_energy_ratio": 2.229909448265315,
+            "latency_ratio": 2.2817865835223614,
+            "peak_allocated_ratio": 0.7732926777442523
+          },
+          "requests": 180,
+          "trials": 3
+        },
+        "two_best": {
+          "activation_mode": "dynamic_a8",
+          "energy_joules_per_request": {
+            "gross_board": {
+              "mean": 41.395054150139714,
+              "sd": 0.41210086433917004
+            },
+            "idle_adjusted_board": {
+              "mean": 23.41848923876913,
+              "sd": 0.2395483858468834
+            }
+          },
+          "latency_ms": {
+            "median_of_trial_p50": 245.79660780727863,
+            "pooled_p50": 245.31818740069866,
+            "pooled_p95": 268.365181563422,
+            "trial_mean": {
+              "mean": 249.20235151528485,
+              "sd": 3.191208239953701
+            }
+          },
+          "peak_memory": {
+            "allocated_bytes_median": 4478918656,
+            "allocated_gib_median": 4.171318054199219,
+            "nvml_device_used_mib_median": 6640.0,
+            "reserved_bytes_median": 5075107840
+          },
+          "quantized_w4_layers": 114,
+          "relative_to_native_fp16": {
+            "gross_energy_ratio": 2.220150062173358,
+            "latency_ratio": 2.287229569448749,
+            "peak_allocated_ratio": 0.7745003045627753
+          },
+          "requests": 180,
+          "trials": 3
+        }
+      },
+      "context_base_relative_to_native_fp16": {
+        "gross_energy_ratio": 2.1351181096049636,
+        "latency_ratio": 2.16091345877441,
+        "peak_allocated_ratio": 0.7922138172340034
+      },
+      "device": "NVIDIA A40 48GB",
+      "real_integer_backend_audit": {
+        "candidate": {
+          "activation_bits": 8,
+          "activation_scale_granularity": "dynamic_per_row_group64",
+          "episodes": 500,
+          "execution_backend": "triton_packed_w4_dynamic_a8_int8_gemm_int32_accum",
+          "integer_gemm": true,
+          "name": "ours_integer_w4a8_blockm64",
+          "packed_low_bit_residency": true,
+          "success_rate": 0.502,
+          "successes": 251,
+          "weight_bits": 4
+        },
+        "claim_boundary": {
+          "may_reopen_frozen_fcp_selection": false,
+          "may_replace_frozen_ours": false,
+          "paper_role": "separately_named_exploratory_real_integer_backend",
+          "reason": "The integer backend changes dynamic-A8 scale granularity from per-input-channel to per-row group-64."
+        },
+        "complete": true,
+        "control": {
+          "activation_scale_granularity": "dynamic_per_input_channel",
+          "episodes": 500,
+          "execution_backend": "packed_w4_dequant_then_fp16_gemm",
+          "integer_gemm": false,
+          "name": "ours_dequant_fp16",
+          "success_rate": 0.538,
+          "successes": 269
+        },
+        "coverage": {
+          "duplicates": 0,
+          "episodes_per_config": 500,
+          "formal_terminal_failures": 0,
+          "missing": 0,
+          "seeds_per_task": 10,
+          "tasks": 50
+        },
+        "hardware": {
+          "candidate": {
+            "gross_joules_per_request": {
+              "mean": 34.63607042954464,
+              "sd": 0.21921237496514623
+            },
+            "idle_adjusted_joules_per_request": {
+              "mean": 20.973258067696925,
+              "sd": 0.1855428144335349
+            },
+            "p50_ms": 187.46585119515657,
+            "p95_ms": 199.26423733122644,
+            "peak_cuda_allocated_gib": 4.266719818115234
+          },
+          "candidate_over_reference": {
+            "gross_energy_ratio": 0.882471581434594,
+            "idle_adjusted_energy_ratio": 0.9261334141603386,
+            "p50_ratio": 0.8162590865781263,
+            "peak_cuda_allocated_ratio": 1.0
+          },
+          "device": "NVIDIA A40",
+          "exploratory": true,
+          "kind": "paired_backend_ab",
+          "quality_gate_passed": true,
+          "reference": {
+            "gross_joules_per_request": {
+              "mean": 39.24893578242865,
+              "sd": 0.2417644946585239
+            },
+            "idle_adjusted_joules_per_request": {
+              "mean": 22.646044022406787,
+              "sd": 0.348651270945724
+            },
+            "p50_ms": 229.6646423637867,
+            "p95_ms": 239.35891957953572,
+            "peak_cuda_allocated_gib": 4.266719818115234
+          },
+          "requests_per_trial": 60,
+          "scope": "model_only_batch1_gpu_board_energy",
+          "trials_per_backend": 3,
+          "warmups_per_trial": 10
+        },
+        "kind": "dypac_vla_integer_w4a8_backend_paper_audit",
+        "paired_comparison": {
+          "candidate_losses": 54,
+          "candidate_wins": 36,
+          "delta": -0.036,
+          "equivalence_established": false,
+          "exact_two_sided_mcnemar_p": 0.07254953219246181,
+          "noninferiority_established": false,
+          "orientation": "integer_w4a8_minus_frozen_ours",
+          "task_cluster_bootstrap": {
+            "ci95_high": 0.016,
+            "ci95_low": -0.088,
+            "draws": 10000,
+            "seed": 20260903,
+            "unit": "task_cluster_with_seed_resampling"
+          },
+          "ties": 410
+        },
+        "provenance": {
+          "aggregate_sha256": "35790611590b135f6b3ff41f69561e81aaec04d5b1ccb5b912138eefc7410498",
+          "hardware_summary_sha256": "50cc2f2899224f39af9575851b2523f4ab182ffc6274f0a4f1ea5a18636bd033",
+          "materialized_for_paper_on": "2026-09-03",
+          "protocol_sha256": "f0d2bfc4995b7a133a019d3235cbb711486b2e37b7b47512303e094f621ab237"
+        },
+        "runtime_contract_audit": {
+          "packed_weight_bytes": 409468928,
+          "passed": true,
+          "split_metadata_hashes": [
+            "a1f1de2b74b857ec77735cbc5fa488d011a850cb7c92b58466cb05de89fcc07c",
+            "e120580cec60561d158ead78cc95154287e4126aeb2b8c3dfe3ea1f2cf40ab3e",
+            "eb9a03dbd651f82df75c957522e68478f3b7c8d9f4cb4e12914f8f2bc97f76b5"
+          ]
+        },
+        "schema_version": 1
+      },
+      "requests_per_configuration": 180,
+      "scope": "A40 model-only batch-1 policy inference; GPU-board energy only",
+      "trials_per_configuration": 3
+    },
     "split_task_macro_success_rate": {
       "atomic_seen": 0.7466666666666666,
       "composite_seen": 0.43875,
@@ -40,6 +830,20 @@
       "status": "difference_not_significant_no_equivalence_claim",
       "wins": 292
     },
+    "versus_initializer_stage_gdsq": {
+      "delta": 0.032400000000000095,
+      "gdsq_task_macro_success_rate": 0.5075999999999999,
+      "hierarchical_bootstrap_ci95": [
+        0.0048,
+        0.06040000000000001
+      ],
+      "holm_p": 0.003619369860097224,
+      "losses": 289,
+      "same_precision_mask": true,
+      "scope": "combined post-allocation stack: Hessian-aware W4 plus input-conditioned A8 versus original DuQuant W4 plus split-calibrated static A8",
+      "status": "formal_superiority",
+      "wins": 370
+    },
     "versus_quantvla": {
       "delta": 0.23560000000000003,
       "holm_p": 1.8894854853781264e-98,
@@ -50,16 +854,72 @@
     },
     "w4_layers": 100
   },
+  "gr00t_max_formal": {
+    "claim_status": "descriptive_formal_operating_point_secondary_row",
+    "cross_run_vs_audited_anchor": {
+      "discordant_max_success_ours_fail": 288,
+      "discordant_ours_success_max_fail": 319,
+      "exact_two_sided_mcnemar_p": 0.22332170450216624,
+      "flag": "cross-run descriptive; same 50 seeds and paired-noise protocol; not a registered test; does not revise the frozen headline row",
+      "paired_units": 2500
+    },
+    "episodes": 2500,
+    "mask": {
+      "activation_mode": "dynamic_a8",
+      "fp16_layers": 0,
+      "w4_layers": 116
+    },
+    "splits": {
+      "atomic_seen": 0.7088888888888889,
+      "composite_seen": 0.42875,
+      "composite_unseen": 0.4225
+    },
+    "static_bytes": 836960256,
+    "static_compression": 2.5563190039934227,
+    "successes": 1319,
+    "task_macro_success_rate": 0.5276
+  },
   "kind": "dypac_vla_final_paper_evidence",
   "paper_identity": {
     "expanded_name": "Full-context PTQ under policy-induced deployment distributions",
     "short_name": "DyPAC-VLA",
-    "title": "Quantization Changes the Data: Full-Context Post-Training Quantization for Vision-Language-Action Policies"
+    "title": "Quantization Changes the Data: Closed-Loop-Aware Quantization for Vision-Language-Action Policies"
   },
   "pi05": {
     "claim_status": "formal_target_split_result_descriptive_cross_row_comparison",
     "compression": 2.701569421338518,
     "episodes_per_configuration": 2500,
+    "fcp_mask_adaptation": {
+      "feasible_anchor_fp16_layers": 59,
+      "feasible_anchor_w4_layers": 121,
+      "fp16_protections_removed": 41,
+      "initializer_exceeds_budget": true,
+      "initializer_fp16_layers": 100,
+      "initializer_static_component_bytes": 1845100544,
+      "initializer_w4_layers": 80,
+      "post_projection_abstained": true,
+      "post_projection_candidates_tested": 2,
+      "post_projection_selected_id": "context_base",
+      "projection_basis": "paired complete-policy coordinate damage; remove the least damaging FP16 protections until byte-feasible",
+      "same_protocol_closed_loop_diagnostic": {
+        "claim": "the byte-feasibility projection has no observed success drop in this diagnostic, but the positive estimate is not significant; later proposals remain rejected",
+        "new_episodes": 1500,
+        "post_projection_candidate_rates": {
+          "single_best": 0.248,
+          "two_best": 0.25
+        },
+        "post_projection_minimum_holm_p": 0.08591309104877842,
+        "projected_anchor_minus_initializer": 0.02200000000000002,
+        "projected_anchor_success_rate": 0.28200000000000003,
+        "projection_exact_mcnemar_p": 0.23509756240834184,
+        "reused_anchor_episodes": 500,
+        "role": "preregistered_post_selection_mechanism_diagnostic",
+        "seeds_per_task": 10,
+        "selection_feedback_allowed": false,
+        "tasks": 50,
+        "transferred_initializer_success_rate": 0.26
+      }
+    },
     "flow_steps": 4,
     "fp16_layers": 59,
     "official_target_split_baselines": {
@@ -78,7 +938,98 @@
     "static_component_bytes": 1634828288,
     "successes": 693,
     "task_macro_success_rate": 0.2772,
+    "versus_fp16": {
+      "delta": 0.015600000000000058,
+      "higher_in_all_task_groups": true,
+      "split_delta": {
+        "atomic_seen": 0.012222222222222134,
+        "composite_seen": 0.013749999999999984,
+        "composite_unseen": 0.021249999999999998
+      },
+      "status": "descriptive_cross_row_comparison"
+    },
+    "versus_quantvla": {
+      "delta": 0.028800000000000048,
+      "status": "descriptive_cross_row_comparison"
+    },
     "w4_layers": 121
+  },
+  "pi05_max_formal": {
+    "claim_status": "descriptive_formal_operating_point_secondary_row",
+    "cross_run_vs_audited_anchor": {
+      "discordant_max_success_ours_fail": 159,
+      "discordant_ours_success_max_fail": 182,
+      "exact_two_sided_mcnemar_p": 0.23346206425855837,
+      "flag": "cross-run descriptive; same 50 seeds and paired-noise protocol; not a registered test; does not revise the frozen headline row",
+      "paired_units": 2500
+    },
+    "episodes": 2500,
+    "mask": {
+      "activation_mode": "dynamic_a8",
+      "fp16_layers": 0,
+      "w4_layers": 180
+    },
+    "splits": {
+      "atomic_seen": 0.5866666666666667,
+      "composite_seen": 0.145,
+      "composite_unseen": 0.0325
+    },
+    "static_bytes": 1242169344,
+    "static_compression": 3.5555555555555554,
+    "successes": 670,
+    "task_macro_success_rate": 0.268
+  },
+  "qvla_actquant_extension": {
+    "aggregate_path": "runs/qvla_actquant_table1/formal/aggregate.json",
+    "aggregate_sha256": "9f571ac06de8b748d7fdb550c200699c719fc1755a9aaa9b3bf08608491c8484",
+    "arms": {
+      "actquant_gr00t": {
+        "episodes": 2500,
+        "micro_success_rate": 0.5288,
+        "split_task_macro_success_rate": {
+          "atomic_seen": 0.721111111111111,
+          "composite_seen": 0.42625,
+          "composite_unseen": 0.41500000000000004
+        },
+        "storage": {
+          "checkpoint_count": 3,
+          "compression_ratio_total_deployed_checkpoint_set": 1.38819003487666,
+          "fp16_baseline_bytes_total_deployed_checkpoint_set": 16344981120,
+          "scope": "sum across three split-specific checkpoints",
+          "static_bytes_total_deployed_checkpoint_set": 11774310944,
+          "static_gib_total_deployed_checkpoint_set": 10.965681582689285
+        },
+        "successes": 1322,
+        "task_macro_success_rate": 0.5288
+      },
+      "actquant_pi05": {
+        "episodes": 2500,
+        "micro_success_rate": 0.2516,
+        "split_task_macro_success_rate": {
+          "atomic_seen": 0.5655555555555556,
+          "composite_seen": 0.1225,
+          "composite_unseen": 0.0275
+        },
+        "storage": {
+          "checkpoint_count": 1,
+          "compression_ratio_total_deployed_checkpoint_set": 2.1535045561509047,
+          "fp16_baseline_bytes_total_deployed_checkpoint_set": 6714075840,
+          "scope": "single global checkpoint",
+          "static_bytes_total_deployed_checkpoint_set": 3117743968,
+          "static_gib_total_deployed_checkpoint_set": 2.903625339269638
+        },
+        "successes": 629,
+        "task_macro_success_rate": 0.2516
+      }
+    },
+    "calibration_source": "fp16_teacher_proxy",
+    "comparison_scope": {
+      "gr00t": "paired to complete compatible GR00T DyPAC flow-4 episodes",
+      "pi05": "paired to complete compatible pi0.5 DyPAC four-flow-step episodes",
+      "pi05_legacy_flow4": "descriptive only; protocol-incompatible and excluded from tests"
+    },
+    "formal_episode_count_new": 5000,
+    "source_protocol_equivalent": false
   },
   "schema_version": 1,
   "sources": {
@@ -86,21 +1037,93 @@
       "path": "runs/full_context_v2/p2/activation_attribution.json",
       "sha256": "3c59f27bf648b575bf87864ba9ed4a44590d077d8a57c298d841e6ff4bd879b9"
     },
+    "compression_sweep": {
+      "path": "runs/robocasa365_compression_sweep_v1/aggregate.json",
+      "sha256": "9c0381783c3521d6f333bf21ea1c1a3bc4bef3920fba734ac21864e46d3a288c"
+    },
+    "compression_sweep_masks": {
+      "path": "runs/robocasa365_compression_sweep_v1/masks/masks_manifest.json",
+      "sha256": "89bb1e8b0dd0ab3c09ba78ca6ab885a50505618ebc6150cae1a5184ab022aea6"
+    },
+    "compression_sweep_preregistration": {
+      "path": "runs/robocasa365_compression_sweep_v1/preregistration.json",
+      "sha256": "6726c7d7a59555759971ead429aabaa08e19e5ff0bc28d5c140f328e1f088d86"
+    },
+    "corrected_fcp_selection": {
+      "path": "runs/full_context_v2/fcp_completion/gr00t_corrected_fcp_frozen.json.selection.json",
+      "sha256": "7e7830c749d501b516c82ead5e416437e4408ba519914a5b47d0f29613914987"
+    },
+    "daptq_formal": {
+      "path": "runs/daptq_table1/formal/aggregate.json",
+      "sha256": "2c857eab542035650a22bfd54a890fed49afd084e999ee5f17c37adcddf9eeb8"
+    },
+    "fcp_candidate_closed_loop": {
+      "path": "runs/full_context_v2/fcp_completion/closed_loop/aggregate.json",
+      "sha256": "1cedce9f204bd3f265cbf1d604020253c78f89791655b914599582d8891f3c77"
+    },
     "gr00t_aggregate": {
       "path": "runs/full_context_v2/table1/aggregate.json",
       "sha256": "cbb59547a6149456f9ae8fc0bac0fedea1267e5ff5f4d144448112f15b0f459e"
+    },
+    "gr00t_gdsq_atomic_plan": {
+      "path": "checkpoints/packs/robocasa365/gr00t_quant_plan_robocasa365_cscka_16to1_adjudicated.final_plan.json",
+      "sha256": "70b6b0d3190c3f4ebad9a5a874f9c0ac1044143a4912020aa9fb129f66a6eeb4"
+    },
+    "gr00t_gdsq_composite_seen_plan": {
+      "path": "checkpoints/packs/robocasa365/gr00t_quant_plan_robocasa365_cscka_16to1_composite_seen.final_plan.json",
+      "sha256": "abe7571b4dd1548fdf24042c7b508f34a3607a787cd92d7fb6f66f4855b46532"
+    },
+    "gr00t_gdsq_composite_unseen_plan": {
+      "path": "checkpoints/packs/robocasa365/gr00t_quant_plan_robocasa365_cscka_16to1_composite_unseen.final_plan.json",
+      "sha256": "970d6865b7fcd01b7848baa0daa2dfb7b98db79bbde8ea0022641d390bb71d47"
+    },
+    "gr00t_hardware": {
+      "path": "runs/full_context_v2/fcp_completion/hardware/summary.json",
+      "sha256": "fa7c3e91ca9f678aae3a33882106ff7ab0bb3daaa0dd37a6faaa58715fdc45e5"
+    },
+    "gr00t_max_aggregate": {
+      "path": "runs/robocasa365_table1_max_sweep_v1/gr00t_aggregate.json",
+      "sha256": "f1dd5829167dc0a9d5e999352acf673157445160633437323d5635faafe8b97b"
+    },
+    "gr00t_max_plan": {
+      "path": "runs/robocasa365_table1_max_sweep_v1/masks/gr00t_max.plan.json",
+      "sha256": "b1fe584404184bf6f5505af5ef40ebaeab759a94c1e0e952dd19b085e387179d"
     },
     "gr00t_plan": {
       "path": "runs/full_context_v2/p2/gr00t_full_context_v2_frozen.json",
       "sha256": "969c5ae8bc84719229c81a88e8b6ace745cbb87cea551528ec8cf1fd3820e3a2"
     },
+    "gr00t_ratio_selection": {
+      "path": "runs/gdsq_week1_preregistered_v1/analysis/ratio_stability.json",
+      "sha256": "dc074814edf548c5b9f3a97af7c8240221da897177a935a30903a734568a7d33"
+    },
+    "integer_w4a8_backend": {
+      "path": "docs/gdsq_vla_iclr2027/evidence/integer_w4a8_backend_audit.json",
+      "sha256": "8e12ed20550dff16f999af2383a5ae89c49e2d48f17b1deb04ad9a104447c219"
+    },
     "pi05_dypac_formal": {
       "path": "runs/full_context_v2/pi05_table1/aggregate.json",
       "sha256": "512480a2e0836423254217b5215489bcb218e17a4c7d0fff1cdf5aba9acf4f73"
     },
+    "pi05_fcp_diagnostic_raw": {
+      "path": "runs/full_context_v2/pi05_fcp_diagnostic/raw_aggregate.json",
+      "sha256": "7fb09f82d1fbe51ba4ee1af0f1a4d9671f2cce9255882951609242247630601c"
+    },
+    "pi05_fcp_diagnostic_summary": {
+      "path": "runs/full_context_v2/pi05_fcp_diagnostic/experiment_summary.json",
+      "sha256": "6fdcdf4c53f86ff45cf00cee4fe50abbc9c3ad8ceeab5005dbee531d1f19e87e"
+    },
     "pi05_main_plan": {
       "path": "runs/full_context_v2/pi05_p2/interventions_round_main/context_base.json",
       "sha256": "461531ea2c48cdd5e0f063bc944c882ede6a36ed73482beeb19134ec7e55e42b"
+    },
+    "pi05_max_aggregate": {
+      "path": "runs/robocasa365_table1_max_sweep_v1/aggregate.json",
+      "sha256": "93bb7b021ca83b073b314c6b18e97f3d7b4c4e327eeb190375d7d5fedb3070bc"
+    },
+    "pi05_max_plan": {
+      "path": "runs/robocasa365_table1_max_sweep_v1/masks/pi05_max.plan.json",
+      "sha256": "8b0aabc15e48970250e605ca689e08bde3c9b73616d2c31fd2fae88d01759dbd"
     },
     "pi05_omega": {
       "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/summary.json",
@@ -114,6 +1137,10 @@
       "path": "runs/full_context_v2/pi05_table1/protocol_correction.json",
       "sha256": "cd5e07baaaf7b40e53c1ace9a881eb49aabb9407d8d20189d46e3a11b2186770"
     },
+    "pi05_pruned_plan": {
+      "path": "runs/full_context_v2/pi05_p2/pi05_main_pruned_to_budget.json",
+      "sha256": "e06870a2f83c6f957df1733dad0d461fcdd0fc66be929035699915d908ce6bcc"
+    },
     "pi05_static_official": {
       "path": "runs/pi05_gdsq_gr00t_aligned/official_target_paired50/aggregate/summary.json",
       "sha256": "c7b6441c6ca0a49aa5cfe8e673d1ee465a5d101076b6ad866b149fb545d10cbb"
@@ -121,6 +1148,30 @@
     "pi05_uniform_w6": {
       "path": "runs/gdsq_week1_preregistered_v1/execution/runs/pi05_uniform_w6_official50/aggregate/summary.json",
       "sha256": "849e1e159daf6b515bcb1724a8862fea17e9c0c95053ed5fefc99b9c145e052a"
+    },
+    "predictive_validity": {
+      "path": "runs/full_context_v2/dpac_predictive_validity/report/audit.json",
+      "sha256": "51a56c68e319ee8bc77d8e2fb28592f15ccfd35c3195089289482e2c237b26bf"
+    },
+    "signal_ablation": {
+      "path": "runs/robocasa365_byte_ablation_v1/aggregate.json",
+      "sha256": "34ab7a8e1f3d75fbc2beef69e2108b52c9ab61e79884a41aa1404c60d640c09f"
+    },
+    "signal_ablation_masks": {
+      "path": "runs/robocasa365_byte_ablation_v1/masks/masks_manifest.json",
+      "sha256": "f233f7ca2fe0ed5b48c4a11402f4e4ff2320ae19472fae7e21abd1f9de8f39df"
+    },
+    "signal_ablation_preregistration": {
+      "path": "runs/robocasa365_byte_ablation_v1/preregistration.json",
+      "sha256": "0bd4917e2159af28aef9ed49c11db1ac4d7cebfe477a8a8a8e1d94fed23641bd"
+    },
+    "statistics_correction": {
+      "path": "runs/full_context_v2/statistics_correction/corrected_statistics.json",
+      "sha256": "5ed6ce1efe409dccfc38af9e1473455563772c646941efcd913349717a01b3ec"
+    },
+    "table3_closed_loop": {
+      "path": "runs/full_context_v2/table3_quick/aggregate.json",
+      "sha256": "41a2d63af912111725bf3b547a7ee220d78135987cb914d0cd4b073c16a87f9b"
     }
   },
   "valid": true

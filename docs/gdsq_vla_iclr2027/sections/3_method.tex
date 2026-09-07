@@ -2,60 +2,57 @@
 \label{sec:method}
 
 \paragraph{Overview.}
-\method converts a frozen FP16 VLA into one static W4/FP16 policy while accounting for the data distribution induced by that policy. Figure~\ref{fig:pipeline} organizes the method around three contexts that conventional fixed-data PTQ omits. Temporal context defines behavioral fidelity over composed physical action sequences; whole-policy context gives final authority to an abstaining, exact-budget policy audit rather than a layer ranking; and deployment context conditions A8 ranges on the current input. The output is one frozen mask and one activation rule, without task routing or output correction.
+\method separates two decisions: which precision configuration fits the storage budget, and how that configuration quantizes inputs during execution. We first state the closed-loop evaluation objective, then describe the initializer and complete-policy deviation audit used for offline adaptation. Input-conditioned A8 supplies the deployment rule. The output is one frozen mask and one activation rule; neither success feedback nor task routing is available at runtime.
 
-\subsection{Problem Setting and Design Constraints}
+\subsection{The Full-Context Gap under an Exact Storage Budget}
 \label{sec:problem}
 
-Let $f_{\theta}(o,\epsilon)$ denote a frozen FP16 VLA that maps observation $o$ and generative noise $\epsilon$ to an action chunk $A\in\mathbb{R}^{H\times d}$. The target Linear layers are indexed by $\mathcal{L}$. A mask $M\in\{4,16\}^{|\mathcal{L}|}$ chooses signed-nibble W4 or native FP16 for every target, and $Q_M(f_\theta)$ denotes the instantiated mixed-precision policy. Let $\mathcal D_M$ be the closed-loop distribution over observation and replan sequences induced when $Q_M(f_\theta)$ executes its own actions. The conceptual full-space target is
+Let $f_{\theta}(o,\epsilon)$ denote a frozen FP16-reference VLA that maps observation $o$ and generative noise $\epsilon$ to an action chunk $A\in\mathbb{R}^{H\times d}$. The target linear layers are indexed by $\mathcal{L}$. A mask $M\in\{4,16\}^{|\mathcal{L}|}$ assigns signed-nibble W4 or native 16-bit precision to each target, and $Q_M(f_\theta)$ denotes the mixed-precision policy under a fixed activation rule. Here FP16 follows the reference-row naming; native tensors may use BF16 in the model adapter. Let $\mathcal D_M$ be the rollout distribution induced by this policy under a fixed task distribution, and let $S(Q_M;\tau)\in\{0,1\}$ denote task success on rollout $\tau$. The deployment objective is
 \begin{equation}
- M^\star=\arg\min_{M\in\{4,16\}^{|\mathcal L|}}
- \mathbb E_{\tau\sim\mathcal D_M}\!\left[
- D_{\mathrm{ctrl}}\!\left(Q_M(f_\theta),f_\theta;\tau\right)\right]
+ M^\star=\arg\max_{M\in\{4,16\}^{|\mathcal L|}}
+ \mathbb E_{\tau\sim\mathcal D_M}\!\left[S(Q_M;\tau)\right]
  \quad\text{s.t.}\quad C(M)\le C_{\max},
  \label{eq:problem}
 \end{equation}
-where $D_{\mathrm{ctrl}}$ compares the quantized and teacher policies in physical control space on sequence $\tau$, and $C(M)$ is exact packed static-component storage. Unlike fixed-buffer PTQ, Equation~\ref{eq:problem} makes the evaluation distribution depend on the precision plan. Exhaustively collecting $\mathcal D_M$ for every mask is infeasible. We therefore use teacher-induced contexts $\mathcal D_T$ for low-cost screening, then collect candidate-induced contexts $\mathcal D_M$ only for shortlisted complete policies. Section~\ref{sec:fcp} defines the finite class $\mathcal C(M_0)$ that is actually audited and the abstaining output $\widehat M$.
+where $C(M)$ is exact packed static-component storage. Equation~\ref{eq:problem} states the evaluation goal, not the selection rule: success labels are unavailable during FCP, and collecting $\mathcal D_M$ for every mask is intractable. We therefore screen complete policies with label-free physical-sequence and component-deviation guards on teacher-induced contexts $\mathcal D_T$, then collect candidate-induced contexts only for shortlisted masks. Section~\ref{sec:fcp} constructs anchor $M_0$, defines the finite audited class $\mathcal C(M_0)$, and returns $\widehat M$ with abstention.
 
-This distribution dependence follows from ordinary closed-loop error propagation. For a local linearization with action error $e_t=a_t^Q-a_t^T$,
+The dependence of both success and fidelity on $\mathcal D_M$ follows from standard closed-loop error propagation. For a local linearization with action error $e_t=a_t^Q-a_t^T$,
 \begin{equation}
  \delta x_{t+1}=A_t\delta x_t+B_te_t,
  \qquad
  \delta x_T=\sum_{t=0}^{T-1}\Phi_{T,t+1}B_te_t,
  \label{eq:closed_loop_propagation}
 \end{equation}
-where $\Phi_{T,t+1}$ composes the intervening state Jacobians. Per-step MSE measures $\lVert e_t\rVert^2$ but ignores propagation, coherent error direction, and the observations reached after the deviation. This motivates a sequence-level control contract and candidate-state audit; it is not, by itself, evidence that a particular surrogate predicts task success best.
+where $\Phi_{T,t+1}$ composes the intervening state Jacobians. Per-step MSE measures $\lVert e_t\rVert^2$ but ignores error propagation, directional coherence, and the observations reached after a deviation. This motivates a sequence-level control contract and candidate-state audit; closed-loop rollouts remain the final measure of task success.
 
-The full-policy audit is label-free: success and reward never enter $D_{\mathrm{ctrl}}$. Task identifiers only stratify uncertainty estimates, selection noise is paired, and a second noise stream is reserved for post-freeze audit. The complete initializer pipeline is not label-free because a four-task success sweep chooses the upstream CKA/CS ratio. The output is one mask and one activation rule shared by every task and observation. No gradient update, task-conditioned routing, output correction, or FP16 bypass is permitted.
+FCP is label-free: success and reward never enter its guards. Task identifiers only stratify uncertainty; candidate and reference share generative noise; and an independent noise stream is reserved for post-freeze audit. The upstream initializer is not label-free because a disclosed four-task success sweep chooses one objective weight. The final mask and activation rule are global. No gradient update, task-conditioned routing, output correction, or FP16 bypass is permitted.
 
-These constraints separate compression design from test-time adaptation. A candidate may exploit the FP16 teacher and unlabeled on-policy observations before deployment, but it cannot observe task success or change its precision state online. This makes a selected mask auditable as a fixed model artifact and prevents a favorable task mixture from being encoded as a runtime selector.
+Before deployment, FCP may use the FP16 teacher and unlabeled on-policy observations; during deployment, it cannot observe success or change precision. The mask is thus a fixed, auditable artifact rather than a runtime selector.
 
-\subsection{Temporal Context: A Physical-Sequence Contract}
+\subsection{Action-Weighted CS--CKA Precision Allocation}
+\label{sec:cscka}
+
+The allocator asks where a compressed policy should spend its limited FP16 capacity. CKA measures the geometry retained by a layer intervention, whereas CS-Aligner measures its distribution shift~\cite{kornblith2019similarity,yin2026csaligner}. For target $i$, we combine jointly normalized geometry loss $\bar d_i^g=\operatorname{norm}(1-\widehat{\mathrm{CKA}}_i)$ and distribution shift $\bar d_i^d=\operatorname{norm}(\widehat D_{\mathrm{CS},i})$:
+\begin{equation}
+ \begin{aligned}
+ S_i&=\frac{\lambda_g\bar d_i^g+\lambda_d\bar d_i^d}{\lambda_g+\lambda_d},\\
+ M_{\mathrm{init}}&\approx\arg\min_{M}\sum_i \mathbf{1}[M_i=4]w_iS_i
+ \quad\mathrm{s.t.}\quad C(M)\le C_{\max},\;M_i=16\;(i\in\mathcal G).
+ \end{aligned}
+ \label{eq:cscka_allocator}
+\end{equation}
+Here $w_i$ is a winsorized action-impact weight, $\mathbf{1}[M_i=4]$ charges the estimated cost of quantizing target $i$, and $\mathcal G$ contains targets excluded from W4 by RMS and saturation guards. Thus, precision follows the action-weighted joint cost of representation geometry and distribution stability under the actual byte constraint. Native allocation can already satisfy the ceiling, whereas transferring its protection pattern to a different architecture can violate the target budget. FCP handles this latter case by using complete-policy evidence to decide which protections to remove. A four-task development sweep fixes $\lambda_g:\lambda_d=16:1$ from seven choices. A greedy byte-constrained initialization followed by fixed-size flips approximates this objective (Appendix~\ref{sec:init_provenance}). This produces a starting configuration, whose necessity and signal fusion are tested rather than assumed.
+
+We estimate the allocation evidence on FP16 on-policy observations from 12 tasks, with four tasks from each of Atomic-Seen, Composite-Seen, and Composite-Unseen. Three seeds per task and four replans per sequence yield 36 sequences and 144 observations. A task--seed hash assigns early, middle, or late rollout windows. Task identifiers stratify the statistics, but Equation~\ref{eq:cscka_allocator} returns one global mask.
+
+\subsection{Full-Context Policy Audit}
 \label{sec:dpac}
 
-\dpac defines what behavioral preservation means for a chunked, replanning VLA policy. It moves the fidelity criterion from tensor reconstruction to temporally composed physical control; the current evidence uses it as a specification and acceptance statistic rather than claiming proven predictive superiority over MSE or prior surrogates.
+\paragraph{Physical-sequence contract.}
+\dpac measures deviation from teacher actions for a chunked, replanning VLA policy. It compares ordered physical actions over a replan sequence through coherent bias, pose drift, replan discontinuities, gripper changes, and tail deviation. FCP uses this proxy to audit complete-policy interventions. It is neither a task-success estimator nor a guarantee of behavioral preservation.
 
-\paragraph{Paired physical actions.}
-For task--seed sequence $u$, let $A^P_{u,r,h}$ be the final action from policy $P\in\{T,Q\}$ at retained replan $r$ and chunk index $h$. Both policies receive the same observation and initial action noise. We sort unique replan indices, inverse-normalize the final action chunks, and retain the complete $H=16$ actions executed before the next replan. Thus a sequence with $R_u$ retained replans contains $N_u=16R_u$ ordered actions in $d=12$ deployed coordinates, without overlapping forecasts or deduplication. Only complete, finite chunks recorded before rollout termination enter the buffer. For coordinate $k$, a single global FP16-only scale is
-\begin{equation}
- \tilde{s}_k=\max\!\left(1.4826\operatorname{MAD}_k,0.1\operatorname{RMS}_k\right),\qquad
- s_k=\max\!\left(\tilde{s}_k,0.05\operatorname{median}_{j}\tilde{s}_j,10^{-4}\right).
- \label{eq:global_scale}
-\end{equation}
-It is estimated once over the entire selection buffer and is never re-estimated per task or sequence. This prevents a severely corrupted candidate from making its own error appear small by inflating the denominator.
-
-\paragraph{Local and accumulated error.}
-Flatten sequence $u$ in control-time order and define $z_{u,t}=(a^Q_{u,t}-a^T_{u,t})/s$. We use the exactly-zero Charbonnier penalty $\rho(z)=2(\sqrt{1+z^2}-1)$. The sequence-level local and prefix terms are
-\begin{equation}
- d_{\mathrm{local}}^{(u)}=\frac{1}{N_ud}\sum_{t,k}\rho(z_{u,t,k}),\qquad
- d_{\mathrm{prefix}}^{(u)}=\frac{1}{N_ud}\sum_{t,k}
- \rho\!\left(\frac{\sum_{j=1}^{t}z_{u,j,k}}{\sqrt{t}}\right).
- \label{eq:local_prefix}
-\end{equation}
-The $\sqrt{t}$ normalization preserves sensitivity to coherent bias. Alternating errors can cancel, whereas a small error with constant sign remains visible as its prefix grows. This distinction is important for action chunks because consistent translation or rotation bias can move the end effector away from the teacher trajectory even when per-step MSE is small.
-
-\paragraph{Control-specific components.}
-Three terms capture deviations that coordinatewise residuals miss. The pose term right-composes translation and rotation-vector increments in SE(3) and measures normalized teacher--candidate trajectory drift. The stitch term compares changes in the boundary jump between consecutive replans, while the gripper term compares both softened command state and event timing. Appendix~\ref{sec:metric_specification} gives their exact formulas, action semantics, edge cases, and evaluation order.
+\paragraph{Paired physical sequences.}
+For each task--seed sequence, teacher and candidate share observations and initial action noise. We inverse-normalize the final chunks and retain all $H=16$ actions executed before each replan, yielding an ordered sequence without overlapping forecasts. Errors use one robust coordinate scale estimated globally from FP16 data, so a candidate cannot alter its denominator. Five terms then measure local action error, normalized prefix drift, right-composed SE(3) pose drift, replan-boundary discontinuity, and gripper state/event timing. The prefix term preserves coherent bias, and the last three expose control errors hidden by coordinatewise MSE. Appendix~\ref{sec:metric_specification} gives all formulas and edge cases.
 
 The five normalized components receive equal weight:
 \begin{equation}
@@ -68,37 +65,29 @@ The five normalized components receive equal weight:
  \end{aligned}
  \label{eq:dpac_sequence}
 \end{equation}
-Here $u$ is a task--seed sequence of ordered replans. The outer CVaR gives the worst ten percent of sequences the same total weight as the mean, exposing rare catastrophic deviations without duplicating an observation-level tail term.
+Here $u$ indexes ordered task--seed sequences; the outer CVaR gives the worst 10\% the same total weight as the mean. We retain \dfunc as a complementary final-action and kinematic diagnostic, not a second closed-loop loss.
 
-We retain \dfunc as a complementary local final/kinematic diagnostic on the same physical chunks; it is not a second closed-loop loss. Its exact specification is deferred to Appendix~\ref{sec:metric_specification}.
-
-\subsection{Whole-Policy Context: An Abstaining Precision Audit}
+\paragraph{Abstaining complete-policy audit.}
 \label{sec:fcp}
 
-Mixed-precision selection is treated as a statistical acceptance problem, not merely a ranking problem. Layerwise evidence can propose a precision plan, but only the instantiated complete policy can accept it. When no candidate clears the declared evidence threshold, the audit abstains by retaining its initializer $M_0$.
+FCP treats mask adaptation as constrained decision-making rather than a second allocation heuristic. Complete-policy coordinate evidence retains or projects $M_{\mathrm{init}}$ to obtain a byte-feasible anchor $M_0$; paired evaluation of complete proposal masks then decides whether to admit a later refinement. Thus, abstention can still follow a consequential feasibility projection: it returns $M_0$, which equals $M_{\mathrm{init}}$ only when the initializer was already feasible.
 
-\paragraph{Calibration-derived initialization.}
-The audit starts from a frozen seed mask $M_0$. A predeclared CKA/CS initializer scores layerwise W4 interventions, applies action-impact and RMS/saturation guards, and emits byte-feasible complete masks. A four-task development sweep selects the fixed proxy ratio; its 100-W4/16-FP16 mask is frozen before the full-context search and formal evaluation. We audit this initializer once, without post-hoc restarts.
+\paragraph{Two-stage protocol.}
+The construction stage pairs complete-policy sequences on a stratified buffer, evaluates instantiated one-layer interventions, projects an over-budget seed into the feasible set, and generates a finite set of exact-byte proposals. The acceptance stage applies task-level one-standard-error bounds to \dpac, \dfunc, pose, stitch, and gripper deviation. Any surviving proposal is checked again on candidate-induced observations before it can replace $M_0$.
 
-\paragraph{Context buffer.}
-We collect FP16 on-policy observations from 12 tasks, with four each from Atomic-Seen, Composite-Seen, and Composite-Unseen. Three seeds per task and four replans per sequence yield 36 sequences and 144 observations. A hash of task and seed assigns early, middle, or late rollout windows, preventing the selector from seeing only easy initial states. Task identifiers stratify statistics, but the result remains one global mask.
+\paragraph{Evidence-guided feasibility projection.}
+If $C(M_{\mathrm{init}})\le C_{\max}$, FCP sets $M_0=M_{\mathrm{init}}$. Otherwise, it instantiates each FP16-to-W4 removal as a complete policy and removes protections from least to most damaging until the mask is feasible. This label-free projection ensures that abstention always returns a deployable mask; only the subsequent audit may replace $M_0$.
 
 \paragraph{Coordinate counterfactuals.}
-Starting from $M_0$, round one flips every W4 target to FP16 individually. Round two flips every target state around the round-one winner. Each intervention is instantiated as a real mixed-precision network and compared with its complete-mask background. The resulting conservative benefits feed an exact sparse Pareto 0--1 dynamic program under
+Starting from $M_0$, FCP flips target precision states one at a time and, when scheduled, repeats the coordinate sweep around the preceding winner. Each intervention is instantiated as a mixed-precision network and compared with its complete-mask background. The resulting conservative benefits feed an exact sparse Pareto 0--1 dynamic program subject to
 \begin{equation}
  C(M)=C_{\mathrm{fixed}}+\sum_{i\in\mathcal{L}}C_i(M_i)
  \le 1.10\,C_{\mathrm{QuantVLA}}.
  \label{eq:budget}
 \end{equation}
-Layer count is not a constraint because two layers can have different tensor and metadata sizes. The dynamic program is only a candidate generator. Additive counterfactual benefits cannot represent interactions between simultaneous layer changes.
+The constraint is expressed in bytes rather than layer count because layers differ in tensor and metadata size. The dynamic program only generates candidates: its additive counterfactual benefits cannot capture interactions among simultaneous layer changes.
 
-Let $\mathcal C_{\mathrm{DP}}(M_0)$ denote the masks emitted by this additive program and $\mathcal C_{\mathrm{struct}}(M_0)$ the five predeclared structured proposals. The implemented candidate class is
-\begin{equation}
-\mathcal C(M_0)=\{M_0\}\cup\mathcal C_{\mathrm{DP}}(M_0)\cup
-\mathcal C_{\mathrm{struct}}(M_0),
-\label{eq:candidate_class}
-\end{equation}
-not the exponential domain in Equation~\ref{eq:problem}. Complete-policy evaluation can detect interactions only for masks that enter $\mathcal C(M_0)$.
+The finite class $\mathcal C(M_0)$ contains $M_0$, dynamic-program proposals, and five structured proposal types. Their protected sets are rebuilt from the layer scores, not restricted to one-layer neighbors of $M_0$: the GR00T proposals retain only one to five FP16 layers versus 16 in $M_0$. A positive conservative FP16 benefit means that retaining or restoring FP16 is valuable; for an already protected layer it does not mean that removing protection improves the policy. Additive scores measured around $M_0$ may extrapolate poorly to these multi-layer changes. Complete-policy evaluation checks the emitted class, not the entire feasible neighborhood (Appendix~\ref{sec:fcp_visualization}).
 
 \paragraph{Task-level minimax adjudication.}
 For metric $q\in\{\dfunc,\dpac\}$ and task cluster $g\in\{\mathrm{all},\mathrm{Atomic},\mathrm{C\text{-}Seen},\mathrm{C\text{-}Unseen}\}$, let $\Delta_{q,t}(M)$ be the paired candidate-minus-$M_0$ task scalar. We define
@@ -111,35 +100,36 @@ For metric $q\in\{\dfunc,\dpac\}$ and task cluster $g\in\{\mathrm{all},\mathrm{A
  J(M)=\max_{q,g}U_{q,g}(M).
  \label{eq:minimax}
 \end{equation}
-The leave-one-task-out jackknife makes the task, rather than an observation, the uncertainty unit. A proposal is eligible only if $J(M)<0$ and the unnormalized one-SE upper bounds for pose, stitch, and gripper are all non-positive. These are conservative control-deviation guards, not physical-safety certificates.
+Here $M_{\mathrm{base}}=M_0$ is evaluated on the same context as the candidate. The jackknife makes the task, rather than an observation, the uncertainty unit. Eligibility requires $J(M)<0$ and non-positive one-SE upper bounds for pose, stitch, and gripper; these conservative guards are not physical-safety certificates.
 
 \paragraph{Candidate-state check and freeze.}
-Teacher-state observations can underrepresent the states induced by a changed policy. We therefore regenerate four to eight replans for the three best eligible masks and define $J_{\mathrm{final}}=\max(J_{\mathrm{teacher}},J_{\mathrm{candidate}})$. With the same component guards, the frozen output is
+The protocol reserves candidate-induced observations over four to eight replans for shortlisted candidates and defines $J_{\mathrm{final}}=\max(J_{\mathrm{teacher}},J_{\mathrm{candidate}})$. In the implemented selection order, eligible teacher-state candidates are first filtered by a paired one-standard-error comparison against the best teacher-state objective; up to three then enter candidate-state adjudication. Let $\mathcal E(M_0)$ denote the remaining byte-feasible candidates with negative $J_{\mathrm{final}}$ and the required deviation guards. The frozen choice is
 \begin{equation}
 \widehat M=\begin{cases}
-\arg\min_{M\in\mathcal E(M_0)}J_{\mathrm{final}}(M),&\mathcal E(M_0)\ne\varnothing,\\
+\operatorname*{lexmin}_{M\in\mathcal E(M_0)}
+ (C(M),N_{16}(M),\operatorname{names}(M)),&\mathcal E(M_0)\ne\varnothing,\\
 M_0,&\mathcal E(M_0)=\varnothing,
 \end{cases}
 \label{eq:restricted_freeze}
 \end{equation}
-where $\mathcal E(M_0)\subseteq\mathcal C(M_0)$ contains byte-feasible proposals with $J_{\mathrm{final}}<0$ and non-positive pose, stitch, and gripper upper bounds. Ties favor smaller bytes, fewer FP16 layers, then lexicographic mask order.
+where $N_{16}$ counts protected layers and names provide deterministic ordering. Storage breaks the tradeoff only after deviation eligibility: the rule does not exchange increased proxy error for fewer bytes. On GR00T, all proposals fail the teacher-state screen, so candidate-state adjudication is not exercised. Retaining $M_0$ certifies neither local optimality nor prevention of a task-success regression.
 
 \subsection{Deployment Context: Input-Conditioned Activation Quantization}
 \label{sec:deployment}
 
-Deployment context removes the assumption that a frozen calibration table covers the inputs later encountered by a closed-loop generator. The novelty claimed here is not a new rounding primitive: Hessian-aware W4 is the weight substrate, while the activation rule conditions its range on the current deployment input.
+The deployment stage removes the assumption that a frozen range table covers later closed-loop inputs. Hessian-aware W4 provides the weight substrate, while A8 uses a standard per-forward max-abs estimator. This simple rule isolates the deployment policy---conditioning ranges on realized inputs---rather than proposing a new scalar estimator.
 
 \paragraph{Weight quantization.}
-For each W4 layer, 256 calibration observations form FP16 input second-order statistics $X^\top X$. A GPTQ-style sequential error-feedback pass selects clipping and quantizes signed weights in groups of 64~\cite{frantar2022gptq}. Two signed four-bit codes are packed per byte. Per-group scales and packing metadata are retained, while the FP16 weight tensor is not. Row rotation is the identity, so the reported method does not depend on an unreported learned transform.
+For each W4 layer, 256 calibration observations form FP16 input second-order statistics $X^\top X$. A GPTQ-style sequential error-feedback pass selects clipping and quantizes signed weights in groups of 64~\cite{frantar2022gptq}. Two signed four-bit codes are packed per byte; per-group scales and packing metadata are retained, but the FP16 weight tensor is not. Row rotation is the identity, so the reported method does not rely on an unreported learned transform.
 
 \paragraph{Input-conditioned activation range.}
-Even a calibrated static activation table can become mismatched as observation, flow step, and policy-induced state change. Our static counterfactual uses independently calibrated 99.9th-percentile scales for each target layer, input channel, and applicable flow step. \dyrange removes this lookup and recomputes a scale for every target Linear, forward call, and input channel:
+A calibrated static activation table can become mismatched as the observation, flow step, and policy-induced state change. Our static counterfactual uses independently calibrated 99.9th-percentile scales for each target layer, input channel, and applicable flow step. \dyrange removes this lookup and recomputes a scale for every target linear layer, forward call, and input channel:
 \begin{equation}
  s_c=\max\!\left(\frac{\max |x_{\ldots,c}|}{127},10^{-6}\right),
  \qquad q_c=\operatorname{clip}\!\left(\operatorname{round}(x_c/s_c),-127,127\right).
  \label{eq:dyrange}
 \end{equation}
-The rule is deterministic and uses the input dtype. It has no calibration lookup, flow-step selector, task selector, or candidate branch. Equation~\ref{eq:dyrange} is applied uniformly to every input, and runtime correction is disabled.
+The rule is deterministic and uses the input dtype. It has no calibration lookup, flow-step selector, task selector, or candidate branch. Equation~\ref{eq:dyrange} is applied uniformly, and runtime output correction is disabled. Appendix~\ref{sec:hardware_results} reports hardware measurements under explicitly audited runtime contracts.
 
 \paragraph{Exact storage scope.}
-We report the byte sum of fixed model components, packed W4 codes, per-group scales and metadata, and native FP16 tensors. Activations, CUDA workspaces, simulator state, and eager fake-quant caches are excluded. Under this common scope the final GR00T plan contains 100 W4 and 16 FP16 targets and occupies 962,068,480 bytes. The $\pi_{0.5}$ anchor contains 121 W4 and 59 FP16 targets and occupies 1,634,828,288 bytes. These values establish static compression only. They do not imply latency or peak-memory improvements.
+We report the byte sum of fixed model components, packed W4 codes, per-group scales and metadata, and native FP16 tensors. This scope excludes activations, CUDA workspaces, simulator state, and eager fake-quant caches. The projected $\pi_{0.5}$ anchor contains 121 W4 and 59 FP16 targets and occupies 1,634,828,288 bytes; the native GR00T plan contains 100 W4 and 16 FP16 targets and occupies 962,068,480 bytes. These values establish static compression only. A separate A40 experiment measures runtime quantities directly.

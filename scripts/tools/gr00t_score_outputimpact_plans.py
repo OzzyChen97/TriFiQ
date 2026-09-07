@@ -54,6 +54,7 @@ from quantvla_dynamic_a8_protocol import (  # noqa: E402
     require_protocol_attestation as require_dynamic_a8_protocol_attestation,
 )
 from quantvla_metric_protocol import physical_action_scale, summarize_pair  # noqa: E402
+from quantvla_predictive_validity import physical_action_mse_summary  # noqa: E402
 from quantvla_full_context import (  # noqa: E402
     PROTOCOL as FULL_CONTEXT_PROTOCOL,
     candidate_plan_mapping,
@@ -261,6 +262,9 @@ def main() -> None:
         "source_sha256": {
             "scorer": sha256_file(Path(__file__)),
             "metric": sha256_file(REPO_ROOT / "scripts/tools/quantvla_metric_protocol.py"),
+            "predictive_metric": sha256_file(
+                REPO_ROOT / "scripts/tools/quantvla_predictive_validity.py"
+            ),
             "selection_core": sha256_file(
                 REPO_ROOT / "scripts/tools/quantvla_full_context.py"
             ),
@@ -355,7 +359,10 @@ def main() -> None:
     payload["fp16_bypass_check"] = identity_check(teacher_actions, bypass_actions)
 
     for identifier in candidates:
-        if identifier in payload["scores"]:
+        if identifier in payload["scores"] and all(
+            key in payload["scores"][identifier]
+            for key in ("mse", "d_func", "d_pac")
+        ):
             print(f"[outputimpact-mask/gr00t] reuse {identifier}", flush=True)
             continue
         active = quantized_names[identifier]
@@ -366,6 +373,7 @@ def main() -> None:
             policy.model, policy, observations, noises, args.batch_size, return_physical=True
         )
         pair = summarize_pair(teacher_actions, actions, details, scale=scale)
+        mse = physical_action_mse_summary(teacher_actions, actions, details)
         payload["scores"][identifier] = {
             "quantized_w4_layers": len(active),
             "retained_fp16_layers": len(full_names) - len(active),
@@ -373,11 +381,14 @@ def main() -> None:
             "d_pac_summary": pair["d_pac_summary"],
             "d_func": float(pair["d_func_summary"]["d_func"]),
             "d_func_summary": pair["d_func_summary"],
+            "mse": float(mse["mse"]),
+            "mse_summary": mse,
             "elapsed_s": time.time() - started,
         }
         atomic_json(output, payload)
         print(
             f"[outputimpact-mask/gr00t] {identifier}: "
+            f"MSE={payload['scores'][identifier]['mse']:.6g} "
             f"D_PAC={payload['scores'][identifier]['d_pac']:.6g}", flush=True,
         )
     payload["complete"] = set(payload["scores"]) == set(candidates)

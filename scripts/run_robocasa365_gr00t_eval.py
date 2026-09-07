@@ -49,6 +49,10 @@ from quantvla_cross_model_protocol import (  # noqa: E402
     closed_loop_runtime_protocol,
     require_protocol_attestation,
 )
+from quantvla_predictive_validity import (  # noqa: E402
+    protocol_attestation as predictive_protocol_attestation,
+    validate_predictive_response,
+)
 
 # obs keys the RoboCasa365DataConfig consumes — filter the wrapper's obs
 # (which also emits legacy res256/res512 aliases and extra state keys) so the
@@ -207,6 +211,10 @@ class _Gr00tZMQClient:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="RoboCasa365 GR00T eval client")
     p.add_argument("--port", type=int, default=5570)
+    p.add_argument(
+        "--server-timeout-ms", type=int, default=15000,
+        help="Per-request ZMQ timeout; raise this for a serialized shared server.",
+    )
     p.add_argument("--task-set", default="atomic_seen",
                    choices=["atomic_seen", "composite_seen", "composite_unseen", "custom"])
     p.add_argument("--tasks", default=None, help="comma list overriding the task set")
@@ -226,6 +234,18 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=("Comma-separated exact environment seeds for one task. This is "
               "used by the crash-tolerant batched driver."),
+    )
+    p.add_argument(
+        "--shared-exact-seed",
+        type=int,
+        default=None,
+        help=("Use one exact environment seed for every requested task. This is "
+              "the preregistered predictive-validity evaluation mode."),
+    )
+    p.add_argument(
+        "--predictive-mask-id",
+        default=None,
+        help="Require and route every request through this preregistered mask ID.",
     )
     p.add_argument(
         "--fresh-env-per-trial",
@@ -280,8 +300,16 @@ def main() -> None:
         tasks = [t.strip() for t in args.tasks.split(",") if t.strip()]
     else:
         tasks = list(TARGET_TASKS[args.task_set])
-    if args.exact_seed is not None and args.exact_seeds is not None:
-        raise SystemExit("--exact-seed and --exact-seeds are mutually exclusive")
+    explicit_seed_modes = sum(
+        value is not None
+        for value in (args.exact_seed, args.exact_seeds, args.shared_exact_seed)
+    )
+    if explicit_seed_modes > 1:
+        raise SystemExit(
+            "--exact-seed, --exact-seeds, and --shared-exact-seed are mutually exclusive"
+        )
+    if args.shared_exact_seed is not None and args.n_trials != 1:
+        raise SystemExit("--shared-exact-seed requires --n-trials 1")
     exact_seeds = None
     if args.exact_seeds is not None:
         try:
@@ -297,7 +325,11 @@ def main() -> None:
         raise SystemExit("--exact-seed requires exactly one task and --n-trials 1")
     if args.candidate_state_archive and not args.paired_action_noise:
         raise SystemExit("--candidate-state-archive requires --paired-action-noise")
-    client = _Gr00tZMQClient(host="localhost", port=args.port)
+    if args.server_timeout_ms <= 0:
+        raise SystemExit("--server-timeout-ms must be positive")
+    client = _Gr00tZMQClient(
+        host="localhost", port=args.port, timeout_ms=args.server_timeout_ms
+    )
     try:
         server_metadata = client.runtime_info()
     except Exception:
@@ -322,10 +354,56 @@ def main() -> None:
     runtime_selector_metadata = server_metadata.get("runtime_selector") or {}
     if args.expect_runtime_selector and not runtime_selector_metadata.get("enabled"):
         raise SystemExit(f"server runtime selector is not enabled: {runtime_selector_metadata}")
+    predictive_runtime = server_metadata.get("predictive_mask_runtime") or {}
+    if args.predictive_mask_id is not None:
+        if not predictive_runtime.get("enabled"):
+            raise SystemExit(f"server predictive mask runtime is not enabled: {predictive_runtime}")
+        if args.predictive_mask_id not in (predictive_runtime.get("candidate_ids") or []):
+            raise SystemExit(f"unknown predictive mask ID: {args.predictive_mask_id}")
+        expected_predictive_protocol = predictive_protocol_attestation()
+        if predictive_runtime.get("predictive_validity_protocol") != expected_predictive_protocol:
+            raise SystemExit("server predictive-validity protocol hash drift")
+        expected_predictive_plan_sha256 = (
+            predictive_runtime.get("candidate_plan_sha256s") or {}
+        ).get(args.predictive_mask_id)
+        expected_predictive_library_sha256 = predictive_runtime.get("manifest_sha256")
+        if not expected_predictive_plan_sha256 or not expected_predictive_library_sha256:
+            raise SystemExit("server predictive runtime lacks plan/library hashes")
+    else:
+        if predictive_runtime.get("enabled"):
+            raise SystemExit(
+                "predictive-mask server requires an explicit --predictive-mask-id"
+            )
+        expected_predictive_plan_sha256 = None
+        expected_predictive_library_sha256 = None
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     results = []
+    committed_keys = set()
+    if out_path.is_file():
+        # Resume the writer-local atomic journal.  This mirrors the pi0.5
+        # evaluator and avoids discarding completed seeds when a long batched
+        # worker is interrupted for a safe scheduler/service retune.
+        for line_number, line in enumerate(out_path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            key = (str(row.get("task")), int(row.get("seed", -1)))
+            if row.get("status") != "complete":
+                raise ValueError(f"{out_path}:{line_number}: incomplete committed row")
+            if row.get("server_metadata_sha256") != server_metadata_sha256:
+                raise ValueError(f"{out_path}:{line_number}: server metadata drift")
+            if row.get("predictive_mask_id") != args.predictive_mask_id:
+                raise ValueError(f"{out_path}:{line_number}: predictive mask ID drift")
+            if row.get("predictive_plan_sha256") != expected_predictive_plan_sha256:
+                raise ValueError(f"{out_path}:{line_number}: predictive plan hash drift")
+            if row.get("predictive_library_sha256") != expected_predictive_library_sha256:
+                raise ValueError(f"{out_path}:{line_number}: predictive library hash drift")
+            if key in committed_keys:
+                raise ValueError(f"{out_path}:{line_number}: duplicate committed key {key}")
+            committed_keys.add(key)
+            results.append(row)
     t0 = time.time()
     capture_rows: list[dict] = [] if args.candidate_state_archive else []
 
@@ -373,7 +451,8 @@ def main() -> None:
 
     def trial_seed(task_index: int, trial: int) -> int:
         return (
-            args.exact_seed if args.exact_seed is not None
+            args.shared_exact_seed if args.shared_exact_seed is not None
+            else args.exact_seed if args.exact_seed is not None
             else exact_seeds[trial] if exact_seeds is not None
             else args.seed * 1000 + task_index * 10 + trial
         )
@@ -386,6 +465,9 @@ def main() -> None:
             env, shared_construct_seconds = construct_env(task, trial_seed(ti, 0))
         for trial in range(args.n_trials):
             seed = trial_seed(ti, trial)
+            if (task, seed) in committed_keys:
+                print(f"[robocasa365-eval] reuse {task} seed={seed}", flush=True)
+                continue
             if args.fresh_env_per_trial:
                 env, env_construct_seconds = construct_env(task, seed)
             else:
@@ -403,6 +485,7 @@ def main() -> None:
                 inference_seconds = 0.0
                 env_step_seconds = 0.0
                 runtime_selector_records = []
+                predictive_mask_records = []
                 while not done and steps < task_max_steps:
                     send_obs = {}
                     for k in SEND_VIDEO_KEYS + SEND_STATE_KEYS + SEND_LANG_KEYS:
@@ -431,6 +514,10 @@ def main() -> None:
                         "replan_index": replan_index,
                         "model_id": "gr00t",
                     }
+                    if args.predictive_mask_id is not None:
+                        send_obs["eval_metadata"]["predictive_mask_id"] = (
+                            args.predictive_mask_id
+                        )
                     noise_seed = (
                         action_noise_seed(task, seed, replan_index)
                         if args.paired_action_noise else None
@@ -454,6 +541,21 @@ def main() -> None:
                         )
                     infer_t0 = time.perf_counter()
                     action_chunk = client.get_action(send_obs, action_seed=noise_seed)
+                    predictive_mask = (
+                        action_chunk.get("predictive_mask")
+                        if isinstance(action_chunk, dict) else None
+                    )
+                    if args.predictive_mask_id is not None:
+                        predictive_mask_records.append(
+                            validate_predictive_response(
+                                predictive_mask,
+                                candidate_id=args.predictive_mask_id,
+                                plan_sha256=expected_predictive_plan_sha256,
+                                library_sha256=expected_predictive_library_sha256,
+                            )
+                        )
+                    elif predictive_mask is not None:
+                        raise RuntimeError("unexpected predictive mask response")
                     runtime_selector = action_chunk.get("runtime_selector") if isinstance(action_chunk, dict) else None
                     if args.expect_runtime_selector:
                         if not isinstance(runtime_selector, dict) or not runtime_selector.get("enabled"):
@@ -491,6 +593,8 @@ def main() -> None:
                     env = None
             if args.expect_runtime_selector and not runtime_selector_records:
                 raise RuntimeError("runtime selector produced no records")
+            if args.predictive_mask_id is not None and not predictive_mask_records:
+                raise RuntimeError("predictive mask runtime produced no records")
             selector_variants = {str(row.get("selected_variant")) for row in runtime_selector_records}
             selector_config_ids = {str(row.get("selected_config_id")) for row in runtime_selector_records}
             selector_hashes = {str(row.get("selector_sha256")) for row in runtime_selector_records}
@@ -515,6 +619,16 @@ def main() -> None:
                 "inference_seconds": inference_seconds,
                 "env_step_seconds": env_step_seconds,
                 "server_metadata_sha256": server_metadata_sha256,
+                "predictive_mask_id": args.predictive_mask_id,
+                "predictive_plan_sha256": expected_predictive_plan_sha256,
+                "predictive_library_sha256": expected_predictive_library_sha256,
+                "predictive_validity_protocol": (
+                    predictive_protocol_attestation()
+                    if args.predictive_mask_id is not None else None
+                ),
+                "predictive_evaluation_only": (
+                    True if args.predictive_mask_id is not None else None
+                ),
                 "runtime_selector_enabled": bool(selector_row.get("enabled", False)),
                 "selected_variant": selector_row.get("selected_variant"),
                 "selected_config_id": selector_row.get("selected_config_id"),

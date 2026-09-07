@@ -1,20 +1,13 @@
-\begin{table}[h!]
+\begin{table}[H]
 \centering
-\caption{LIBERO comparison in success rate (\%). Local size is tightly packed static model-component storage.}
+\caption{LIBERO: \method averages 97.3\% on $\pi_{0.5}$ and 93.8\% on GR00T.}
 \label{tab:omega_qvla_libero}
-\small
+\footnotesize
 \setlength{\tabcolsep}{4.2pt}
-\renewcommand{\arraystretch}{1.06}
+\renewcommand{\arraystretch}{0.92}
 \begin{tabular}{@{}lrrrrrr@{}}
 \toprule
 Configuration & Goal $\uparrow$ & Spatial $\uparrow$ & Object $\uparrow$ & Long $\uparrow$ & Avg. $\uparrow$ & \shortstack{Size\\(GiB) $\downarrow$} \\
-\midrule
-\multicolumn{7}{@{}l}{\textbf{GR00T N1.5}} \\
-\quad FP16 & 88.0 & 87.0 & 96.0 & 76.0 & 86.8 & 1.993 \\
-\quad \quantvla W4A8 & 89.0 & 85.0 & 79.0 & 72.0 & 81.3 & 0.898 \\
-\quad Uniform W6 & 85.0 & 83.0 & 92.0 & 22.0 & 70.5 & 1.109 \\
-\quad $\Omega$-QVLA W4A4 & 87.0 & 86.0 & 89.0 & 76.0 & 84.5 & 0.599 \\
-\quad \textbf{\method (Ours)} & 97.0 & 95.0 & 98.0 & 85.0 & 93.8 & 0.948 \\
 \midrule
 \multicolumn{7}{@{}l}{\textbf{$\pi_{0.5}$}} \\
 \quad FP16 & 95.0 & 100.0 & 98.0 & 94.0 & 96.8 & 4.113 \\
@@ -26,6 +19,27 @@ Configuration & Goal $\uparrow$ & Spatial $\uparrow$ & Object $\uparrow$ & Long 
 \quad \textbf{\method (Ours)} & 99.0 & 100.0 & 96.0 & 94.0 & 97.3 & 1.788 \\
 \bottomrule
 \end{tabular}
+\end{table}
+\begin{table}[H]
+\centering
+\addtocounter{table}{-1}
+\renewcommand{\theHtable}{\arabic{table}b}
+\caption{LIBERO results (continued): GR00T N1.5.}
+\footnotesize
+\setlength{\tabcolsep}{4.2pt}
+\renewcommand{\arraystretch}{0.92}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+Configuration & Goal $\uparrow$ & Spatial $\uparrow$ & Object $\uparrow$ & Long $\uparrow$ & Avg. $\uparrow$ & \shortstack{Size\\(GiB) $\downarrow$} \\
+\midrule
+\multicolumn{7}{@{}l}{\textbf{GR00T N1.5}} \\
+\quad FP16 & 88.0 & 87.0 & 96.0 & 76.0 & 86.8 & 1.993 \\
+\quad \quantvla W4A8 & 89.0 & 85.0 & 79.0 & 72.0 & 81.3 & 0.898 \\
+\quad Uniform W6 & 85.0 & 83.0 & 92.0 & 22.0 & 70.5 & 1.109 \\
+\quad $\Omega$-QVLA W4A4 & 87.0 & 86.0 & 89.0 & 76.0 & 84.5 & 0.599 \\
+\quad \textbf{\method (Ours)} & 97.0 & 95.0 & 98.0 & 85.0 & 93.8 & 0.948 \\
+\bottomrule
+\end{tabular}
 \vspace{2pt}
-\parbox{0.99\textwidth}{\footnotesize The complete local matrix contains 4,000 episodes across 40/40 exact-valid cells. Every local suite value covers exactly ten tasks and held-out initial states 10--19. The corrected GR00T ours row uses five executed actions per replan and paired suite-keyed action noise. Local size includes packed weights and quantization metadata. For suite-specific masks, it is the four-suite mean. $^{\dagger}$The $\pi_{0.5}$ QVLA and ActQuant entries are the source-reported 4.0 Vision+LLM-BPW rows from ActQuant~\cite{akbari2026actquant}; their 2.7-GB values follow that source's memory definition.}
+\parbox{0.99\textwidth}{\footnotesize The complete local matrix contains 4,000 episodes across 40/40 exact-valid cells. Each local suite uses ten tasks and ten held-out initial states. Size includes packed weights and metadata and is averaged over suite-specific masks. $^{\dagger}$The $\pi_{0.5}$ QVLA and ActQuant rows are source-reported 4.0-BPW results~\cite{akbari2026actquant} using the source memory definition.}
 \end{table}

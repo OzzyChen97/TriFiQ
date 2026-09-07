@@ -11,6 +11,7 @@ import os
 import random
 import re
 import time
+import types
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -53,17 +54,27 @@ from qvla_actquant.model_adapters import (  # noqa: E402
     load_pi05_policy,
     prepare_gr00t_batch,
     prepare_pi05_batch,
+    run_backbone_only,
 )
 
 
 ACTQUANT_COMMIT = "b64791125070652fe6b554e244fe809c79ef5246"
 
 
+def job_implementation_sha256() -> str:
+    value = os.environ.get("QVLA_ACTQUANT_JOB_IMPLEMENTATION_SHA256", "")
+    if re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise ValueError(
+            "ActQuant job is not bound to a valid implementation SHA256"
+        )
+    return value
+
+
 def atomic_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp.{os.getpid()}")
     with temporary.open("w", encoding="utf-8") as handle:
-        json.dump(value, handle, indent=2, sort_keys=True)
+        json.dump(value, handle, indent=2, sort_keys=True, allow_nan=False)
         handle.write("\n")
         handle.flush(); os.fsync(handle.fileno())
     os.replace(temporary, path)
@@ -151,7 +162,71 @@ def prepare_batch(model_family: str, policy, frames, *, include_actions: bool):
     return prepare_pi05_batch(policy, frames, include_actions=include_actions)
 
 
-def pool_activation(value: torch.Tensor, batch_size: int) -> np.ndarray:
+def install_pi05_batched_image_prefix(model: torch.nn.Module) -> dict[str, Any]:
+    """Fuse independent SigLIP camera calls into one camera-major batch."""
+    original = model.embed_prefix
+
+    def batched_embed_prefix(self, images, img_masks, lang_tokens, lang_masks):
+        if not images:
+            return original(images, img_masks, lang_tokens, lang_masks)
+        batch_sizes = [int(image.shape[0]) for image in images]
+        if (
+            len(set(batch_sizes)) != 1
+            or len({tuple(image.shape[1:]) for image in images}) != 1
+        ):
+            return original(images, img_masks, lang_tokens, lang_masks)
+
+        def image_embed_func(value):
+            return self.paligemma_with_expert.embed_image(value)
+
+        combined_emb = self._apply_checkpoint(
+            image_embed_func, torch.cat(images, dim=0)
+        )
+        image_embs = list(combined_emb.split(batch_sizes, dim=0))
+        embs = list(image_embs)
+        pad_masks = [
+            mask[:, None].expand(batch_sizes[index], image_emb.shape[1])
+            for index, (mask, image_emb) in enumerate(
+                zip(img_masks, image_embs, strict=True)
+            )
+        ]
+        image_tokens = sum(int(image_emb.shape[1]) for image_emb in image_embs)
+
+        def lang_embed_func(value):
+            embedded = self.paligemma_with_expert.embed_language_tokens(value)
+            return embedded * math.sqrt(embedded.shape[-1])
+
+        lang_emb = self._apply_checkpoint(lang_embed_func, lang_tokens)
+        embs.append(lang_emb)
+        pad_masks.append(lang_masks)
+        prefix_embs = torch.cat(embs, dim=1)
+        prefix_pad_masks = torch.cat(pad_masks, dim=1)
+        attention_pattern = torch.zeros(
+            image_tokens + int(lang_emb.shape[1]),
+            dtype=torch.bool,
+            device=prefix_pad_masks.device,
+        )
+        prefix_att_masks = attention_pattern[None, :].expand(
+            prefix_pad_masks.shape[0], -1
+        )
+        return prefix_embs, prefix_pad_masks, prefix_att_masks
+
+    model.embed_prefix = types.MethodType(batched_embed_prefix, model)
+    return {
+        "name": "pi05_camera_major_siglip_batch",
+        "camera_order_restored": True,
+        "eval_batch_separable": True,
+        "hsic_camera_reduction": "mean_matching_released_repeated_hook_mean",
+    }
+
+
+def pool_activation_tensors(
+    value: torch.Tensor,
+    batch_size: int,
+    *,
+    nonfinite_counter: torch.Tensor | None = None,
+) -> list[torch.Tensor]:
+    """Pool on device while preserving released repeated-camera call order."""
     value = value.detach()
     if value.ndim < 2:
         raise ValueError(f"cannot pool activation {value.shape}")
@@ -168,7 +243,38 @@ def pool_activation(value: torch.Tensor, batch_size: int) -> np.ndarray:
         pooled = value.mean(dim=(2, 3))
     else:
         pooled = value.flatten(1, value.ndim - 2).mean(dim=1)
-    return pooled.float().cpu().numpy().astype(np.float16)
+    # The fused pi0.5 vision call has camera-major rows [camera, batch].
+    # The released path called hooks once per camera and collect_hsic averaged
+    # those calls, so this reduction is algebraically the same operation.
+    if value.ndim >= 3 and pooled.shape[0] != batch_size:
+        if pooled.shape[0] % batch_size:
+            raise ValueError(
+                f"cannot recover camera-major batch={batch_size} from activation {value.shape}"
+            )
+        camera_pooled = pooled.reshape(-1, batch_size, pooled.shape[-1])
+        # Return one tensor per logical released hook call.  The batch drain
+        # converts each to FP16 before NumPy averages cameras below.
+        result = [item.to(torch.float16) for item in camera_pooled.unbind(0)]
+    else:
+        result = [pooled.to(torch.float16)]
+
+    # RoboCasa365 contains a pi0.5 frame whose final PaliGemma MLP produces
+    # FP16 overflow.  The released LIBERO collector has no policy for this
+    # out-of-domain case and consequently emits a NaN RBF score.  Keep the
+    # declared A16/FP16 compute path, but make the pooled statistic total and
+    # auditable: NaN maps to zero and signed infinity to the finite extrema of
+    # the pooled dtype.  Count replacements on device and transfer the small
+    # counter vector only once after collection.
+    sanitized = []
+    for item in result:
+        nonfinite = ~torch.isfinite(item)
+        if nonfinite_counter is not None:
+            nonfinite_counter.add_(nonfinite.sum(dtype=torch.int64))
+        limit = torch.finfo(item.dtype).max
+        sanitized.append(
+            torch.nan_to_num(item, nan=0.0, posinf=limit, neginf=-limit)
+        )
+    return sanitized
 
 
 def lpt_names(inventory: list[dict[str, Any]], count: int, cost) -> list[list[str]]:
@@ -238,6 +344,9 @@ def hsic_scores(
         x_out = _trace_product(family_kernel, kout) / denominator
         y_out = _trace_product(kout, ky) / denominator
         f_in, f_out = -x_in + y_in, -x_out + y_out
+        numeric = (x_in, y_in, x_out, y_out, f_in, f_out, f_out - f_in)
+        if not all(math.isfinite(value) for value in numeric):
+            raise FloatingPointError(f"non-finite HSIC score for {name}: {numeric}")
         result[name] = {
             "hsic_x_in": x_in, "hsic_y_in": y_in, "F_in": f_in,
             "hsic_x_out": x_out, "hsic_y_out": y_out, "F_out": f_out,
@@ -246,7 +355,9 @@ def hsic_scores(
             "family": families[name],
         }
         del kin, kout
-        torch.cuda.empty_cache()
+        # Reuse the released kernel blocks through PyTorch's allocator.  A
+        # per-tensor empty_cache() forced hundreds of host/device sync points
+        # without releasing any live HSIC matrices.
         print(f"[actquant][hsic] {index + 1}/{len(activations)} {name} F_out={f_out:.6e}", flush=True)
     return result
 
@@ -258,6 +369,11 @@ def collect_hsic(args) -> None:
     model = model_of(args.model_family, policy)
     model.eval()
     precision = require_fp16_model(args.model_family, model)
+    collector_optimization = (
+        install_pi05_batched_image_prefix(model)
+        if args.model_family == "pi05"
+        else None
+    )
     inventory = target_inventory(model, args.model_family)
     shards = lpt_names(
         inventory, args.shard_count,
@@ -267,25 +383,50 @@ def collect_hsic(args) -> None:
     modules = dict(model.named_modules())
     family_for = {row["name"]: row["family"] for row in inventory}
     references = hsic_reference_modules(model, inventory)
-    temporary_in: dict[str, list[np.ndarray]] = {}
-    temporary_out: dict[str, list[np.ndarray]] = {}
+    temporary_in: dict[str, list[torch.Tensor]] = {}
+    temporary_out: dict[str, list[torch.Tensor]] = {}
     in_buckets = {name: [] for name in selected}
     out_buckets = {name: [] for name in selected}
     ref_buckets = {family: [] for family in references}
+    nonfinite_counters: dict[str, torch.Tensor] = {}
     handles = []
     batch_context = {"size": 0}
 
     def make_hook(name: str, *, reference_family: str | None = None):
+        def counter(key: str, value: torch.Tensor) -> torch.Tensor:
+            if key not in nonfinite_counters:
+                nonfinite_counters[key] = torch.zeros(
+                    (), dtype=torch.int64, device=value.device
+                )
+            return nonfinite_counters[key]
+
         def hook(_module, inputs, output):
             inp = inputs[0] if isinstance(inputs, (tuple, list)) else inputs
             out = output[0] if isinstance(output, (tuple, list)) else output
             if reference_family is not None:
-                temporary_in.setdefault(f"@{reference_family}", []).append(
-                    pool_activation(inp, batch_context["size"])
+                key = f"@{reference_family}"
+                temporary_in.setdefault(key, []).extend(
+                    pool_activation_tensors(
+                        inp,
+                        batch_context["size"],
+                        nonfinite_counter=counter(f"in:{key}", inp),
+                    )
                 )
             if name in in_buckets:
-                temporary_in.setdefault(name, []).append(pool_activation(inp, batch_context["size"]))
-                temporary_out.setdefault(name, []).append(pool_activation(out, batch_context["size"]))
+                temporary_in.setdefault(name, []).extend(
+                    pool_activation_tensors(
+                        inp,
+                        batch_context["size"],
+                        nonfinite_counter=counter(f"in:{name}", inp),
+                    )
+                )
+                temporary_out.setdefault(name, []).extend(
+                    pool_activation_tensors(
+                        out,
+                        batch_context["size"],
+                        nonfinite_counter=counter(f"out:{name}", out),
+                    )
+                )
         return hook
 
     hook_names = set(selected) | set(references.values())
@@ -300,19 +441,63 @@ def collect_hsic(args) -> None:
                 batch_context["size"] = len(frames)
                 prepared, actions = prepare_batch(args.model_family, policy, frames, include_actions=True)
                 with torch.autocast(device_type="cuda", dtype=torch.float16):
-                    _ = flow_loss(args.model_family, policy, prepared, actions)
+                    # HSIC supervises frozen target-backbone activations with
+                    # the already archived continuous action chunk.  Action
+                    # heads/experts are excluded from the target inventory and
+                    # do not feed back into these activations, so executing the
+                    # flow-matching loss here only burns compute and samples
+                    # unrelated noise/time values.
+                    run_backbone_only(
+                        args.model_family,
+                        policy,
+                        prepared,
+                        preserve_flow_rng=True,
+                        actions=actions,
+                    )
+                # Hooks retain only already-pooled device tensors.  Pack every
+                # variable-width row into one contiguous FP16 buffer so each
+                # calibration batch incurs one D2H synchronization rather
+                # than roughly two per target tensor.
+                entries = []
+                for kind, buckets in (("in", temporary_in), ("out", temporary_out)):
+                    for key in sorted(buckets):
+                        for value in buckets[key]:
+                            entries.append((kind, key, tuple(value.shape), value.reshape(-1)))
+                if not entries:
+                    raise RuntimeError("HSIC hooks produced no pooled activations")
+                packed = torch.cat([entry[3] for entry in entries])
+                host = packed.cpu().numpy()
+                host_buckets: dict[tuple[str, str], list[np.ndarray]] = {}
+                offset = 0
+                for kind, key, shape, value in entries:
+                    count = value.numel()
+                    host_buckets.setdefault((kind, key), []).append(
+                        host[offset : offset + count].reshape(shape)
+                    )
+                    offset += count
+                if offset != host.size:
+                    raise RuntimeError("HSIC packed activation offset drift")
                 for name in selected:
-                    if name not in temporary_in or name not in temporary_out:
+                    if ("in", name) not in host_buckets or ("out", name) not in host_buckets:
                         raise RuntimeError(f"HSIC target did not execute: {name}")
-                    in_buckets[name].append(np.mean(np.stack(temporary_in.pop(name)), axis=0))
-                    out_buckets[name].append(np.mean(np.stack(temporary_out.pop(name)), axis=0))
+                    in_buckets[name].append(
+                        np.mean(np.stack(host_buckets.pop(("in", name))), axis=0)
+                    )
+                    out_buckets[name].append(
+                        np.mean(np.stack(host_buckets.pop(("out", name))), axis=0)
+                    )
                 for family in references:
                     key = f"@{family}"
-                    if key not in temporary_in:
+                    if ("in", key) not in host_buckets:
                         raise RuntimeError(f"HSIC reference did not execute: {family}")
-                    ref_buckets[family].append(np.mean(np.stack(temporary_in.pop(key)), axis=0))
-                if temporary_in or temporary_out:
+                    ref_buckets[family].append(
+                        np.mean(np.stack(host_buckets.pop(("in", key))), axis=0)
+                    )
+                temporary_in.clear()
+                temporary_out.clear()
+                if host_buckets:
                     raise RuntimeError("unconsumed HSIC hook calls")
+                del entries, packed, host, host_buckets
                 y_buckets.append(np.stack([np.asarray(frame["actions"], dtype=np.float32).reshape(-1) for frame in frames]))
                 frame_count += len(frames)
                 if batch_index % args.log_every == 0:
@@ -320,6 +505,17 @@ def collect_hsic(args) -> None:
     finally:
         for handle in handles:
             handle.remove()
+    counter_names = sorted(nonfinite_counters)
+    counter_values = (
+        torch.stack([nonfinite_counters[name] for name in counter_names]).cpu().tolist()
+        if counter_names
+        else []
+    )
+    nonfinite_pooled_values = {
+        name: int(value)
+        for name, value in zip(counter_names, counter_values, strict=True)
+        if int(value) != 0
+    }
     expected = sum(row["frames"] for row in frozen["episodes"] if row["actquant_subset"])
     if frame_count != expected:
         raise ValueError(f"ActQuant HSIC frame mismatch: {frame_count} != {expected}")
@@ -341,6 +537,7 @@ def collect_hsic(args) -> None:
         "schema_version": 1,
         "kind": "actquant_hsic_shard",
         "upstream_commit": ACTQUANT_COMMIT,
+        "job_implementation_sha256": job_implementation_sha256(),
         "model_family": args.model_family,
         "model_unit": frozen["model_unit"],
         "checkpoint_sha256": args.checkpoint_sha256,
@@ -351,6 +548,13 @@ def collect_hsic(args) -> None:
         "test_results_used": False,
         "model_precision": precision,
         "activation_compute_dtype": "float16",
+        "collector_optimization": collector_optimization,
+        "forward_scope": "target_backbone_only_action_chunk_external_supervision",
+        "flow_rng_semantics": "released_full_flow_rng_advanced_without_action_head_execution",
+        "activation_d2h": "one_packed_fp16_transfer_per_batch",
+        "nonfinite_pool_policy": "nan_to_zero_inf_to_fp16_finite_extrema",
+        "nonfinite_pooled_values": nonfinite_pooled_values,
+        "nonfinite_pooled_total": sum(nonfinite_pooled_values.values()),
         "hidden_kernel": "rbf_released_median",
         "action_kernel": "linear_released_default",
         "lx": 1.0,
@@ -374,6 +578,11 @@ def collect_fisher(args) -> None:
     model = model_of(args.model_family, policy)
     model.eval()
     precision = require_fp16_model(args.model_family, model)
+    collector_optimization = (
+        install_pi05_batched_image_prefix(model)
+        if args.model_family == "pi05"
+        else None
+    )
     inventory = target_inventory(model, args.model_family)
     shards = lpt_names(inventory, args.shard_count, lambda row: int(row["parameters"]))
     selected = shards[args.shard_index]
@@ -383,7 +592,15 @@ def collect_fisher(args) -> None:
         parameter.requires_grad_(False)
     for _, parameter in parameters:
         parameter.requires_grad_(True)
-    accumulators = {name: torch.zeros(parameter.shape, dtype=torch.float32, device="cpu") for name, parameter in parameters}
+    # Keep empirical-Fisher sums beside the gradients and transfer exactly
+    # once at the end.  The previous per-frame ``grad.float().cpu()`` path
+    # moved the selected model shard over PCIe for every sample and made the
+    # host/PCIe link the dominant cost.  FP32 add order remains one sample at
+    # a time, matching the released empirical grad^2 definition.
+    accumulators = {
+        name: torch.zeros(parameter.shape, dtype=torch.float32, device=args.device)
+        for name, parameter in parameters
+    }
     frames_seen = 0
     losses = []
     for batch_index, frames in enumerate(iter_frame_batches(frozen, subset="actquant", batch_size=args.batch_size)):
@@ -393,20 +610,28 @@ def collect_fisher(args) -> None:
         gradients = torch.autograd.grad(loss, [parameter for _, parameter in parameters], allow_unused=True)
         for (name, _), gradient in zip(parameters, gradients, strict=True):
             if gradient is not None:
-                accumulators[name].add_(gradient.detach().float().cpu().square())
+                squared = gradient.detach().float()
+                squared.square_()
+                accumulators[name].add_(squared)
+                del squared
         losses.append(float(loss.detach().item()))
         frames_seen += len(frames)
         del loss, gradients, prepared, actions
-        torch.cuda.empty_cache()
+        # Keep released blocks in PyTorch's allocator for the next empirical-
+        # Fisher sample.  empty_cache() here forced a device synchronization
+        # on every frame without reducing any live tensor's memory footprint.
         if batch_index % args.log_every == 0:
             print(f"[actquant][fisher] shard={args.shard_index} frames={frames_seen}", flush=True)
     expected = sum(row["frames"] for row in frozen["episodes"] if row["actquant_subset"])
     if frames_seen != expected:
         raise ValueError(f"ActQuant Fisher frame mismatch: {frames_seen} != {expected}")
+    fisher_sum = {name: value.cpu() for name, value in accumulators.items()}
+    del accumulators
     payload = {
         "schema_version": 1,
         "kind": "actquant_fisher_shard",
         "upstream_commit": ACTQUANT_COMMIT,
+        "job_implementation_sha256": job_implementation_sha256(),
         "model_family": args.model_family,
         "model_unit": frozen["model_unit"],
         "checkpoint_sha256": args.checkpoint_sha256,
@@ -417,15 +642,17 @@ def collect_fisher(args) -> None:
         "test_results_used": False,
         "model_precision": precision,
         "activation_compute_dtype": "float16",
+        "collector_optimization": collector_optimization,
         "alpha": 1.0,
         "loss": "native_continuous_action_flow_matching",
+        "fisher_accumulator": "cuda_fp32_single_final_d2h",
         "frames": frames_seen,
         "mean_loss": float(np.mean(losses)),
         "shard_index": args.shard_index,
         "shard_count": args.shard_count,
         "full_inventory_sha256": canonical_hash(inventory),
         "selected_names": sorted(selected),
-        "fisher_sum": accumulators,
+        "fisher_sum": fisher_sum,
     }
     atomic_torch(args.output, payload)
     sidecar = {key: value for key, value in payload.items() if key != "fisher_sum"}
@@ -459,6 +686,14 @@ def allocate(args) -> None:
         payload = json.loads(path.read_text(encoding="utf-8"))
         if payload.get("kind") != "actquant_hsic_shard" or payload["upstream_commit"] != ACTQUANT_COMMIT:
             raise ValueError(f"invalid HSIC shard: {path}")
+        if payload.get("job_implementation_sha256") != job_implementation_sha256():
+            raise ValueError(f"HSIC implementation drift: {path}")
+        if payload.get("forward_scope") != "target_backbone_only_action_chunk_external_supervision":
+            raise ValueError(f"HSIC forward-scope drift: {path}")
+        if payload.get("activation_d2h") != "one_packed_fp16_transfer_per_batch":
+            raise ValueError(f"HSIC activation-transfer drift: {path}")
+        if payload.get("nonfinite_pool_policy") != "nan_to_zero_inf_to_fp16_finite_extrema":
+            raise ValueError(f"HSIC non-finite policy drift: {path}")
         if payload["checkpoint_sha256"] != args.checkpoint_sha256 or payload["full_inventory_sha256"] != inventory_sha:
             raise ValueError(f"HSIC checkpoint/inventory drift: {path}")
         if payload["calibration_manifest_sha256"] != sha256_file(args.frozen_manifest):
@@ -468,6 +703,12 @@ def allocate(args) -> None:
             or (payload.get("model_precision") or {}).get("strict_all_linear_conv_fp16") is not True
         ):
             raise ValueError(f"HSIC precision drift: {path}")
+        optimization = payload.get("collector_optimization")
+        if (
+            args.model_family == "pi05"
+            and (optimization or {}).get("name") != "pi05_camera_major_siglip_batch"
+        ) or (args.model_family != "pi05" and optimization is not None):
+            raise ValueError(f"HSIC collector-optimization drift: {path}")
         if int(payload["shard_count"]) != args.shard_count:
             raise ValueError("HSIC shard count drift")
         index = int(payload["shard_index"])
@@ -480,7 +721,10 @@ def allocate(args) -> None:
         for name, record in payload["scores"].items():
             if name in scores:
                 raise ValueError(f"duplicate HSIC tensor: {name}")
-            scores[name] = max(float(record["F_out"]), 0.0)
+            score = float(record["F_out"])
+            if not math.isfinite(score):
+                raise ValueError(f"non-finite HSIC allocation score for {name}: {path}")
+            scores[name] = max(score, 0.0)
         shard_records.append({"path": str(path), "sha256": sha256_file(path), "bytes": path.stat().st_size})
     if indices != set(range(args.shard_count)) or set(scores) != set(inventory_by_name):
         raise ValueError("HSIC shard/target coverage mismatch")
@@ -745,6 +989,8 @@ def pack(args) -> None:
         payload = torch.load(path, map_location="cpu", weights_only=False)
         if payload.get("kind") != "actquant_fisher_shard" or payload["upstream_commit"] != ACTQUANT_COMMIT:
             raise ValueError(f"invalid Fisher shard: {path}")
+        if payload.get("job_implementation_sha256") != job_implementation_sha256():
+            raise ValueError(f"Fisher implementation drift: {path}")
         if payload["checkpoint_sha256"] != args.checkpoint_sha256 or payload["full_inventory_sha256"] != inventory_sha:
             raise ValueError(f"Fisher checkpoint/inventory drift: {path}")
         if payload["calibration_manifest_sha256"] != sha256_file(args.frozen_manifest) or payload["alpha"] != 1.0:
@@ -754,6 +1000,14 @@ def pack(args) -> None:
             or (payload.get("model_precision") or {}).get("strict_all_linear_conv_fp16") is not True
         ):
             raise ValueError(f"Fisher precision drift: {path}")
+        optimization = payload.get("collector_optimization")
+        if (
+            args.model_family == "pi05"
+            and (optimization or {}).get("name") != "pi05_camera_major_siglip_batch"
+        ) or (args.model_family != "pi05" and optimization is not None):
+            raise ValueError(f"Fisher collector-optimization drift: {path}")
+        if payload.get("fisher_accumulator") != "cuda_fp32_single_final_d2h":
+            raise ValueError(f"Fisher accumulator drift: {path}")
         if int(payload["shard_count"]) != args.shard_count:
             raise ValueError("Fisher shard count drift")
         index = int(payload["shard_index"])

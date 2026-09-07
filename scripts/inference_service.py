@@ -437,13 +437,31 @@ def _attach_runtime_selector(action: dict, decision) -> dict:
     return out
 
 
+def _activate_predictive_mask(policy, metadata: dict[str, Any] | None):
+    from quantvla_predictive_validity import get_predictive_mask_runtime
+
+    runtime = get_predictive_mask_runtime(policy)
+    return runtime.activate(metadata) if runtime is not None else None
+
+
+def _attach_predictive_mask(action: dict, predictive: dict | None) -> dict:
+    if predictive is None:
+        return action
+    out = dict(action)
+    out["predictive_mask"] = predictive
+    return out
+
+
 def _selected_action_handler(policy, observations: dict) -> dict:
     from gr00t.atm import runtime_selector_context
 
     clean_observations, metadata = _extract_eval_metadata(observations)
+    predictive = _activate_predictive_mask(policy, metadata)
     with runtime_selector_context(metadata) as decision:
         action = policy.get_action(clean_observations)
-    return _attach_runtime_selector(action, decision)
+    return _attach_predictive_mask(
+        _attach_runtime_selector(action, decision), predictive
+    )
 
 
 def _seeded_action_handler(policy, payload: dict) -> dict:
@@ -473,9 +491,12 @@ def _seeded_action_handler(policy, payload: dict) -> dict:
         (horizon, action_dim), generator=generator, dtype=torch.float32
     )
     clean_observations, metadata = _extract_eval_metadata(payload["observations"])
+    predictive = _activate_predictive_mask(policy, metadata)
     with runtime_selector_context(metadata) as decision:
         action = policy.get_action(clean_observations, action_noise=action_noise)
-    return _attach_runtime_selector(action, decision)
+    return _attach_predictive_mask(
+        _attach_runtime_selector(action, decision), predictive
+    )
 
 
 def _runtime_info(policy) -> dict:
@@ -522,6 +543,17 @@ def _runtime_info(policy) -> dict:
     reproduction_runtime = getattr(
         policy.model, "_qvla_actquant_runtime", {"enabled": False, "method": None}
     )
+    daptq_runtime = getattr(
+        policy.model, "_daptq_runtime", {"enabled": False, "method": None}
+    )
+    from quantvla_predictive_validity import get_predictive_mask_runtime
+
+    predictive_runtime = get_predictive_mask_runtime(policy)
+    predictive_metadata = (
+        predictive_runtime.metadata()
+        if predictive_runtime is not None
+        else {"enabled": False, "evaluation_only": True}
+    )
     parameter_dtypes: dict[str, int] = {}
     linear_conv_dtypes: dict[str, int] = {}
     for parameter in policy.model.parameters():
@@ -537,9 +569,29 @@ def _runtime_info(policy) -> dict:
         "parameter_elements_by_dtype": dict(sorted(parameter_dtypes.items())),
         "linear_conv_layers_by_weight_dtype": dict(sorted(linear_conv_dtypes.items())),
     }
+    if daptq_runtime.get("enabled") and (
+        reproduction_runtime.get("enabled") or quant_layers or gptq_layers
+    ):
+        raise RuntimeError("DA-PTQ runtime cannot be mixed with another quantizer")
     if reproduction_runtime.get("enabled") and (quant_layers or gptq_layers):
         raise RuntimeError("QVLA/ActQuant runtime cannot be mixed with DuQuant/GPTQ")
-    if reproduction_runtime.get("enabled"):
+    if daptq_runtime.get("enabled"):
+        quantization_contract = {
+            "logical_profile": "daptq_w4a8",
+            "quantization_method": "daptq_mixed_w4_bf16_static_a8_fake_quant",
+            "weight_precision": "mixed_w4_bf16",
+            "activation_bits": 8,
+            "activation_quantizer": "static_per_input_channel_99.9_percentile",
+            "execution_backend": "pytorch_fake_quant_after_offline_nibble_pack_decode",
+            "integer_gemm": False,
+            "runtime_memory_claim_allowed": False,
+            "latency_claim_allowed": False,
+            "denoising_steps": int(policy.denoising_steps),
+            "n_action_steps": 16,
+            "replan_steps": 16,
+            "paired_noise": "sha256(task,env_seed,replan_index)/torch-cpu-normal-v1",
+        }
+    elif reproduction_runtime.get("enabled"):
         method = str(reproduction_runtime["method"])
         quantization_contract = {
             "logical_profile": (
@@ -621,7 +673,9 @@ def _runtime_info(policy) -> dict:
         )
         quantization_contract = {
             "logical_profile": (
-                "quantvla_adapter_only_w4a8"
+                "gr00t_predictive_mask_superset_w4a8"
+                if predictive_runtime is not None
+                else "quantvla_adapter_only_w4a8"
                 if os.environ.get("QUANTVLA_ADAPTER_ONLY", "0")
                 not in ("0", "false", "False", "")
                 else "gdsq_vla"
@@ -743,6 +797,29 @@ def _runtime_info(policy) -> dict:
                 or atm_runtime.get("ohb_enabled")
             ):
                 raise RuntimeError("GR00T LIBERO DyPAC forbids runtime selectors and corrections")
+    if predictive_runtime is not None:
+        if len(quant_layers) != 116:
+            raise RuntimeError("predictive-mask runtime requires all 116 W4 superset layers")
+        if not hessian_runtime.get("hessian_w4_loaded"):
+            raise RuntimeError("predictive-mask runtime requires Hessian W4")
+        if int(hessian_runtime.get("hessian_group_size", -1)) != 64:
+            raise RuntimeError("predictive-mask runtime requires Hessian group size 64")
+        if not bool(uniform_value(quant_layers, "act_dynamic")):
+            raise RuntimeError("predictive-mask runtime requires dynamic A8")
+        if int(uniform_value(quant_layers, "act_bits")) != 8:
+            raise RuntimeError("predictive-mask runtime requires eight-bit activations")
+        if int(policy.denoising_steps) != 4:
+            raise RuntimeError("predictive-mask runtime requires four flow steps")
+        if (
+            selector_metadata.get("enabled")
+            or atm_runtime.get("atm_enabled")
+            or atm_runtime.get("ohb_enabled")
+            or hessian_runtime.get("errorfold_path")
+            or reproduction_runtime.get("enabled")
+            or daptq_runtime.get("enabled")
+            or gptq_layers
+        ):
+            raise RuntimeError("predictive-mask runtime forbids selectors and corrections")
     contract_sha256 = hashlib.sha256(
         json.dumps(quantization_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -776,6 +853,7 @@ def _runtime_info(policy) -> dict:
         "quantization_contract_sha256": contract_sha256,
         "runtime_selector": selector_metadata,
         "qvla_actquant": reproduction_runtime,
+        "daptq": daptq_runtime,
         "model_dtype": model_dtype,
         "cross_model_protocol": protocol_attestation(),
         "model_adapter": adapter_attestation(
@@ -784,6 +862,11 @@ def _runtime_info(policy) -> dict:
         ),
         "protocol": closed_loop_runtime_protocol(),
     }
+    # Preserve the stable runtime identity of ordinary evaluation arms.  A
+    # disabled predictive-mask diagnostic is not part of their semantics and
+    # must not invalidate receipts produced before that diagnostic existed.
+    if predictive_runtime is not None:
+        payload["predictive_mask_runtime"] = predictive_metadata
     if libero_dypac_protocol is not None:
         payload["libero_dypac_protocol"] = libero_dypac_protocol
     if quant_layers and bool(uniform_value(quant_layers, "act_dynamic")):
@@ -859,6 +942,12 @@ def main(args: ArgsConfig):
                 f"{reproduction_runtime}",
                 flush=True,
             )
+        if os.environ.get("DAPTQ_ENABLE", "0") not in ("0", "false", "False", ""):
+            from daptq.runtime import apply_daptq_from_env
+
+            daptq_runtime = apply_daptq_from_env(policy.model, "gr00t")
+            setattr(policy.model, "_daptq_runtime", daptq_runtime)
+            print(f"[inference] loaded DA-PTQ artifact: {daptq_runtime}", flush=True)
 
         # Review round 2, item 3: close the static-A8 calibration loop BEFORE
         # the server accepts any request. Without this, the first LIBERO
@@ -869,9 +958,44 @@ def main(args: ArgsConfig):
         _maybe_close_a8_calibration(
             policy, data_config=args.data_config, model_path=args.model_path
         )
+        predictive_runtime = None
+        if os.environ.get("GR00T_PREDICTIVE_MASK_MANIFEST"):
+            forbidden = {
+                key: os.environ.get(key)
+                for key in (
+                    "QVLA_ACTQUANT_METHOD",
+                    "DAPTQ_ENABLE",
+                    "GR00T_GPTQ",
+                    "GR00T_ATM_ENABLE",
+                    "GR00T_OHB_ENABLE",
+                    "GR00T_ATM_ALPHA_PATH",
+                    "GR00T_OHB_BETA_PATH",
+                    "GR00T_RUNTIME_SELECTOR_PATH",
+                    "GR00T_ERRORFOLD_PATH",
+                )
+                if os.environ.get(key) not in (None, "", "0", "false", "False")
+            }
+            if forbidden:
+                raise RuntimeError(
+                    f"predictive-mask server forbids alternate quantizers/selectors: {forbidden}"
+                )
+            if os.environ.get("GR00T_DUQUANT_ACT_DYNAMIC", "0") in (
+                "0", "false", "False", ""
+            ) or int(os.environ.get("GR00T_DUQUANT_ABITS", "0")) != 8:
+                raise RuntimeError("predictive-mask server requires DyRange-A8")
+            if int(args.denoising_steps) != 4:
+                raise RuntimeError("predictive-mask server requires four flow steps")
+            from quantvla_predictive_validity import configure_predictive_mask_runtime
+
+            predictive_runtime = configure_predictive_mask_runtime(policy)
+            print(
+                "[inference] evaluation-only predictive mask library enabled: "
+                f"{predictive_runtime.metadata()}",
+                flush=True,
+            )
         if os.environ.get("QUANTVLA_ADAPTER_ONLY", "0") not in (
             "0", "false", "False", ""
-        ) and os.environ.get("GR00T_DUQUANT_PLAN"):
+        ) and os.environ.get("GR00T_DUQUANT_PLAN") and predictive_runtime is None:
             from gr00t.quantization import finalize_real_quant
 
             residency = finalize_real_quant(policy.model)

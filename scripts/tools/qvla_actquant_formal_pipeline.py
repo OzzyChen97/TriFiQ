@@ -33,6 +33,13 @@ METHOD_CONFIG = {
     "qvla": "qvla_code_wavg4_a16",
     "actquant": "actquant_4bpw_a16",
 }
+DEFAULT_ELIGIBLE_GPUS = (3, 4, 5, 6)
+SERVER_RESERVE_MIB = 1500
+SERVER_ESTIMATE_MIB = {"gr00t": 8500, "pi05": 10500}
+WORKER_MIN_FREE_MIB = 2000
+MAX_WORKER_ATTEMPTS = 12
+WORKER_RETRY_BASE_SECONDS = 15
+WORKER_RETRY_MAX_SECONDS = 300
 UNITS = {
     "gr00t_atomic_seen": {
         "model": "gr00t",
@@ -118,7 +125,11 @@ def load_tasks() -> tuple[dict[str, list[str]], dict[str, str]]:
 def pack_record(method: str, unit: str) -> dict[str, Any]:
     manifest_path = RUN / "artifacts" / "packs" / method / unit / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("model_unit") != unit or manifest.get("method") != method:
+    # Pack manifests use the protocol split name (for example,
+    # ``atomic_seen``), while the orchestration directory also prefixes the
+    # model family to keep GR00T and pi0.5 units unambiguous.
+    expected_model_unit = UNITS[unit]["split"]
+    if manifest.get("model_unit") != expected_model_unit or manifest.get("method") != method:
         raise ValueError(f"pack identity mismatch: {manifest_path}")
     if manifest.get("test_results_used") is not False:
         raise ValueError(f"pack used formal feedback: {manifest_path}")
@@ -169,9 +180,10 @@ def pack_record(method: str, unit: str) -> dict[str, Any]:
     }
 
 
-def unit_specs() -> list[dict[str, Any]]:
+def unit_specs(methods: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
     records = []
-    for method in ("qvla", "actquant"):
+    selected_methods = methods or tuple(METHOD_CONFIG)
+    for method in selected_methods:
         for unit, config in UNITS.items():
             records.append(
                 {
@@ -188,7 +200,36 @@ def unit_specs() -> list[dict[str, Any]]:
     return records
 
 
-def gpu_free_mib() -> dict[int, int]:
+def parse_methods(value: str) -> tuple[str, ...]:
+    methods = tuple(
+        dict.fromkeys(item.strip().lower() for item in value.split(",") if item.strip())
+    )
+    unknown = sorted(set(methods) - set(METHOD_CONFIG))
+    if not methods or unknown:
+        raise ValueError(
+            f"methods must be a non-empty subset of {sorted(METHOD_CONFIG)}; "
+            f"got {value!r}"
+        )
+    return methods
+
+
+def parse_gpu_list(value: str) -> tuple[int, ...]:
+    try:
+        gpus = tuple(dict.fromkeys(int(item.strip()) for item in value.split(",") if item.strip()))
+    except ValueError as error:
+        raise ValueError(f"invalid GPU list: {value!r}") from error
+    if not gpus or any(gpu < 0 for gpu in gpus):
+        raise ValueError(f"GPU list must contain non-negative indices: {value!r}")
+    disallowed = sorted(set(gpus) - set(DEFAULT_ELIGIBLE_GPUS))
+    if disallowed:
+        raise ValueError(
+            f"GPUs {disallowed} are outside the hard workspace allowlist "
+            f"{list(DEFAULT_ELIGIBLE_GPUS)}"
+        )
+    return gpus
+
+
+def gpu_free_mib(eligible_gpus: tuple[int, ...] | None = None) -> dict[int, int]:
     output = subprocess.check_output(
         [
             "nvidia-smi",
@@ -197,64 +238,140 @@ def gpu_free_mib() -> dict[int, int]:
         ],
         text=True,
     )
-    return {
+    free = {
         int(row.split(",")[0].strip()): int(row.split(",")[1].strip())
         for row in output.splitlines()
     }
+    if eligible_gpus is None:
+        eligible_gpus = DEFAULT_ELIGIBLE_GPUS
+    missing = sorted(set(eligible_gpus) - set(free))
+    if missing:
+        raise ValueError(f"eligible GPUs are not visible: {missing}; visible={sorted(free)}")
+    return {gpu: free[gpu] for gpu in eligible_gpus}
 
 
-def make_server_schedule(specs: list[dict[str, Any]], replicas: int) -> dict[str, Any]:
-    path = FORMAL / "server_schedule.json"
+def make_server_schedule(
+    specs: list[dict[str, Any]], replicas: int, eligible_gpus: tuple[int, ...]
+) -> dict[str, Any]:
+    gpu_label = "-".join(map(str, eligible_gpus))
+    path = FORMAL / f"server_schedule.gpus-{gpu_label}.json"
     if path.is_file():
         value = json.loads(path.read_text(encoding="utf-8"))
         expected_artifacts = {
             spec["id"]: spec["artifact"]["runtime_sha256"] for spec in specs
         }
-        if value.get("artifact_sha256") != expected_artifacts or value.get("replicas") != replicas:
+        if (
+            any(
+                (value.get("artifact_sha256") or {}).get(unit_id) != artifact_sha
+                for unit_id, artifact_sha in expected_artifacts.items()
+            )
+            or value.get("replicas") != replicas
+            or value.get("eligible_gpus") != list(eligible_gpus)
+        ):
             raise ValueError("frozen server schedule does not match current packs")
         return value
-    if replicas != 2:
-        raise ValueError("formal protocol currently requires two server replicas per model unit")
-    free = gpu_free_mib()
-    projected = dict(free)
+    if replicas < 1:
+        raise ValueError("formal protocol requires at least one server replica per model unit")
+    if replicas != 1:
+        raise ValueError("staged low-VRAM execution currently requires --replicas 1")
+    free = gpu_free_mib(eligible_gpus)
     placements = []
-    port = 24000
-    # Replica waves spread every model unit before adding the second copy.
+    # 24000--24007 are used by the already-running DAPTQ evaluation service
+    # in this shared workspace.  Keep this experiment on a disjoint frozen
+    # range so runtime attestation can never query another method's server.
+    port = 25000
+    # Model units are loaded in sequence. The physical GPU is selected from
+    # the allowlist immediately before launch, while ports remain frozen.
     for replica in range(replicas):
         for spec in specs:
-            candidates = [gpu for gpu, value in projected.items() if value >= 15_000]
-            if not candidates:
-                raise RuntimeError(
-                    "insufficient aggregate free VRAM for the frozen two-replica schedule; "
-                    f"projected={projected}"
-                )
-            gpu = max(candidates, key=lambda item: (projected[item], -item))
             placements.append(
                 {
                     "instance": f"{spec['id']}_r{replica}",
                     "unit_id": spec["id"],
                     "replica": replica,
-                    "gpu": gpu,
+                    "gpu": None,
                     "port": port,
                 }
             )
             port += 1
-            projected[gpu] -= 10_500
     value = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "qvla_actquant_formal_server_schedule",
         "immutable": True,
+        "execution": "batched_model_units_dynamic_allowed_gpu",
         "replicas": replicas,
+        "eligible_gpus": list(eligible_gpus),
         "artifact_sha256": {
             spec["id"]: spec["artifact"]["runtime_sha256"] for spec in specs
         },
         "initial_free_mib": free,
-        "projected_free_mib": projected,
-        "reserve_mib": 4500,
+        "reserve_mib": SERVER_RESERVE_MIB,
         "placements": placements,
     }
     immutable_json(path, value)
     return value
+
+
+def place_server_batch(
+    remaining_specs: list[dict[str, Any]],
+    schedule: dict[str, Any],
+    eligible_gpus: tuple[int, ...],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    while True:
+        free = gpu_free_mib(eligible_gpus)
+        projected = dict(free)
+        selected: list[dict[str, Any]] = []
+        placed = []
+        occupied_gpus: set[int] = set()
+        # Largest-first packing prevents a smaller GR00T service from
+        # stranding enough fragmented VRAM to block both pi0.5 services.
+        ordered = sorted(
+            remaining_specs,
+            key=lambda spec: (-SERVER_ESTIMATE_MIB[spec["model"]], spec["id"]),
+        )
+        for spec in ordered:
+            required = SERVER_ESTIMATE_MIB[spec["model"]] + SERVER_RESERVE_MIB
+            candidates = [
+                gpu
+                for gpu, available in projected.items()
+                if available >= required and gpu not in occupied_gpus
+            ]
+            if not candidates:
+                continue
+            gpu = max(candidates, key=lambda item: (projected[item], -item))
+            rows = [row for row in schedule["placements"] if row["unit_id"] == spec["id"]]
+            if len(rows) != schedule["replicas"]:
+                raise RuntimeError(f"schedule placement count mismatch for {spec['id']}")
+            placed.extend({**row, "gpu": gpu} for row in rows)
+            selected.append(spec)
+            occupied_gpus.add(gpu)
+            projected[gpu] -= SERVER_ESTIMATE_MIB[spec["model"]]
+        if selected:
+            append_event(
+                {
+                    "event": "server_batch_placed",
+                    "unit_ids": [spec["id"] for spec in selected],
+                    "placements": placed,
+                    "initial_free_mib": free,
+                    "projected_free_mib": projected,
+                    "eligible_gpus": list(eligible_gpus),
+                }
+            )
+            return selected, {**schedule, "placements": placed}
+        atomic_json(
+            FORMAL / "control" / "server_wait_status.json",
+            {
+                "updated_at": now(),
+                "remaining_unit_ids": [spec["id"] for spec in remaining_specs],
+                "eligible_gpus": list(eligible_gpus),
+                "free_mib": free,
+                "minimum_required_mib": min(
+                    SERVER_ESTIMATE_MIB[spec["model"]] + SERVER_RESERVE_MIB
+                    for spec in remaining_specs
+                ),
+            },
+        )
+        time.sleep(30)
 
 
 def clean_quant_env() -> dict[str, str]:
@@ -277,6 +394,18 @@ def clean_quant_env() -> dict[str, str]:
             "QUANTVLA_ADAPTER_ONLY",
         }:
             env.pop(key, None)
+    # Model services otherwise inherit the host-wide defaults and each
+    # PyTorch process creates hundreds of runnable CPU threads.  Four CPU
+    # threads per GPU service is sufficient for preprocessing while leaving
+    # cores for EGL simulation workers.
+    env.update(
+        {
+            "OMP_NUM_THREADS": "4",
+            "MKL_NUM_THREADS": "4",
+            "OPENBLAS_NUM_THREADS": "4",
+            "NUMEXPR_NUM_THREADS": "4",
+        }
+    )
     return env
 
 
@@ -460,7 +589,8 @@ def validate_runtime(spec: dict[str, Any], runtime: dict[str, Any]) -> None:
     if enabled:
         raise ValueError(f"forbidden mixed methods for {spec['id']}: {enabled}")
     protocol = section.get("protocol") or {}
-    expected_flow = 4 if spec["model"] == "gr00t" else 10
+    frozen_protocol = json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
+    expected_flow = int(frozen_protocol["models"][spec["model"]]["flow_steps"])
     checks = {
         "flow_steps": expected_flow,
         "n_action_steps": 16,
@@ -488,6 +618,22 @@ def runtime_hash(spec: dict[str, Any], runtime: dict[str, Any]) -> str:
 
 
 def start_servers(specs: list[dict[str, Any]], schedule: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    eligible_gpus = tuple(schedule.get("eligible_gpus", DEFAULT_ELIGIBLE_GPUS))
+    disallowed = sorted(set(eligible_gpus) - set(DEFAULT_ELIGIBLE_GPUS))
+    invalid_placements = sorted(
+        {
+            placement.get("gpu")
+            for placement in schedule.get("placements", [])
+            if placement.get("gpu") not in eligible_gpus
+        },
+        key=lambda value: (-1 if value is None else int(value)),
+    )
+    if disallowed or invalid_placements:
+        raise ValueError(
+            "refusing server schedule outside the hard GPU allowlist: "
+            f"eligible={list(eligible_gpus)} disallowed={disallowed} "
+            f"invalid_placements={invalid_placements}"
+        )
     spec_by_id = {spec["id"]: spec for spec in specs}
     control = FORMAL / "control"
     control.mkdir(parents=True, exist_ok=True)
@@ -712,6 +858,16 @@ def worker_command(
 ) -> tuple[list[str], dict[str, str]]:
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"
+    # RoboCasa workers are process-parallel.  Prevent every worker from also
+    # creating a full-machine BLAS/OpenMP pool.
+    env.update(
+        {
+            "OMP_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
+            "OPENBLAS_NUM_THREADS": "1",
+            "NUMEXPR_NUM_THREADS": "1",
+        }
+    )
     seeds = job["seeds"]
     if job["model"] == "gr00t":
         command = [
@@ -811,49 +967,95 @@ def mem_available_gib() -> float:
     return 0.0
 
 
-def run_jobs(
-    specs: list[dict[str, Any]],
-    servers: dict[str, list[dict[str, Any]]],
-    stage: str,
+def persist_running_workers(stage: str, running: dict[int, dict[str, Any]]) -> None:
+    """Persist enough identity to let a detached supervisor reap only our workers."""
+    atomic_json(
+        FORMAL / "control" / f"{stage}_running_workers.json",
+        {
+            "updated_at": now(),
+            "stage": stage,
+            "workers": [
+                {
+                    "pid": pid,
+                    "process_group": pid,
+                    "job_id": item["job"]["id"],
+                    "attempt": item["attempt"],
+                    "output": str(item["output"].resolve()),
+                    "log": item["log"],
+                    "egl_gpu": item["egl_gpu"],
+                }
+                for pid, item in sorted(running.items())
+                if item["process"].poll() is None
+            ],
+        },
+    )
+
+
+def terminate_running_workers(
+    stage: str, running: dict[int, dict[str, Any]], *, reason: str
+) -> None:
+    """Terminate only worker process groups launched by this scheduler instance."""
+    live: list[tuple[int, dict[str, Any]]] = []
+    for pid, item in running.items():
+        if item["process"].poll() is None:
+            try:
+                process_group = os.getpgid(pid)
+                if process_group == pid:
+                    os.killpg(process_group, signal.SIGTERM)
+                else:
+                    item["process"].terminate()
+                live.append((pid, item))
+            except ProcessLookupError:
+                pass
+    deadline = time.time() + 30
+    while live and time.time() < deadline:
+        live = [(pid, item) for pid, item in live if item["process"].poll() is None]
+        if live:
+            time.sleep(0.5)
+    force_killed = []
+    for pid, item in live:
+        try:
+            process_group = os.getpgid(pid)
+            if process_group == pid:
+                os.killpg(process_group, signal.SIGKILL)
+            else:
+                item["process"].kill()
+            force_killed.append(pid)
+        except ProcessLookupError:
+            pass
+    for item in running.values():
+        try:
+            item["handle"].close()
+        except Exception:
+            pass
+    if running:
+        append_event(
+            {
+                "event": "worker_pool_cleanup",
+                "stage": stage,
+                "reason": reason,
+                "worker_pids": sorted(running),
+                "force_killed_pids": sorted(force_killed),
+            }
+        )
+    running.clear()
+    persist_running_workers(stage, running)
+
+
+def drive_worker_pool(
     *,
+    stage: str,
+    pending: list[dict[str, Any]],
+    running: dict[int, dict[str, Any]],
+    gpu_slots: dict[int, int],
+    last_launch: dict[int, float],
+    receipts: Path,
+    logs: Path,
     max_workers: int,
     workers_per_gpu: int,
+    eligible_gpus: tuple[int, ...],
+    active_unit_ids: set[str],
 ) -> None:
-    jobs = make_jobs(specs, stage)
-    manifest = {
-        "schema_version": 1,
-        "kind": "qvla_actquant_rollout_jobs",
-        "immutable": True,
-        "stage": stage,
-        "jobs": jobs,
-        "jobs_sha256": canonical_hash(jobs),
-        "formal_feedback_allowed": False,
-    }
-    immutable_json(FORMAL / f"{stage}_jobs.json", manifest)
-    output_root = FORMAL / ("raw" if stage == "formal" else "smoke") / stage
-    receipts = FORMAL / "control" / "receipts" / stage
-    logs = FORMAL / "control" / "workers" / stage
-    receipts.mkdir(parents=True, exist_ok=True)
-    logs.mkdir(parents=True, exist_ok=True)
-    pending = []
-    for job in jobs:
-        replicas = sorted(servers[job["unit_id"]], key=lambda row: row["replica"])
-        replica_index = int(hashlib.sha256(job["id"].encode()).hexdigest(), 16) % len(replicas)
-        server = replicas[replica_index]
-        output = output_root / job["method"] / job["model"] / f"{job['id']}.jsonl"
-        receipt = receipts / f"{job['id']}.json"
-        if receipt.is_file():
-            saved = json.loads(receipt.read_text(encoding="utf-8"))
-            if saved.get("job_sha256") != canonical_hash(job):
-                raise ValueError(f"receipt job drift: {receipt}")
-            checked = validate_worker_output(output, job, saved["server_metadata_sha256"])
-            if checked["sha256"] != saved["output_sha256"]:
-                raise ValueError(f"completed output changed: {output}")
-            continue
-        pending.append({"job": job, "server": server, "output": output, "attempt": 0})
-    running: dict[int, dict[str, Any]] = {}
-    gpu_slots: dict[int, int] = defaultdict(int)
-    last_launch: dict[int, float] = defaultdict(lambda: 0.0)
     while pending or running:
         for pid, item in list(running.items()):
             return_code = item["process"].poll()
@@ -862,12 +1064,20 @@ def run_jobs(
             item["handle"].close()
             gpu_slots[item["egl_gpu"]] -= 1
             job = item["job"]
-            try:
-                if return_code != 0:
-                    raise RuntimeError(f"exit={return_code}")
-                checked = validate_worker_output(
-                    item["output"], job, item["server"]["server_metadata_sha256"]
-                )
+            failure: Exception | None = None
+            checked: dict[str, Any] | None = None
+            if return_code != 0:
+                failure = RuntimeError(f"exit={return_code}")
+            else:
+                try:
+                    checked = validate_worker_output(
+                        item["output"], job, item["server"]["server_metadata_sha256"]
+                    )
+                except Exception as error:
+                    failure = error
+            del running[pid]
+            if failure is None:
+                assert checked is not None
                 receipt = {
                     "status": "complete",
                     "job_id": job["id"],
@@ -883,39 +1093,58 @@ def run_jobs(
                 }
                 atomic_json(receipts / f"{job['id']}.json", receipt)
                 append_event({"event": "worker_complete", **receipt})
-            except Exception as error:
-                if item["attempt"] >= 3:
-                    raise RuntimeError(
-                        f"worker failed after three attempts: {job['id']}; log={item['log']}"
-                    ) from error
-                pending.append(
-                    {
-                        "job": job,
-                        "server": item["server"],
-                        "output": item["output"],
-                        "attempt": item["attempt"],
-                    }
-                )
+                continue
+            if item["attempt"] >= MAX_WORKER_ATTEMPTS:
                 append_event(
                     {
-                        "event": "worker_retry",
+                        "event": "worker_attempts_exhausted",
+                        "stage": stage,
                         "job_id": job["id"],
                         "attempt": item["attempt"],
-                        "error": repr(error),
+                        "error": repr(failure),
+                        "log": item["log"],
                     }
                 )
-            del running[pid]
+                raise RuntimeError(
+                    f"worker failed after {MAX_WORKER_ATTEMPTS} attempts: "
+                    f"{job['id']}; log={item['log']}"
+                ) from failure
+            retry_delay = min(
+                WORKER_RETRY_MAX_SECONDS,
+                WORKER_RETRY_BASE_SECONDS * (2 ** max(0, item["attempt"] - 1)),
+            )
+            pending.append(
+                {
+                    "job": job,
+                    "server": item["server"],
+                    "output": item["output"],
+                    "attempt": item["attempt"],
+                    "retry_not_before": time.monotonic() + retry_delay,
+                }
+            )
+            append_event(
+                {
+                    "event": "worker_retry",
+                    "stage": stage,
+                    "job_id": job["id"],
+                    "attempt": item["attempt"],
+                    "retry_delay_seconds": retry_delay,
+                    "error": repr(failure),
+                }
+            )
 
         if len(running) < max_workers and pending and mem_available_gib() >= 48:
-            free = gpu_free_mib()
+            free = gpu_free_mib(eligible_gpus)
             launched_gpus = set()
             for item in list(pending):
                 if len(running) >= max_workers:
                     break
+                if time.monotonic() < item.get("retry_not_before", 0.0):
+                    continue
                 candidates = [
                     gpu
                     for gpu, available in free.items()
-                    if available >= 6500
+                    if available >= WORKER_MIN_FREE_MIB
                     and gpu_slots[gpu] < workers_per_gpu
                     and gpu not in launched_gpus
                     and time.monotonic() - last_launch[gpu] >= 10
@@ -930,14 +1159,18 @@ def run_jobs(
                 command, env = worker_command(job, item["server"], output, gpu)
                 log = logs / f"{job['id']}.attempt{item['attempt']}.log"
                 handle = log.open("a", encoding="utf-8", buffering=1)
-                process = subprocess.Popen(
-                    command,
-                    cwd=ROOT,
-                    env=env,
-                    stdout=handle,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=True,
-                )
+                try:
+                    process = subprocess.Popen(
+                        command,
+                        cwd=ROOT,
+                        env=env,
+                        stdout=handle,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                    )
+                except Exception:
+                    handle.close()
+                    raise
                 running[process.pid] = {
                     **item,
                     "process": process,
@@ -960,6 +1193,13 @@ def run_jobs(
                         "attempt": item["attempt"],
                     }
                 )
+        persist_running_workers(stage, running)
+        monotonic_now = time.monotonic()
+        retry_waits = [
+            max(0.0, item.get("retry_not_before", 0.0) - monotonic_now)
+            for item in pending
+            if item.get("retry_not_before", 0.0) > monotonic_now
+        ]
         atomic_json(
             FORMAL / "control" / f"{stage}_status.json",
             {
@@ -967,14 +1207,126 @@ def run_jobs(
                 "stage": stage,
                 "pending": len(pending),
                 "running": len(running),
-                "completed": len(jobs) - len(pending) - len(running),
+                "completed": len(list(receipts.glob("*.json"))),
+                "cooling_down": len(retry_waits),
+                "next_retry_seconds": min(retry_waits) if retry_waits else 0.0,
                 "gpu_worker_slots": dict(gpu_slots),
+                "eligible_gpus": list(eligible_gpus),
+                "active_unit_ids": sorted(active_unit_ids),
                 "mem_available_gib": mem_available_gib(),
             },
         )
         if pending or running:
             time.sleep(10)
-    append_event({"event": "rollout_stage_complete", "stage": stage, "jobs": len(jobs)})
+
+
+def run_jobs(
+    specs: list[dict[str, Any]],
+    servers: dict[str, list[dict[str, Any]]],
+    stage: str,
+    *,
+    max_workers: int,
+    workers_per_gpu: int,
+    eligible_gpus: tuple[int, ...],
+    active_unit_ids: set[str] | None = None,
+) -> None:
+    manifest_path = FORMAL / f"{stage}_jobs.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        jobs = manifest.get("jobs") or []
+        if (
+            manifest.get("schema_version") != 1
+            or manifest.get("kind") != "qvla_actquant_rollout_jobs"
+            or manifest.get("immutable") is not True
+            or manifest.get("stage") != stage
+            or manifest.get("formal_feedback_allowed") is not False
+            or manifest.get("jobs_sha256") != canonical_hash(jobs)
+        ):
+            raise ValueError(f"invalid immutable job manifest: {manifest_path}")
+    else:
+        jobs = make_jobs(specs, stage)
+        manifest = {
+            "schema_version": 1,
+            "kind": "qvla_actquant_rollout_jobs",
+            "immutable": True,
+            "stage": stage,
+            "jobs": jobs,
+            "jobs_sha256": canonical_hash(jobs),
+            "formal_feedback_allowed": False,
+        }
+        immutable_json(manifest_path, manifest)
+    output_root = FORMAL / ("raw" if stage == "formal" else "smoke") / stage
+    receipts = FORMAL / "control" / "receipts" / stage
+    logs = FORMAL / "control" / "workers" / stage
+    receipts.mkdir(parents=True, exist_ok=True)
+    logs.mkdir(parents=True, exist_ok=True)
+    pending = []
+    for job in jobs:
+        output = output_root / job["method"] / job["model"] / f"{job['id']}.jsonl"
+        receipt = receipts / f"{job['id']}.json"
+        if receipt.is_file():
+            saved = json.loads(receipt.read_text(encoding="utf-8"))
+            if saved.get("job_sha256") != canonical_hash(job):
+                raise ValueError(f"receipt job drift: {receipt}")
+            checked = validate_worker_output(output, job, saved["server_metadata_sha256"])
+            if checked["sha256"] != saved["output_sha256"]:
+                raise ValueError(f"completed output changed: {output}")
+            continue
+        if active_unit_ids is not None and job["unit_id"] not in active_unit_ids:
+            continue
+        replicas = sorted(servers[job["unit_id"]], key=lambda row: row["replica"])
+        replica_index = int(hashlib.sha256(job["id"].encode()).hexdigest(), 16) % len(replicas)
+        server = replicas[replica_index]
+        pending.append({"job": job, "server": server, "output": output, "attempt": 0})
+    # Preserve the immutable job manifest but launch round-robin across model
+    # units.  A grouped launch order leaves later servers idle for a large
+    # fraction of smoke/formal evaluation and is especially costly when each
+    # unit has one memory-constrained replica.
+    unit_order = list(dict.fromkeys(item["job"]["unit_id"] for item in pending))
+    by_unit = {
+        unit_id: [item for item in pending if item["job"]["unit_id"] == unit_id]
+        for unit_id in unit_order
+    }
+    pending = [
+        by_unit[unit_id][index]
+        for index in range(max((len(rows) for rows in by_unit.values()), default=0))
+        for unit_id in unit_order
+        if index < len(by_unit[unit_id])
+    ]
+    running: dict[int, dict[str, Any]] = {}
+    gpu_slots: dict[int, int] = defaultdict(int)
+    last_launch: dict[int, float] = defaultdict(lambda: 0.0)
+    selected_unit_ids = active_unit_ids or {spec["id"] for spec in specs}
+    try:
+        drive_worker_pool(
+            stage=stage,
+            pending=pending,
+            running=running,
+            gpu_slots=gpu_slots,
+            last_launch=last_launch,
+            receipts=receipts,
+            logs=logs,
+            max_workers=max_workers,
+            workers_per_gpu=workers_per_gpu,
+            eligible_gpus=eligible_gpus,
+            active_unit_ids=selected_unit_ids,
+        )
+    finally:
+        terminate_running_workers(stage, running, reason="scheduler_exit")
+    completed_receipts = len(list(receipts.glob("*.json")))
+    append_event(
+        {
+            "event": (
+                "rollout_stage_complete"
+                if completed_receipts == len(jobs)
+                else "rollout_unit_stage_complete"
+            ),
+            "stage": stage,
+            "jobs": len(jobs),
+            "completed_receipts": completed_receipts,
+            "active_unit_ids": sorted(selected_unit_ids),
+        }
+    )
 
 
 def artifact_for_arm(record: dict[str, Any]) -> dict[str, Any]:
@@ -991,22 +1343,47 @@ def artifact_for_arm(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def completed_result_server_hashes(method: str, model: str) -> list[str]:
+    """Bind a final arm to the servers that produced its completed rows.
+
+    A resumed pipeline may start replacement servers after all rollout receipts
+    already exist.  Their runtime metadata can differ from the metadata frozen
+    into the completed rows, so using the replacement inventory would make an
+    otherwise unchanged immutable arm manifest drift during finalization.
+    """
+    paths = sorted((FORMAL / "raw" / "formal" / method / model).glob("*.jsonl"))
+    hashes: set[str] = set()
+    rows = 0
+    for path in paths:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            metadata_sha = str(record.get("server_metadata_sha256", ""))
+            if len(metadata_sha) != 64:
+                raise ValueError(f"malformed server metadata SHA in {path}")
+            hashes.add(metadata_sha)
+            rows += 1
+    if rows != 2500:
+        raise ValueError(f"{method}/{model} finalization requires 2500 rows, got {rows}")
+    if not hashes:
+        raise ValueError(f"{method}/{model} has no completed server metadata")
+    return sorted(hashes)
+
+
 def make_candidate_arm_manifests(
-    specs: list[dict[str, Any]], servers: dict[str, list[dict[str, Any]]]
+    specs: list[dict[str, Any]], _servers: dict[str, list[dict[str, Any]]]
 ) -> list[Path]:
     protocol_sha = sha256_file(PROTOCOL_PATH)
     outputs = []
-    for method in ("qvla", "actquant"):
+    for method in sorted({spec["method"] for spec in specs}):
         for model in ("gr00t", "pi05"):
             selected = [spec for spec in specs if spec["method"] == method and spec["model"] == model]
             artifacts = [artifact_for_arm(spec["artifact"]) for spec in selected]
-            metadata = sorted(
-                {
-                    row["server_metadata_sha256"]
-                    for spec in selected
-                    for row in servers[spec["id"]]
-                }
-            )
+            # Final evidence is bound to the runtime metadata recorded in the
+            # completed episodes, not to replacement servers started by a
+            # later no-op resume attempt.
+            metadata = completed_result_server_hashes(method, model)
             static_bytes = sum(row["static_bytes"] for row in artifacts)
             baseline_bytes = sum(row["fp16_baseline_bytes"] for row in artifacts)
             path = FORMAL / "arm_manifests" / f"{method}_{model}.json"
@@ -1126,7 +1503,13 @@ def canonicalize_and_aggregate(candidate_manifests: list[Path], baseline_manifes
     run_checked(command, FORMAL / "control" / "aggregate.log")
 
 
-def execute(max_workers: int, workers_per_gpu: int, replicas: int) -> None:
+def execute(
+    max_workers: int,
+    workers_per_gpu: int,
+    replicas: int,
+    eligible_gpus: tuple[int, ...],
+    methods: tuple[str, ...],
+) -> None:
     lock_path = FORMAL / "control" / "pipeline.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+", encoding="utf-8") as lock:
@@ -1134,64 +1517,73 @@ def execute(max_workers: int, workers_per_gpu: int, replicas: int) -> None:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
             raise RuntimeError("formal pipeline is already running") from error
-        specs = unit_specs()
-        schedule = make_server_schedule(specs, replicas)
-        servers = {}
-        try:
-            servers = start_servers(specs, schedule)
-            run_jobs(
-                specs,
-                servers,
-                "smoke1",
-                max_workers=min(max_workers, 8),
-                workers_per_gpu=workers_per_gpu,
+        specs = unit_specs(methods)
+        schedule = make_server_schedule(specs, replicas, eligible_gpus)
+        server_inventory: dict[str, list[dict[str, Any]]] = {}
+        append_event(
+            {
+                "event": "gpu_allowlist_frozen",
+                "eligible_gpus": list(eligible_gpus),
+                "execution": "batched_model_units",
+                "methods": list(methods),
+            }
+        )
+        remaining_specs = list(specs)
+        while remaining_specs:
+            active_specs, active_schedule = place_server_batch(
+                remaining_specs, schedule, eligible_gpus
             )
-            run_jobs(
-                specs,
-                servers,
-                "smoke50",
-                max_workers=max_workers,
-                workers_per_gpu=workers_per_gpu,
-            )
-            candidates = make_candidate_arm_manifests(specs, servers)
-            baselines = make_baseline_manifests()
-            run_jobs(
-                specs,
-                servers,
-                "formal",
-                max_workers=max_workers,
-                workers_per_gpu=workers_per_gpu,
-            )
-            canonicalize_and_aggregate(candidates, baselines)
-            run_checked(
-                [
-                    GROOT_PY,
-                    str(
-                        ROOT
-                        / "scripts"
-                        / "tools"
-                        / "render_qvla_actquant_paper_extension.py"
-                    ),
-                ],
-                FORMAL / "control" / "paper_extension.log",
-            )
-            run_checked(
-                ["make", "-C", str(ROOT / "docs" / "gdsq_vla_iclr2027"), "check"],
-                FORMAL / "control" / "paper_check.log",
-            )
-            atomic_json(
-                FORMAL / "complete.json",
-                {
-                    "completed_at": now(),
-                    "status": "complete",
-                    "new_formal_episodes": 10_000,
-                    "aggregate": str(FORMAL / "aggregate.json"),
-                    "aggregate_sha256": sha256_file(FORMAL / "aggregate.json"),
-                },
-            )
-        finally:
-            if servers:
-                stop_servers(schedule)
+            servers: dict[str, list[dict[str, Any]]] = {}
+            try:
+                servers = start_servers(active_specs, active_schedule)
+                server_inventory.update(servers)
+                for stage in ("smoke1", "smoke50", "formal"):
+                    run_jobs(
+                        specs,
+                        servers,
+                        stage,
+                        max_workers=min(max_workers, 8) if stage == "smoke1" else max_workers,
+                        workers_per_gpu=workers_per_gpu,
+                        eligible_gpus=eligible_gpus,
+                        active_unit_ids={spec["id"] for spec in active_specs},
+                    )
+            finally:
+                if servers:
+                    stop_servers(active_schedule)
+            active_ids = {spec["id"] for spec in active_specs}
+            remaining_specs = [spec for spec in remaining_specs if spec["id"] not in active_ids]
+        atomic_json(FORMAL / "server_runtime_inventory.json", server_inventory)
+        candidates = make_candidate_arm_manifests(specs, server_inventory)
+        baselines = make_baseline_manifests()
+        canonicalize_and_aggregate(candidates, baselines)
+        run_checked(
+            [
+                GROOT_PY,
+                str(
+                    ROOT
+                    / "scripts"
+                    / "tools"
+                    / "render_qvla_actquant_paper_extension.py"
+                ),
+            ],
+            FORMAL / "control" / "paper_extension.log",
+        )
+        run_checked(
+            ["make", "-C", str(ROOT / "docs" / "gdsq_vla_iclr2027"), "check"],
+            FORMAL / "control" / "paper_check.log",
+        )
+        atomic_json(
+            FORMAL / "complete.json",
+            {
+                "completed_at": now(),
+                "status": "complete",
+                "methods": list(methods),
+                "new_formal_episodes": 2500
+                * len({(spec["method"], spec["model"]) for spec in specs}),
+                "aggregate": str(FORMAL / "aggregate.json"),
+                "aggregate_sha256": sha256_file(FORMAL / "aggregate.json"),
+            },
+        )
 
 
 def status() -> dict[str, Any]:
@@ -1209,18 +1601,30 @@ def main() -> None:
     parser.add_argument("command", choices=("run", "status", "stop-servers"))
     parser.add_argument("--max-workers", type=int, default=32)
     parser.add_argument("--workers-per-gpu", type=int, default=4)
-    parser.add_argument("--replicas", type=int, default=2)
+    parser.add_argument("--replicas", type=int, default=1)
+    parser.add_argument(
+        "--methods",
+        default=",".join(METHOD_CONFIG),
+        help="comma-separated method subset (qvla,actquant)",
+    )
+    parser.add_argument(
+        "--eligible-gpus",
+        default=",".join(map(str, DEFAULT_ELIGIBLE_GPUS)),
+        help="comma-separated physical GPU allowlist (default: 3,4,5,6)",
+    )
     args = parser.parse_args()
     if args.command == "status":
         print(json.dumps(status(), indent=2, sort_keys=True))
         return
     if args.command == "stop-servers":
-        schedule = json.loads((FORMAL / "server_schedule.json").read_text(encoding="utf-8"))
-        stop_servers(schedule)
+        for path in sorted(FORMAL.glob("server_schedule*.json")):
+            stop_servers(json.loads(path.read_text(encoding="utf-8")))
         return
     if args.max_workers < 1 or args.workers_per_gpu < 1:
         raise ValueError("worker concurrency must be positive")
-    execute(args.max_workers, args.workers_per_gpu, args.replicas)
+    eligible_gpus = parse_gpu_list(args.eligible_gpus)
+    methods = parse_methods(args.methods)
+    execute(args.max_workers, args.workers_per_gpu, args.replicas, eligible_gpus, methods)
 
 
 if __name__ == "__main__":

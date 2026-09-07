@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "kind": "fcp_candidate_and_hardware_completion_preregistration",
+  "frozen_at": "2026-09-02T17:12:00+08:00",
+  "repository_commit_at_freeze": "fd6cccde6d0cb4977dc4874acae1a9eacbe7c1d9",
+  "scope": "GR00T N1.5 on RoboCasa365 target-posttraining checkpoints",
+  "disclosure": {
+    "prospective_from_this_file": [
+      "scores for the three previously unscored structural candidates on Atomic-Seen and Composite-Seen",
+      "scores for all six corrected candidates on Composite-Unseen",
+      "the combined complete-policy decision",
+      "all reduced closed-loop candidate results",
+      "all hardware latency, peak-memory, and energy results"
+    ],
+    "already_observed_before_freeze": [
+      {
+        "artifact": "runs/full_context_v2/statistics_correction/scores/scores_atomic_seen.json",
+        "sha256": "1fcc60f7ba236f1dd4cffff0e1177330d090c2f169b4d588b07ffc669a92fd9a"
+      },
+      {
+        "artifact": "runs/full_context_v2/statistics_correction/scores/scores_composite_seen.json",
+        "sha256": "cdc3cb1a9fa8013e6759f778def8b26910db40a5c2e470054daa4662e870b38c"
+      }
+    ],
+    "result_feedback_forbidden": true
+  },
+  "frozen_inputs": {
+    "parent_protocol": {
+      "path": "scripts/quantvla_full_context_protocol.json",
+      "sha256": "de7d45262e2158309cc62d51ff92f2e2b025f35b9154140ff5a41ad13dedd9e3"
+    },
+    "candidate_manifest": {
+      "path": "runs/full_context_v2/statistics_correction/proposals/manifest.json",
+      "sha256": "2f3472d1df3d09a23b8212eec01182516ac9371491add60641c304b3ba3c48fa"
+    },
+    "candidate_ids": [
+      "single_best",
+      "two_best",
+      "attention_6",
+      "mlp_2",
+      "ff_pair_0",
+      "dp_full_lambda_1p0"
+    ],
+    "control_id": "context_base",
+    "scorer_sha256": "f5ef4d7c985e93df4f68300d6da294f616ae31352502ad48deda4ef2c88bc3ca",
+    "combiner_sha256": "58c91834738ba553c24e2d5ac751a7ca553262c43345879232bc4d58c944b565",
+    "selection_core_sha256": "e831d9e050d73b6316e18eec1494c5352740275ff59b0ba6a2f742e8f8c9b927",
+    "closed_loop_runner_sha256": "f9abe26bc936f78cc11bf3372911fd77fd7b5e1b829d974f0f11830868876c50",
+    "inference_service_sha256": "b798d4d93b8cedb82f4ae48b78ef6f8131ec6f2929a9c9dd8c39e9ca87ec22ef"
+  },
+  "complete_policy_evaluation": {
+    "hypothesis": "At least one corrected proposal reduces both task-clustered complete-policy deviation metrics relative to context_base without violating any component guard.",
+    "null_outcome": "No proposal passes; retain context_base and report abstention.",
+    "splits": [
+      "atomic_seen",
+      "composite_seen",
+      "composite_unseen"
+    ],
+    "selection_buffer": "four tasks per split, three task-seed sequences per task, four replans per sequence; 144 observations total",
+    "teacher": "original native BF16/FP16 checkpoint for each split",
+    "candidate_runtime": "signed packed group-64 W4 weights with dynamic per-forward per-channel A8 and four flow steps",
+    "paired_noise": "frozen noise stream A",
+    "primary_objective": "J_teacher=max over D_func/D_PAC and all registered task clusters of (mean task delta + corrected task-mean SE)/context_base task-macro scale",
+    "acceptance": "strict J_teacher < 0 and mean task delta + SE <= 0 for pose, stitch, and gripper; equality fails",
+    "candidate_state_rule": "If any candidates pass the teacher-state screen, audit at most the three best teacher-state candidates on their own rollout observations and require J_final=max(J_teacher,J_candidate)<0 with the same component guards.",
+    "tie_break": [
+      "smallest table1 total static bytes",
+      "fewest retained FP16 layers",
+      "lexicographically smallest FP16 mask"
+    ],
+    "negative_results_policy": "All candidates and all failed constraints remain in the report. No replacement candidate will be generated after viewing these scores."
+  },
+  "closed_loop_evaluation": {
+    "role": "post-selection diagnostic and task-success characterization; success labels cannot change the FCP acceptance decision",
+    "benchmark": "RoboCasa365 target split",
+    "tasks": 50,
+    "task_sets": {
+      "atomic_seen": 18,
+      "composite_seen": 16,
+      "composite_unseen": 16
+    },
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "episodes_per_candidate": 500,
+    "candidate_ids": [
+      "single_best",
+      "two_best",
+      "attention_6",
+      "mlp_2",
+      "ff_pair_0",
+      "dp_full_lambda_1p0"
+    ],
+    "paired_control": {
+      "id": "context_base",
+      "artifact": "runs/full_context_v2/table1/results/full_context_v2",
+      "reuse_only_seeds": "0-9",
+      "expected_episodes": 500
+    },
+    "primary_metric": "unweighted task-macro success-rate difference versus context_base",
+    "secondary_metrics": [
+      "micro success-rate difference",
+      "split task-macro success rate",
+      "paired wins/losses/ties",
+      "exact two-sided McNemar p-value",
+      "task-then-seed hierarchical bootstrap 95% CI with 10000 draws and seed 0"
+    ],
+    "multiple_comparisons": "Holm adjustment across the six candidate-versus-control McNemar tests",
+    "coverage": "exactly one complete row for every candidate/task/seed; missing or duplicate rows are hard errors",
+    "interpretation": "The 10-seed matrix is a reduced evaluation and will not replace the existing 50-seed headline comparison."
+  },
+  "hardware_evaluation": {
+    "hypothesis": "Packed W4 residency reduces peak device memory, while dynamic A8 and the current fused kernels may trade latency and board energy against native precision.",
+    "device": "one otherwise idle NVIDIA A40 48GB (GPU 4 at protocol freeze)",
+    "checkpoint_and_input": "Atomic-Seen checkpoint-60000 and frozen Atomic-Seen selection-buffer observations",
+    "configurations": [
+      "native_fp16",
+      "quantvla_w4a8",
+      "context_base",
+      "single_best",
+      "two_best",
+      "attention_6",
+      "mlp_2",
+      "ff_pair_0",
+      "dp_full_lambda_1p0"
+    ],
+    "execution": {
+      "flow_steps": 4,
+      "batch_size": 1,
+      "warmup_requests": 10,
+      "measurement_requests": 60,
+      "trials": 3,
+      "order": "fixed as listed for trial 0, then deterministic cyclic rotations for trials 1 and 2",
+      "synchronization": "CUDA synchronize immediately before and after each timed inference",
+      "idle_guard": "abort a configuration if another compute process appears on the selected GPU"
+    },
+    "latency": {
+      "scope": "model-only end-to-end action-chunk inference, excluding simulator, client transport, and model load",
+      "reported": [
+        "median of trial medians",
+        "pooled p50",
+        "pooled p95",
+        "trial-mean and trial standard deviation",
+        "throughput at batch size 1"
+      ]
+    },
+    "peak_memory": {
+      "reported": [
+        "torch CUDA peak allocated bytes",
+        "torch CUDA peak reserved bytes",
+        "NVML peak process/device used MiB during measurement"
+      ],
+      "reset": "empty cache, synchronize, and reset CUDA peak statistics after warmup and before measurement"
+    },
+    "energy": {
+      "sensor": "NVIDIA NVML power.draw sampled through nvidia-smi at 10 Hz",
+      "reported": [
+        "gross board joules per inference by trapezoidal integration",
+        "idle-adjusted board joules per inference",
+        "mean and peak board power"
+      ],
+      "idle_baseline": "five seconds immediately before each measured trial",
+      "scope_warning": "GPU-board energy only; not whole-system or robot energy"
+    },
+    "runtime_warning": "Latency and energy describe the checked-in fused packed-W4 implementation on A40, not an optimized TensorRT deployment and not simulator wall time."
+  }
+}

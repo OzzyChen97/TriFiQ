@@ -47,6 +47,24 @@ def atomic_json(path: Path, value: Any) -> None:
     os.replace(temporary, path)
 
 
+def implementation_digest() -> tuple[str, list[dict[str, str]]]:
+    paths = (
+        ROOT / "code/qvla_actquant/core.py",
+        ROOT / "code/qvla_actquant/model_adapters.py",
+        ROOT / "code/qvla_actquant/gguf_artifacts.py",
+        ROOT / "code/qvla_actquant/runtime.py",
+        ROOT / "scripts/tools/run_actquant_calibration.py",
+    )
+    records = [
+        {
+            "path": str(path.relative_to(ROOT)),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in paths
+    ]
+    return canonical_hash(records), records
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -65,6 +83,7 @@ def main() -> None:
     parser.add_argument("--eligible-gpus", default="0,1,2,3,4,5,6,7")
     args = parser.parse_args()
     provenance = json.loads(args.provenance.resolve().read_text(encoding="utf-8"))
+    implementation_sha256, implementation_files = implementation_digest()
     jobs = []
     for unit, config in UNITS.items():
         python = GROOT_PYTHON if config["family"] == "gr00t" else OPENPI_PYTHON
@@ -78,18 +97,28 @@ def main() -> None:
         } else range(1)
         for index in indices:
             if args.phase == "qvla":
+                qvla_batch_size = "4" if config["family"] == "gr00t" else "2"
                 output = stage_dir / f"proxy_{index:03d}_of_{args.shards:03d}.pt"
                 argv = [
                     python, str(ROOT / "scripts/tools/run_qvla_calibration.py"), "collect",
                     "--model-family", config["family"], "--checkpoint", str(config["checkpoint"]),
                     "--checkpoint-sha256", checkpoint_sha, "--frozen-manifest", str(frozen),
                     "--output", str(output), "--shard-index", str(index), "--shard-count", str(args.shards),
-                    "--device", "cuda:0", "--batch-size", "1",
+                    "--device", "cuda:0", "--batch-size", qvla_batch_size,
                 ]
                 expected = [str(output), str(output) + ".json"]
-                required = 18_000 if config["family"] == "gr00t" else 20_000
+                # Measured peak for the two-shard GR00T layout is 15.7 GiB;
+                # keep a rounded 16 GiB launch bound plus the scheduler's
+                # separate 4 GiB device reserve.  pi0.5's 10.7--11.1 GiB
+                # Hessian shard brings its live peak to about 20 GiB.
+                required = 16_000 if config["family"] == "gr00t" else 20_000
             elif args.phase in {"actquant-hsic", "actquant-fisher"}:
                 mode = "collect-hsic" if args.phase == "actquant-hsic" else "collect-fisher"
+                # HSIC stores one pooled activation/action row per sample, so
+                # batching is algebraically equivalent and amortizes model
+                # transforms.  Fisher must stay at one: squaring a batch-mean
+                # gradient is not the empirical sum of per-sample grad^2.
+                batch_size = "4" if mode == "collect-hsic" else "1"
                 suffix = "json" if mode == "collect-hsic" else "pt"
                 output = stage_dir / f"{mode}_{index:03d}_of_{args.shards:03d}.{suffix}"
                 argv = [
@@ -97,12 +126,22 @@ def main() -> None:
                     "--model-family", config["family"], "--checkpoint", str(config["checkpoint"]),
                     "--checkpoint-sha256", checkpoint_sha, "--frozen-manifest", str(frozen),
                     "--output", str(output), "--shard-index", str(index), "--shard-count", str(args.shards),
-                    "--device", "cuda:0", "--batch-size", "1",
+                    "--device", "cuda:0", "--batch-size", batch_size,
                 ]
                 expected = [str(output)] if mode == "collect-hsic" else [str(output), str(output) + ".json"]
-                required = 15_000 if mode == "collect-hsic" else 19_000
-                if config["family"] == "pi05":
-                    required += 1_000
+                if mode == "collect-hsic":
+                    required = 16_000 if config["family"] == "pi05" else 15_000
+                else:
+                    # Fisher keeps each parameter shard's FP32 grad^2 sum on
+                    # device and performs one final D2H transfer.  Budget the
+                    # additional 2--3 GiB explicitly instead of falling back
+                    # to a per-frame PCIe/CPU accumulation bottleneck.
+                    # The scheduler separately preserves 4 GiB.  Four-way
+                    # GR00T Fisher sharding keeps only one quarter of the
+                    # FP32 accumulator/gradient inventory resident, so use a
+                    # 17 GiB launch bound and verify the live peak before
+                    # retaining it.  pi0.5 remains at the conservative bound.
+                    required = 24_000 if config["family"] == "pi05" else 17_000
             elif args.phase == "qvla-pack":
                 output_root = (args.output_root / "packs" / "qvla" / unit).resolve()
                 allocation = output_root / "allocation.json"
@@ -194,8 +233,24 @@ def main() -> None:
                 # calibration or QVLA into an FP16 calibration.
                 "env": {
                     "PYTHONUNBUFFERED": "1",
+                    # Each GPU job is independent.  Bound CPU math pools so
+                    # concurrent shards use the 128-thread host without each
+                    # spawning a machine-wide OpenMP/BLAS pool.
+                    "OMP_NUM_THREADS": "4",
+                    "MKL_NUM_THREADS": "4",
+                    "OPENBLAS_NUM_THREADS": "4",
+                    "NUMEXPR_NUM_THREADS": "4",
+                    "TOKENIZERS_PARALLELISM": "false",
                     dtype_variable: calibration_dtype,
                     "QVLA_ACTQUANT_CALIBRATION_DTYPE": calibration_dtype,
+                    # Bind every newly generated ActQuant job identity to the
+                    # exact collector/adapter implementation.  QVLA jobs that
+                    # predate this field retain their already frozen receipts.
+                    **(
+                        {"QVLA_ACTQUANT_JOB_IMPLEMENTATION_SHA256": implementation_sha256}
+                        if args.phase.startswith("actquant-")
+                        else {}
+                    ),
                 },
                 "required_mib": required,
                 "expected_outputs": expected,
@@ -209,6 +264,8 @@ def main() -> None:
         "provenance": str(args.provenance.resolve()),
         "provenance_sha256": hashlib.sha256(args.provenance.resolve().read_bytes()).hexdigest(),
         "jobs": jobs,
+        "implementation_sha256": implementation_sha256,
+        "implementation_files": implementation_files,
     }
     manifest["jobs_sha256"] = canonical_hash(jobs)
     atomic_json(args.manifest_output.resolve(), manifest)

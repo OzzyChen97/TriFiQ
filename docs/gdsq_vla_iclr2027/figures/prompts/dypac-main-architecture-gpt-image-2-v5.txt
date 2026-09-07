@@ -1,0 +1,35 @@
+Use case: infographic-diagram
+Asset type: full-width Figure 1 for a top-tier ICLR machine-learning paper
+
+Primary request: create a polished scientific overview figure explaining why VLA quantization requires full-context evaluation. The figure must read left to right as a three-panel argument: the conventional assumption, the closed-loop failure mechanism, and the proposed full-context QuantVLA response.
+
+Canvas and style: exact 3:1 landscape composition; white background; crisp flat vector-like scientific infographic; restrained ICLR paper aesthetic; thin navy outlines; muted blue, teal, and orange accents; Helvetica/Arial-like sans-serif typography; generous whitespace; consistent rounded rectangles and arrow weights. No gradients, shadows, textures, decorative background, watermark, or 3D rendering. It must remain legible when printed at full two-column paper width.
+
+Panel A, exact title: "Fixed-data PTQ"
+Show one simple vertical pipeline with these exact box labels, in order:
+"Teacher buffer"
+"Local reconstruction"
+"Frozen mask + ranges"
+At the bottom place the exact small caption: "Assumes deployment data stay fixed"
+Use cool gray and muted blue; make the final frozen box subtly orange to indicate the problematic assumption.
+
+Panel B, exact title: "Quantization changes the data"
+Show a clean clockwise feedback loop with exactly these five node labels:
+"Quantized policy"
+"Actions"
+"Future observations"
+"Activation ranges"
+"Quantization error"
+Use navy for policy/actions, blue for future observations, teal for activation ranges, and orange for quantization error. Arrows must clearly form one closed loop. In the center place the exact short statement: "Closed-loop feedback"
+
+Panel C, exact title: "Full-context QuantVLA"
+Show three aligned horizontal method cards that converge into one output policy. Each card must have the following exact text and no extra words:
+Card 1: "D-PAC" | "Temporal context" | "Physical action sequences"
+Card 2: "FCP" | "Whole-policy context" | "Propose locally • accept globally"
+Card 3: "DyRange-A8" | "Deployment context" | "Input-conditioned ranges"
+Below the cards, use one converging arrow into the exact output label: "Audited W4/FP16 policy"
+Use blue for D-PAC, orange for FCP, and teal for DyRange-A8. Make the output policy navy and visually decisive.
+
+Composition constraints: three equal-width panels with subtle separators; clear A, B, C panel markers in small navy squares; no panel border heavier than the arrows; align all titles and baselines; prevent any arrow from crossing text; preserve generous internal margins. The visual hierarchy must be readable in under five seconds: fixed-data assumption, feedback loop, three-part response.
+
+Text constraints: render every quoted phrase verbatim, with correct capitalization and punctuation. Do not add any other prose, legend, equation, acronym expansion, numerical result, logo, citation, or watermark. In particular spell exactly: "D-PAC", "FCP", "DyRange-A8", "QuantVLA", and "W4/FP16".

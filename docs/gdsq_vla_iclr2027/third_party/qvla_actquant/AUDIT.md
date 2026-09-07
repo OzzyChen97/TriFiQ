@@ -47,34 +47,24 @@ BF16 before a proxy shard can be written. Ordinary pi0.5 callers retain
 OpenPI's historical FP32 numerical islands; the uniform conversion is enabled
 only by the QVLA calibration or QVLA formal-runtime environment.
 
-ActQuant's paper evaluates OpenVLA-OFT and pi0.5 on LIBERO. Its paper says that
-RBF kernels are used throughout, whereas the released pi0.5 HSIC script defaults
-to an RBF hidden kernel and a linear action kernel. The local reproduction uses
-that released-code default and records it in every HSIC shard. The paper uses
-`alpha=1` for action-only pi0.5 Fisher and `alpha=1/2` as the mixed-pathway
-default; this frozen RoboCasa365 protocol deliberately requires `alpha=1` for
-both local continuous-action adapters. Fisher therefore uses the native
-flow-matching loss and per-weight `grad^2`, with no categorical loss.
+### Reproduction status
 
-For pi0.5, the final artifact follows the released unified and standalone GGUF
-export, `llama-quantize --imatrix` with exact per-tensor overrides, and released
-LLM merge. A local deterministic SigLIP component merge is then required because
-the public exporter has no mixed per-tensor vision allocation path. For GR00T,
-which has no public ActQuant exporter or ggml execution graph, the local adapter
-uses deterministic Eagle/Qwen names and the patched graph-free component
-quantizer. Both paths dequantize final GGUF tensors into the existing PyTorch
-services and make no C++ runtime claim.
-ActQuant calibration, allocation, packing, and formal-service jobs are
-fail-closed to explicit FP16 model loads. Every Linear/Conv weight must attest
-FP16, HSIC and flow-loss activation compute is FP16, and these facts are bound
-into each shard, allocation, pack manifest, and scheduler job hash. Numerically
-sensitive one-dimensional normalization parameters may remain FP32 exactly as
-in the official pi0.5 GGUF exporter; the protected action expert, action head,
-and multimodal projector GEMMs remain FP16.
-GPU job manifests also bind the model-family interpreter: GR00T jobs use the
-`groot_test` environment, while pi0.5 jobs use the OpenPI environment that
-provides its JAX/PyTorch loader dependencies. The interpreter path is part of
-the scheduler job SHA.
+ActQuant follows its official GitHub implementation at the pinned commit for
+the released allocation, quantization formats, and precision semantics; local
+code supplies deterministic GR00T/$\pi_{0.5}$ routing, artifact packaging,
+calibration integration, and RoboCasa365 evaluation.
+
+QVLA-code was cloned from its official GitHub repository at the pinned commit
+and follows the public Hessian proxy, channel gates, greedy allocator, and
+fake-quantization semantics. The release contains only OpenVLA-family/LIBERO
+paths and does not include GR00T, $\pi_{0.5}$, RoboCasa365, or corresponding
+mixed-row export support. The required local adapters pass parity, pack, and
+runtime-loading checks, but the four-flow-step run produced 0/1,728 GR00T and
+0/1,517 $\pi_{0.5}$ successes before being stopped. The public artifacts do
+not let us distinguish incomplete open sourcing from an error in the released
+code path. QVLA-code is therefore omitted from Table 1 and disclosed as a
+failed GitHub-based cross-architecture reproduction, not as a failure on the
+method's native OpenVLA/LIBERO setup.
 
 ## Calibration deviation
 

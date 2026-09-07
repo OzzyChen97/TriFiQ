@@ -55,6 +55,7 @@ SPLIT = {
     "gr00t_composite_unseen": "composite_unseen",
 }
 LAYOUT_COUNT = 12
+MULTIPLEX_COUNT = 16
 
 
 def now() -> str:
@@ -187,7 +188,7 @@ def validate_precision(metadata: dict[str, Any], unit: str) -> None:
         raise RuntimeError(f"{unit}: teacher is not strict FP16: {precision}")
 
 
-def discover_servers() -> tuple[list[dict[str, Any]], dict[str, str]]:
+def discover_existing_metadata() -> dict[str, str]:
     expected_sha: dict[str, str] = {}
     for unit, ports in EXISTING_PORTS.items():
         for port in ports:
@@ -200,6 +201,11 @@ def discover_servers() -> tuple[list[dict[str, Any]], dict[str, str]]:
             if unit in expected_sha and expected_sha[unit] != sha:
                 raise RuntimeError(f"{unit}: semantic metadata differs across replicas")
             expected_sha[unit] = sha
+    return expected_sha
+
+
+def discover_servers() -> tuple[list[dict[str, Any]], dict[str, str]]:
+    expected_sha = discover_existing_metadata()
     atomic = []
     for port in ATOMIC_PORTS:
         pid, cmd = process_for_port(port)
@@ -367,7 +373,15 @@ def all_ports(replacements: list[dict[str, Any]]) -> dict[str, tuple[int, ...]]:
     return {unit: tuple(ports) for unit, ports in result.items()}
 
 
-def launch_collector(unit: str, shard: int, count: int, port: int) -> dict[str, Any]:
+def launch_collector(
+    unit: str,
+    shard: int,
+    count: int,
+    port: int,
+    *,
+    control_dir: Path | None = None,
+    start_gate: Path | None = None,
+) -> dict[str, Any]:
     missing = shard_keys(manifest_keys(unit), shard, count) - committed_keys(unit)
     if not missing:
         return {
@@ -397,8 +411,12 @@ def launch_collector(unit: str, shard: int, count: int, port: int) -> dict[str, 
         "--egl-device",
         str(shard % 8),
     ]
-    directory = RUN / "collectors_fp16_strict"
+    directory = control_dir or (RUN / "collectors_fp16_strict")
+    directory.mkdir(parents=True, exist_ok=True)
     stem = f"{unit}_s{shard:02d}"
+    ready_file = directory / f"{stem}.ready.json"
+    if start_gate is not None:
+        argv.extend(["--start-gate", str(start_gate), "--ready-file", str(ready_file)])
     log = directory / f"{stem}_n{count:02d}.log"
     with log.open("a", encoding="utf-8", buffering=1) as handle:
         process = subprocess.Popen(
@@ -418,8 +436,11 @@ def launch_collector(unit: str, shard: int, count: int, port: int) -> dict[str, 
         "port": port,
         "egl_gpu": shard % 8,
         "pid": process.pid,
+        "command": " ".join(argv) + " ",
         "pid_file": str(pid_file),
         "log": str(log),
+        "ready_file": str(ready_file) if start_gate is not None else None,
+        "start_gate": str(start_gate) if start_gate is not None else None,
         "missing_before_launch": len(missing),
         "skipped_complete": False,
     }
@@ -444,6 +465,64 @@ def launch_layout(ports: dict[str, tuple[int, ...]], count: int) -> list[dict[st
     if dead:
         raise RuntimeError(f"collectors exited immediately: {dead}")
     return records
+
+
+def composites_complete() -> bool:
+    return all(committed_keys(unit) == manifest_keys(unit) for unit in SPLIT)
+
+
+def warm_layout(
+    ports: dict[str, tuple[int, ...]], count: int, expected_sha: dict[str, str]
+) -> tuple[list[dict[str, Any]], Path, bool]:
+    token = f"n{count}_{int(time.time())}_{os.getpid()}"
+    directory = RUN / "collectors_fp16_strict" / f"standby_{token}"
+    gate = RUN / "unattended" / f"gr00t_multiplex_gate_{token}.json"
+    records = []
+    for unit in SPLIT:
+        for shard in range(count):
+            records.append(
+                launch_collector(
+                    unit,
+                    shard,
+                    count,
+                    ports[unit][shard],
+                    control_dir=directory,
+                    start_gate=gate,
+                )
+            )
+    pending = {
+        (str(row["unit"]), int(row["shard"])): row
+        for row in records
+        if row.get("pid") is not None
+    }
+    try:
+        deadline = time.time() + 1_800
+        while pending and time.time() < deadline:
+            if composites_complete():
+                terminate([row for row in records if row.get("pid") is not None])
+                return records, gate, True
+            for key, row in list(pending.items()):
+                pid = int(row["pid"])
+                if not alive(pid):
+                    raise RuntimeError(f"standby collector exited during warm-up: {row}")
+                ready = Path(str(row["ready_file"]))
+                if not ready.is_file():
+                    continue
+                metadata = json.loads(ready.read_text(encoding="utf-8"))
+                if int(metadata["pid"]) != pid:
+                    raise RuntimeError(f"standby ready PID drift: {row} {metadata}")
+                if str(metadata["server_metadata_sha256"]) != expected_sha[str(row["unit"])]:
+                    raise RuntimeError(f"standby teacher metadata drift: {row} {metadata}")
+                row["ready"] = metadata
+                del pending[key]
+            if pending:
+                time.sleep(2)
+        if pending:
+            raise RuntimeError(f"standby warm-up timeout: {sorted(pending)}")
+    except Exception:
+        terminate([row for row in records if row.get("pid") is not None])
+        raise
+    return records, gate, False
 
 
 def launch_control(script: str, pid_name: str, log_name: str, args: list[str]) -> dict[str, Any]:
@@ -511,6 +590,116 @@ def preflight() -> dict[str, Any]:
         "active_composite_collectors": len(active_composite_collectors()),
         "controls": controls(),
     }
+
+
+def preflight_multiplex() -> dict[str, Any]:
+    state = {
+        unit: {"completed": len(committed_keys(unit)), "expected": len(manifest_keys(unit))}
+        for unit in ("gr00t_atomic_seen", *SPLIT)
+    }
+    if state["gr00t_atomic_seen"]["completed"] != state["gr00t_atomic_seen"]["expected"]:
+        raise RuntimeError(f"atomic calibration is not complete: {state['gr00t_atomic_seen']}")
+    if all(state[unit]["completed"] == state[unit]["expected"] for unit in SPLIT):
+        raise RuntimeError("both composite calibration units are already complete")
+    return {
+        "state": state,
+        "existing_metadata_sha256": discover_existing_metadata(),
+        "active_composite_collectors": len(active_composite_collectors()),
+        "controls": controls(),
+    }
+
+
+def apply_multiplex() -> None:
+    before = preflight_multiplex()
+    ports = {
+        unit: tuple(EXISTING_PORTS[unit][shard % len(EXISTING_PORTS[unit])] for shard in range(MULTIPLEX_COUNT))
+        for unit in SPLIT
+    }
+    base = {
+        "schema_version": 1,
+        "kind": "gr00t_composite_calibration_client_multiplex_v1",
+        "stage": "warming_standby_collectors",
+        "updated_at": now(),
+        "shard_count": MULTIPLEX_COUNT,
+        "before": before,
+        "ports": ports,
+    }
+    atomic_json(STATUS, base)
+    standby: list[dict[str, Any]] = []
+    try:
+        standby, gate, completed_during_warmup = warm_layout(
+            ports,
+            MULTIPLEX_COUNT,
+            dict(before["existing_metadata_sha256"]),
+        )
+    except Exception as error:
+        terminate([row for row in standby if row.get("pid") is not None])
+        atomic_json(
+            STATUS,
+            {**base, "stage": "warmup_failed_original_layout_unchanged", "updated_at": now(), "error": repr(error)},
+        )
+        raise
+    if completed_during_warmup:
+        result = {
+            **base,
+            "stage": "skipped_calibration_completed_during_warmup",
+            "updated_at": now(),
+            "standby_collectors": standby,
+        }
+        atomic_json(STATUS, result)
+        print(json.dumps({"status": str(STATUS), **result}, indent=2, sort_keys=True))
+        return
+
+    stopped_controls = controls()
+    stopped_collectors = active_composite_collectors()
+    try:
+        terminate([*stopped_controls, *stopped_collectors])
+        collectors = standby
+        canonical = RUN / "collectors_fp16_strict"
+        for row in collectors:
+            if row.get("pid") is None:
+                continue
+            pid_file = canonical / f"{row['unit']}_s{int(row['shard']):02d}.pid"
+            pid_file.write_text(f"{int(row['pid'])}\n", encoding="utf-8")
+            row["standby_pid_file"] = row["pid_file"]
+            row["pid_file"] = str(pid_file)
+        result = {
+            "schema_version": 1,
+            "kind": "gr00t_composite_calibration_client_multiplex_v1",
+            "stage": "complete",
+            "updated_at": now(),
+            "shard_count": MULTIPLEX_COUNT,
+            "before": before,
+            "ports": ports,
+            "collectors": collectors,
+            "stopped_controls": stopped_controls,
+            "stopped_collectors": stopped_collectors,
+            "start_gate": str(gate),
+        }
+        atomic_json(STATUS, result)
+        atomic_json(gate, {"opened_at": now(), "shard_count": MULTIPLEX_COUNT})
+        result["controls"] = start_controls()
+        atomic_json(STATUS, result)
+    except Exception as error:
+        terminate([row for row in standby if row.get("pid") is not None])
+        terminate(controls())
+        for row in active_composite_collectors():
+            terminate([row])
+        fallback = launch_layout(EXISTING_PORTS, 8)
+        fallback_controls = start_controls()
+        atomic_json(
+            STATUS,
+            {
+                "schema_version": 1,
+                "stage": "failed_rolled_back_collectors",
+                "updated_at": now(),
+                "error": repr(error),
+                "fallback_collectors": fallback,
+                "fallback_controls": fallback_controls,
+            },
+        )
+        raise
+    print(json.dumps({"status": str(STATUS), **result}, indent=2, sort_keys=True))
 
 
 def apply_rebalance() -> None:
@@ -586,7 +775,8 @@ def recover_collectors() -> None:
     if not STATUS.is_file():
         raise RuntimeError("no composite rebalance record; refusing recovery")
     record = json.loads(STATUS.read_text(encoding="utf-8"))
-    if record.get("stage") != "complete" or int(record.get("shard_count", 0)) != LAYOUT_COUNT:
+    count = int(record.get("shard_count", 0))
+    if record.get("stage") != "complete" or count < 1:
         raise RuntimeError(f"rebalance is not recoverable: stage={record.get('stage')}")
     by_key = {
         (str(row["unit"]), int(row["shard"])): row
@@ -594,8 +784,8 @@ def recover_collectors() -> None:
     }
     recovered = []
     for unit in SPLIT:
-        for shard in range(LAYOUT_COUNT):
-            missing = shard_keys(manifest_keys(unit), shard, LAYOUT_COUNT) - committed_keys(unit)
+        for shard in range(count):
+            missing = shard_keys(manifest_keys(unit), shard, count) - committed_keys(unit)
             if not missing:
                 continue
             old = by_key[(unit, shard)]
@@ -605,10 +795,10 @@ def recover_collectors() -> None:
                 cmd
                 and "collect_qvla_actquant_teacher.py" in cmd
                 and f"--shard-index {shard}" in cmd
-                and f"--shard-count {LAYOUT_COUNT}" in cmd
+                and f"--shard-count {count}" in cmd
             ):
                 continue
-            row = launch_collector(unit, shard, LAYOUT_COUNT, int(old["port"]))
+            row = launch_collector(unit, shard, count, int(old["port"]))
             by_key[(unit, shard)] = row
             recovered.append(row)
     record["collectors"] = [by_key[key] for key in sorted(by_key)]
@@ -624,6 +814,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--apply", action="store_true")
+    action.add_argument("--multiplex", action="store_true")
     action.add_argument("--check", action="store_true")
     args = parser.parse_args()
     lock_path = RUN / "unattended" / "gr00t_composite_rebalance.lock"
@@ -631,9 +822,11 @@ def main() -> None:
     with lock_path.open("a+", encoding="utf-8") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if args.check:
-            print(json.dumps(preflight(), indent=2, sort_keys=True))
+            print(json.dumps(preflight_multiplex(), indent=2, sort_keys=True))
         elif args.apply:
             apply_rebalance()
+        elif args.multiplex:
+            apply_multiplex()
         else:
             recover_collectors()
 

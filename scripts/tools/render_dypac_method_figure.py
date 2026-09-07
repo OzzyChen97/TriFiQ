@@ -293,21 +293,21 @@ def draw_deployment(ax: mpl.axes.Axes, x: float, w: float) -> None:
     rows = (
         (
             0.680,
-            "Temporal control context",
-            "Physical-sequence contract\nprefix • SE(3) • stitch • tail",
+            "Precision allocation",
+            "Action-weighted CS–CKA\nhard guards • exact bytes",
             SOFT_BLUE,
             BLUE,
         ),
         (
             0.445,
-            "Whole-policy precision context",
-            "Local evidence proposes\ncomplete policy decides • may abstain",
+            "Full-context verification",
+            "Physical sequence + complete policy\npropose locally • may abstain",
             SOFT_ORANGE,
             ORANGE,
         ),
         (
             0.210,
-            "Deployment-distribution context",
+            "Deployment adaptation",
             "Input-conditioned channelwise A8\nno frozen range lookup",
             SOFT_TEAL,
             TEAL,
@@ -340,7 +340,7 @@ def draw_deployment(ax: mpl.axes.Axes, x: float, w: float) -> None:
     ax.text(
         x + w / 2,
         0.105,
-        "time context × model context × deployment context",
+        "allocate under budget × audit in context × adapt at deployment",
         ha="center",
         va="center",
         fontsize=6.4,

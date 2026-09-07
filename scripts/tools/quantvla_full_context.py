@@ -233,11 +233,19 @@ def task_scalars(score: Mapping[str, Any]) -> dict[tuple[str, str], float]:
 def jackknife_task_se(values: np.ndarray) -> float:
     """Leave-one-task-out jackknife SE of the mean over tasks."""
     vector = np.asarray(values, dtype=np.float64)
+    if vector.ndim != 1 or vector.size == 0 or not np.isfinite(vector).all():
+        raise ValueError("task values must be a finite non-empty vector")
     if vector.size < 2:
         return 0.0
     mean = float(vector.mean())
     squared = float(np.sum((vector - mean) ** 2))
-    return float(math.sqrt((vector.size - 1) / vector.size * squared))
+    # For the sample mean, the delete-one estimates are
+    #   theta_(i) = (n * mean - x_i) / (n - 1).
+    # Applying the jackknife variance formula to those estimates reduces to
+    # sum_i (x_i - mean)^2 / (n * (n - 1)), which is also the usual standard
+    # error of the mean.  Applying the jackknife prefactor directly to the
+    # original observations would overestimate the SE by a factor of n - 1.
+    return float(math.sqrt(squared / (vector.size * (vector.size - 1))))
 
 
 def paired_candidate_summary(

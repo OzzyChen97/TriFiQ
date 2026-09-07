@@ -276,8 +276,23 @@ def test_jackknife_task_se_matches_closed_form() -> None:
 
     assert jackknife_task_se(np.asarray([1.0, 1.0, 1.0, 1.0])) == 0.0
     assert jackknife_task_se(np.asarray([0.0, 0.0, 2.0, 2.0])) == pytest.approx(
-        (3.0 / 4.0 * 4.0) ** 0.5
+        (4.0 / (4.0 * 3.0)) ** 0.5
     )
+    values = np.asarray([-2.0, -0.5, 0.25, 1.5, 3.0])
+    assert jackknife_task_se(values) == pytest.approx(
+        values.std(ddof=1) / np.sqrt(values.size)
+    )
+
+
+def test_jackknife_task_se_rejects_invalid_vectors() -> None:
+    from quantvla_full_context import jackknife_task_se
+
+    with pytest.raises(ValueError, match="finite non-empty vector"):
+        jackknife_task_se(np.asarray([]))
+    with pytest.raises(ValueError, match="finite non-empty vector"):
+        jackknife_task_se(np.asarray([[1.0, 2.0]]))
+    with pytest.raises(ValueError, match="finite non-empty vector"):
+        jackknife_task_se(np.asarray([1.0, np.nan]))
 
 
 def test_task_scalars_aggregate_seeds_within_task() -> None:

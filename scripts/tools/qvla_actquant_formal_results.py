@@ -26,14 +26,10 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL_PATH = REPO_ROOT / "scripts" / "qvla_actquant_table1_protocol.json"
 FULL_CONTEXT_PATH = REPO_ROOT / "scripts" / "quantvla_full_context_protocol_v2.json"
+FROZEN_SOURCE_ROOT = REPO_ROOT / "runs" / "qvla_actquant_table1" / "frozen_sources"
 METHODS = {"qvla", "actquant", "dypac"}
 MODELS = {"gr00t", "pi05"}
-CANDIDATE_KEYS = {
-    ("qvla", "gr00t"),
-    ("actquant", "gr00t"),
-    ("qvla", "pi05"),
-    ("actquant", "pi05"),
-}
+CANDIDATE_METHODS = {"qvla", "actquant"}
 
 
 def sha256_file(path: Path) -> str:
@@ -109,6 +105,31 @@ def expected_episode_keys() -> set[tuple[str, str, int]]:
     }
 
 
+def pack_model_unit(model: str, registered_model_unit: str) -> str:
+    """Map the deployment arm ID to the pack builder's frozen split ID."""
+    if model == "gr00t":
+        prefix = "gr00t_"
+        if not registered_model_unit.startswith(prefix):
+            raise ValueError(f"malformed GR00T model unit: {registered_model_unit}")
+        return registered_model_unit[len(prefix) :]
+    if model == "pi05" and registered_model_unit == "pi05_all_target":
+        return "all_target"
+    raise ValueError(f"malformed pi0.5 model unit: {registered_model_unit}")
+
+
+def verified_frozen_source_path(relative_path: str, expected_sha: str) -> Path:
+    """Resolve a frozen implementation file after the live tree has advanced."""
+    source_path = (REPO_ROOT / relative_path).resolve()
+    if source_path.is_file() and sha256_file(source_path) == expected_sha:
+        return source_path
+    archived_source = FROZEN_SOURCE_ROOT / expected_sha / relative_path
+    if archived_source.is_file() and sha256_file(archived_source) == expected_sha:
+        return archived_source
+    raise ValueError(
+        f"frozen implementation changed without a verified archive: {source_path}"
+    )
+
+
 def load_arm_manifest(path: Path) -> tuple[dict[str, Any], str]:
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if manifest.get("schema_version") != 1:
@@ -167,7 +188,8 @@ def load_arm_manifest(path: Path) -> tuple[dict[str, Any], str]:
             pack_manifest = json.loads(pack_manifest_path.read_text(encoding="utf-8"))
             if (
                 pack_manifest.get("method") != method
-                or pack_manifest.get("model_unit") != artifact["model_unit"]
+                or pack_manifest.get("model_unit")
+                != pack_model_unit(model, str(artifact["model_unit"]))
                 or pack_manifest.get("source_protocol_equivalent") is not False
                 or not pack_manifest.get("target_inventory_sha256")
                 or not pack_manifest.get("exclusion_inventory_sha256")
@@ -180,9 +202,9 @@ def load_arm_manifest(path: Path) -> tuple[dict[str, Any], str]:
             if canonical_sha256(implementation_records) != implementation["sha256"]:
                 raise ValueError(f"{path}: implementation inventory hash drift")
             for source_record in implementation_records:
-                source_path = (REPO_ROOT / source_record["path"]).resolve()
-                if not source_path.is_file() or sha256_file(source_path) != source_record["sha256"]:
-                    raise ValueError(f"{path}: frozen implementation changed: {source_path}")
+                verified_frozen_source_path(
+                    str(source_record["path"]), str(source_record["sha256"])
+                )
             if method == "qvla":
                 packed = pack_manifest.get("pack") or {}
                 packed_path = Path(packed.get("path", "")).expanduser().resolve()
@@ -470,8 +492,19 @@ def aggregate(
         if identity in candidates:
             raise ValueError(f"duplicate candidate arm {identity}")
         candidates[identity] = (path, rows)
-    if set(candidates) != CANDIDATE_KEYS:
-        raise ValueError(f"candidate family drift: {sorted(candidates)} != {sorted(CANDIDATE_KEYS)}")
+    candidate_methods = {method for method, _model in candidates}
+    expected_candidates = {
+        (method, model) for method in candidate_methods for model in MODELS
+    }
+    if (
+        not candidate_methods
+        or not candidate_methods <= CANDIDATE_METHODS
+        or set(candidates) != expected_candidates
+    ):
+        raise ValueError(
+            "candidate family must contain both models for each selected method; "
+            f"got {sorted(candidates)}"
+        )
     if set(baseline_paths) != MODELS:
         raise ValueError("aggregation requires exactly gr00t and pi05 DyPAC baselines")
     baselines: dict[str, tuple[Path, dict]] = {}
@@ -533,7 +566,7 @@ def aggregate(
         "ready_for_table_update": True,
         "protocol": str(PROTOCOL_PATH),
         "protocol_sha256": sha256_file(PROTOCOL_PATH),
-        "formal_episode_count_new": 10_000,
+        "formal_episode_count_new": 2500 * len(candidates),
         "bootstrap_draws": draws,
         "bootstrap_seed": 0,
         "holm_family": sorted(comparisons),

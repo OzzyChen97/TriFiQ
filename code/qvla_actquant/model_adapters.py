@@ -115,8 +115,18 @@ def _stack_records(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
 
 def prepare_gr00t_batch(policy, frames: Sequence[dict[str, Any]], *, include_actions: bool):
     raw = _stack_records([gr00t_raw_record(frame, include_actions=include_actions) for frame in frames])
-    normalized = policy.apply_transforms(raw)
-    return normalized
+    # Gr00tPolicy keeps its modality transform in inference mode, where the
+    # official transform intentionally drops action/action_mask.  Calibration
+    # losses need those fields even though the policy model itself stays in
+    # eval mode.  Switch only the data transform for this deterministic call
+    # and always restore inference behavior before returning.
+    if include_actions:
+        policy.modality_transform.train()
+    try:
+        return policy.apply_transforms(raw)
+    finally:
+        if include_actions:
+            policy.modality_transform.eval()
 
 
 def pi05_raw_record(frame: dict[str, Any], *, include_actions: bool) -> dict[str, Any]:
@@ -148,6 +158,13 @@ def _recursive_torch(value: Any, device: str) -> Any:
     if isinstance(value, dict):
         return {key: _recursive_torch(child, device) for key, child in value.items()}
     array = np.asarray(value)
+    # Normalization statistics may be stored as float64 and NumPy promotes
+    # otherwise-float32 state/actions during arithmetic.  OpenPI's model
+    # contract requires float32 observations and teacher actions; leaving the
+    # promotion in place makes its FP32 loss backpropagate through an FP64
+    # target and fails with "Found dtype Double but expected Float".
+    if np.issubdtype(array.dtype, np.floating) and array.dtype.itemsize > 4:
+        array = array.astype(np.float32)
     if not array.flags.c_contiguous:
         array = np.ascontiguousarray(array)
     return torch.from_numpy(array).to(device)
@@ -195,14 +212,31 @@ def iter_frame_batches(
         path = Path(episode["archive"])
         with np.load(path, allow_pickle=False) as archive:
             count = int(episode["frames"])
+            # A compressed NPZ member is decompressed on every __getitem__.
+            # Materialize each member once per episode instead of once per
+            # frame; the yielded records and their order remain unchanged.
+            images = archive["images"]
+            wrist_images = archive["wrist_images"]
+            right_images = archive["right_images"]
+            states = archive["states"]
+            prompts = archive["prompts"]
+            teacher_actions = archive["teacher_actions"]
+            lengths = {
+                len(images), len(wrist_images), len(right_images),
+                len(states), len(prompts), len(teacher_actions),
+            }
+            if lengths != {count}:
+                raise ValueError(
+                    f"archive/frame length drift for {path}: expected {count}, got {sorted(lengths)}"
+                )
             for local_index in range(count):
                 pending.append({
-                    "image": archive["images"][local_index].copy(),
-                    "wrist_image": archive["wrist_images"][local_index].copy(),
-                    "right_image": archive["right_images"][local_index].copy(),
-                    "state": archive["states"][local_index].copy(),
-                    "prompt": str(archive["prompts"][local_index]),
-                    "actions": archive["teacher_actions"][local_index].copy(),
+                    "image": images[local_index].copy(),
+                    "wrist_image": wrist_images[local_index].copy(),
+                    "right_image": right_images[local_index].copy(),
+                    "state": states[local_index].copy(),
+                    "prompt": str(prompts[local_index]),
+                    "actions": teacher_actions[local_index].copy(),
                     "episode_key": episode["episode_key"],
                     "task": episode["task"],
                     "env_seed": int(episode["env_seed"]),
@@ -217,21 +251,98 @@ def iter_frame_batches(
         yield pending
 
 
-def run_backbone_only(model_family: str, policy, prepared: Any) -> None:
+def run_backbone_only(
+    model_family: str,
+    policy,
+    prepared: Any,
+    *,
+    preserve_flow_rng: bool = False,
+    actions: torch.Tensor | None = None,
+) -> None:
     if model_family == "gr00t":
-        backbone_inputs, _ = policy.model.prepare_input(prepared)
+        backbone_inputs, action_inputs = policy.model.prepare_input(prepared)
         policy.model.backbone(backbone_inputs)
+        if preserve_flow_rng:
+            # The released HSIC path executes the complete training forward.
+            # Its excluded action head draws CUDA Gaussian noise and then
+            # samples a CPU-resident Beta distribution.  The latter advances
+            # the same CPU RNG used by the next batch's train-mode image/state
+            # transforms.  Reproduce those two draws without running the DiT,
+            # otherwise a backbone-only optimization silently changes every
+            # later calibration observation.
+            action = action_inputs.action
+            noise = torch.randn(
+                action.shape, device=action.device, dtype=action.dtype
+            )
+            beta = policy.model.action_head.beta_dist
+            if (
+                beta.concentration1.dtype != torch.float32
+                or beta.concentration0.dtype != torch.float32
+            ):
+                beta = torch.distributions.Beta(
+                    beta.concentration1.float(), beta.concentration0.float()
+                )
+                policy.model.action_head.beta_dist = beta
+            sampled_time = beta.sample([action.shape[0]]).to(
+                action.device, dtype=action.dtype
+            )
+            del noise, sampled_time
         return
     if model_family == "pi05":
+        from openpi.models_pytorch.pi0_pytorch import make_att_2d_masks
+
         model = policy._model
-        images, masks, tokens, token_masks, _ = model._preprocess_observation(prepared, train=False)
-        model.embed_prefix(images, masks, tokens, token_masks)
+        images, masks, tokens, token_masks, _ = model._preprocess_observation(
+            prepared, train=preserve_flow_rng
+        )
+        if preserve_flow_rng:
+            if actions is None:
+                raise ValueError("pi0.5 flow-RNG preservation requires actions")
+            # Match PI0Pytorch.forward exactly: preprocessing first, then
+            # Gaussian noise and Beta time on the action device, then prefix
+            # embedding.  Neither sampled value feeds the frozen target
+            # backbone, so retaining them would only waste memory.
+            noise = model.sample_noise(actions.shape, actions.device)
+            sampled_time = model.sample_time(actions.shape[0], actions.device)
+            del noise, sampled_time
+        prefix_embs, prefix_pad_masks, prefix_att_masks = model.embed_prefix(
+            images, masks, tokens, token_masks
+        )
+        prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
+        attention_mask = model._prepare_attention_masks_4d(prefix_att_2d_masks)
+        position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
+        # Mirror the native sample_actions prefix-cache pass.  Passing no
+        # suffix executes PaliGemma/SigLIP while deliberately bypassing the
+        # action expert that the frozen target inventory excludes.
+        model.paligemma_with_expert.paligemma.language_model.config._attn_implementation = "eager"
+        model.paligemma_with_expert.forward(
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=None,
+            inputs_embeds=[prefix_embs, None],
+            use_cache=False,
+        )
         return
     raise ValueError(model_family)
 
 
 def flow_loss(model_family: str, policy, prepared: Any, actions: torch.Tensor | None) -> torch.Tensor:
     if model_family == "gr00t":
+        # GR00T stores its Beta distribution outside the nn.Module buffer
+        # registry.  The local uniform-FP16 loader nevertheless converts its
+        # concentration tensors to Half, for which PyTorch does not implement
+        # Dirichlet/Beta sampling.  Restore only the stochastic sampler to
+        # FP32 and let the released action head cast the sampled time back to
+        # the action dtype.  Distribution parameters and RNG ordering stay
+        # unchanged.
+        beta = policy.model.action_head.beta_dist
+        if (
+            beta.concentration1.dtype != torch.float32
+            or beta.concentration0.dtype != torch.float32
+        ):
+            policy.model.action_head.beta_dist = torch.distributions.Beta(
+                beta.concentration1.float(), beta.concentration0.float()
+            )
         output = policy.model(prepared)
         return output["loss"]
     if model_family == "pi05":
