@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\caption{Controlled temporal probes of the production D-PAC implementation (deterministic metric tests; no robot rollouts).}
+\label{tab:temporal_validation}
+\footnotesize
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Perturbation & Raw MSE & Local & Prefix & Stitch & Grip \\
+\midrule
+Persistent bias & 2.08e-06 & 0.00467 & 0.109 & 0 & 0 \\
+Alternation & 2.08e-06 & 0.00467 & 0.0002 & 0.018 & 0 \\
+Boundary impulses & 1.95e-07 & 0.000438 & 8.48e-06 & 0.018 & 0 \\
+Interior impulses & 1.95e-07 & 0.000438 & 1.42e-05 & 0 & 0 \\
+Gripper delay & 8.33e-06 & 0.012 & 0.038 & 0.0641 & 0.0362 \\
+Base-coordinate control & 8.33e-06 & 0.012 & 0.038 & 0.0641 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}

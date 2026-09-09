@@ -1,0 +1,275 @@
+{
+  "schema_version": 1,
+  "method_id": "full_context_fp16_protection_v2",
+  "cross_model_protocol": "quantvla-gr00t-pi05-errorfold-v4",
+  "teacher": "original_native_fp16_checkpoint",
+  "selection_noise": "A",
+  "heldout_noise": {
+    "name": "B",
+    "usage": "audit_only_after_mask_and_activation_mode_are_frozen"
+  },
+  "deployment": {
+    "weight_states": [
+      "native_fp16",
+      "signed_nibble_group64_w4"
+    ],
+    "activation_states": [
+      "static_per_flow_step_a8",
+      "dynamic_per_forward_per_channel_a8"
+    ],
+    "runtime_selector": false,
+    "runtime_correction": false,
+    "forbidden_components": [
+      "errorfold",
+      "atm",
+      "ohb",
+      "blocksoftfold",
+      "calibration_fp16_bypass"
+    ],
+    "w4_retains_fp_weight": false
+  },
+  "model_hyperparameters": {
+    "gr00t": {
+      "quantvla_anchor_compression": 2.22,
+      "table1_flow_steps": 4
+    },
+    "pi05": {
+      "quantvla_anchor_compression": 2.96,
+      "table1_flow_steps": 4
+    }
+  },
+  "byte_budget": {
+    "scope": "table1_total_static_component_bytes",
+    "budget_anchor": "table1_quantvla_storage_cell",
+    "maximum_quantvla_byte_multiplier": 1.1,
+    "variable_budget_rule": "floor(1.10*table1_quantvla_component_bytes) - (table1_fp16_component_bytes - candidate_scope_fp16_bytes)",
+    "table1_fp16_component_bytes": {
+      "gr00t": 2139537408,
+      "pi05": 4416602112
+    },
+    "table1_quantvla_component_bytes": {
+      "gr00t": 963772416,
+      "pi05": 1490466816
+    },
+    "candidate_scope_fp16_bytes": {
+      "gr00t": 1812185088,
+      "pi05": 4416602112
+    },
+    "display_tolerance_gib": 0.0005,
+    "layer_count_is_not_a_constraint": true,
+    "minimum_approximate_compression": {
+      "gr00t": 2.018181818181818,
+      "pi05": 2.6909090909090905
+    }
+  },
+  "activation_attribution": {
+    "reference": "static_a8",
+    "control": "fp16",
+    "deployable_alternative": "dynamic_a8",
+    "a16_is_deployable": false,
+    "a8_bottleneck_rule": "paired_upper_bounds_for_d_func_and_d_pac_are_both_negative",
+    "mode_selection_rule": "same_paired_minimax_rule_as_mask_selection",
+    "frozen_activation_mode": "dynamic_a8",
+    "a16_closed_loop_diagnostic_only": true
+  },
+  "counterfactual_search": {
+    "background": "current_complete_w4_fp16_mask",
+    "rounds": 2,
+    "round_one": "flip_every_w4_target_to_fp16_individually",
+    "round_two": "flip_every_target_state_individually_from_round_one_winner",
+    "shortlist": false,
+    "blocksoftfold_usage": "historical_diagnostic_only",
+    "scalarization_lambdas": [
+      0.0,
+      0.25,
+      0.5,
+      0.75,
+      1.0
+    ],
+    "budget_solver": "exact_sparse_pareto_01_dynamic_programming",
+    "full_network_rescore_required": true,
+    "solver_role": "candidate_generator_only_full_scorer_decides"
+  },
+  "selection": {
+    "sample_unit": "paired_task_seed_sequence",
+    "statistics": "task_macro_scalar_with_seed_aggregation_and_leave_one_task_out_jackknife_se",
+    "score": "max over metrics {D_func,D_PAC} and task clusters {all,atomic,composite_seen,composite_unseen} of (mean_task_delta+SE_task(delta))/baseline_task_macro_scalar",
+    "required_score": "strictly_less_than_zero",
+    "component_constraints": [
+      "pose",
+      "stitch",
+      "grip"
+    ],
+    "component_rule": "mean(delta_component)+SE_task(delta_component)<=0",
+    "one_se_reference": "best_full_network_candidate",
+    "tie_break": [
+      "smallest_static_bytes",
+      "fewest_fp16_layers",
+      "lexicographically_smallest_fp16_mask"
+    ],
+    "uses_task_ids_for_stratified_statistics": true,
+    "uses_task_labels_for_routing_or_task_specific_mask": false,
+    "uses_success_labels": false,
+    "uses_gradients": false,
+    "uses_extra_training_data": false
+  },
+  "candidate_state_adjudication": {
+    "enabled": true,
+    "top_k": 3,
+    "replans_per_candidate": "4_to_8",
+    "success_and_reward_ignored": true,
+    "pooled_observation_buffer": true,
+    "paired_noise_on_pooled_observations": true,
+    "final_score": "max(J_teacher_state, J_candidate_state)",
+    "role": "selection_stage_diagnostic"
+  },
+  "selection_buffer_v2": {
+    "role": "cross_context_fp16_onpolicy_selection_buffer",
+    "tasks_per_split": 4,
+    "seeds_per_task": 3,
+    "replans_per_sequence": 4,
+    "max_replans": 12,
+    "windows": {
+      "early": [0, 4],
+      "middle": [4, 8],
+      "late": [8, 12]
+    },
+    "window_assignment": "hash_of_task_and_seed",
+    "total_sequences": 36,
+    "total_observations": 144,
+    "gr00t_coverage": "atomic_seen_and_composite_seen_and_composite_unseen_checkpoints",
+    "pi05_coverage": "single_fp16_server_checkpoint",
+    "global_static_mask_only": true,
+    "spec_path": "runs/full_context_v2/selection_context_spec.json",
+    "archive_path": "runs/full_context_v2/selection_buffer.npz",
+    "teacher": "fp16_onpolicy_server"
+  },
+  "quick_development": {
+    "tasks": [
+      "CloseFridge",
+      "OpenDrawer",
+      "LoadDishwasher",
+      "PrepareCoffee",
+      "MakeIceLemonade"
+    ],
+    "seeds": [
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59
+    ],
+    "episodes_per_config": 50,
+    "role": "development_advancement_gate",
+    "advance_if": [
+      "candidate_micro_success_strictly_greater_than_gdsq_main",
+      "candidate_task_macro_not_less_than_gdsq_main",
+      "paired_wins_strictly_greater_than_paired_losses",
+      "candidate_total_static_bytes_not_greater_than_1.10_times_table1_quantvla_bytes"
+    ]
+  },
+  "table1": {
+    "benchmark": "RoboCasa365",
+    "split": "target",
+    "task_counts": {
+      "atomic_seen": 18,
+      "composite_seen": 16,
+      "composite_unseen": 16
+    },
+    "tasks": {
+      "atomic_seen": [
+        "CloseBlenderLid",
+        "CloseFridge",
+        "CloseToasterOvenDoor",
+        "CoffeeSetupMug",
+        "NavigateKitchen",
+        "OpenCabinet",
+        "OpenDrawer",
+        "OpenStandMixerHead",
+        "PickPlaceCounterToCabinet",
+        "PickPlaceCounterToStove",
+        "PickPlaceDrawerToCounter",
+        "PickPlaceSinkToCounter",
+        "PickPlaceToasterToCounter",
+        "SlideDishwasherRack",
+        "TurnOffStove",
+        "TurnOnElectricKettle",
+        "TurnOnMicrowave",
+        "TurnOnSinkFaucet"
+      ],
+      "composite_seen": [
+        "DeliverStraw",
+        "GetToastedBread",
+        "KettleBoiling",
+        "LoadDishwasher",
+        "PackIdenticalLunches",
+        "PreSoakPan",
+        "PrepareCoffee",
+        "RinseSinkBasin",
+        "ScrubCuttingBoard",
+        "SearingMeat",
+        "SetUpCuttingStation",
+        "StackBowlsCabinet",
+        "SteamInMicrowave",
+        "StirVegetables",
+        "StoreLeftoversInBowl",
+        "WashLettuce"
+      ],
+      "composite_unseen": [
+        "ArrangeBreadBasket",
+        "ArrangeTea",
+        "BreadSelection",
+        "CategorizeCondiments",
+        "CuttingToolSelection",
+        "GarnishPancake",
+        "GatherTableware",
+        "HeatKebabSandwich",
+        "MakeIceLemonade",
+        "PanTransfer",
+        "PortionHotDogs",
+        "RecycleBottlesByType",
+        "SeparateFreezerRack",
+        "WaffleReheat",
+        "WashFruitColander",
+        "WeighIngredients"
+      ]
+    },
+    "seeds": "0-49",
+    "episodes_per_model_per_config": 2500,
+    "primary_metric": "unweighted_task_macro_success_rate",
+    "secondary_metrics": [
+      "micro_success_rate",
+      "split_task_macro_success_rate",
+      "paired_discordance",
+      "exact_two_sided_mcnemar",
+      "task_then_seed_hierarchical_bootstrap"
+    ],
+    "multiple_comparisons": "Holm",
+    "missing_episode_policy": "hard_error",
+    "duplicate_episode_policy": "hard_error",
+    "result_feedback": false
+  },
+  "only_allowed_model_differences": {
+    "adapter_fields": [
+      "checkpoint_and_loader",
+      "observation_preprocessing",
+      "native_inverse_normalization",
+      "canonical_action_mapping",
+      "module_and_role_mapping",
+      "attention_hooks",
+      "real_quant_kernel_binding"
+    ],
+    "hyperparameter_fields": [
+      "quantvla_anchor_compression",
+      "table1_flow_steps",
+      "frozen_activation_mode",
+      "batch_size",
+      "gpu_shards"
+    ]
+  }
+}

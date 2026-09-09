@@ -1,0 +1,369 @@
+\section{Supplementary Evidence}
+\label{sec:supplement}
+
+\subsection{RIPA Allocation Details and Statistic Provenance}
+\label{sec:init_provenance}
+
+We construct the GR00T initializer with RIPA before FCP. In the historical implementation notation, $S_i=(\lambda_g\bar d_i^{\mathrm{geom}}+\lambda_d\bar d_i^{\mathrm{dist}})/(\lambda_g+\lambda_d)$, where $\bar d_i^{\mathrm{geom}}=\bar d_i^{\mathrm{rel}}$ and $\bar d_i^{\mathrm{dist}}$ are jointly normalized versions of $1-\widehat{\mathrm{CKA}}_i$ and $\widehat D_{\mathrm{CS},i}$. Equation~\ref{eq:cscka_allocator} writes the same cost as $\mathcal I_i=w_iS_i$. Action-impact weights prioritize layers whose one-layer intervention changes physical actions, while RMS and saturation guards retain unstable layers in FP16. A greedy byte-constrained solver followed by fixed-size flips produces nine complete candidate masks. Paired adjudication on 16 calibration observations selects one mask for each weighting without success labels.
+
+\paragraph{Normalization and action weights.}
+For each statistic $z\in\{1-\widehat{\mathrm{CKA}},\widehat D_{\mathrm{CS}}\}$, let $\mathcal P$ contain all finite measured $(i,b)$ pairs in the frozen score bank. The selector computes $\bar z_{i,b}=(z_{i,b}-\min_{\mathcal P}z)/(\max_{\mathcal P}z-\min_{\mathcal P}z)$ independently for the two terms, setting a constant term to zero when its range is below $10^{-12}$. Missing terms are omitted and the available fusion weights renormalized; a target without a usable score remains FP16. The deployed score uses the W4 entries. The relational field is \texttt{cka\_dit} (action-generator output), whereas CS is measured at the intervened Linear output.
+
+The recorded action-impact source is the one-layer functional deviation $d_i= D_{\mathrm{func},i}$, not raw MSE or D-PAC. With $n$ targets, missing $d_i$ is replaced by the mean of measured values; if none are measured or their sum is nonpositive, $w_i=1$. Otherwise,
+\begin{equation}
+ v_i=\frac{n d_i}{\sum_jd_j},\qquad c_i=\operatorname{clip}(v_i,0.5,2),\qquad
+ w_i=\frac{n c_i}{\sum_jc_j}.
+\end{equation}
+The final renormalization preserves mean one but rescales the clipping endpoints. The frozen GR00T bank gives $w_i\in[0.76535,3.06141]$, not $[0.5,2]$. Its raw \dfunc values range from $5.17\times10^{-5}$ to $0.32739$.
+
+\paragraph{Why the two damage views are complementary.}
+For paired feature matrices, $Y=X+\mathbf{1}b^\top$ preserves centered relations while translating the distribution. Conversely, $Y=PX$ for a row permutation $P$ preserves the empirical distribution but generally disrupts input-corresponding relations. Each view is therefore blind to a transformation the other detects, which is why RIPA scores both.
+
+\paragraph{Hard numerical protection.}
+For reference/quantized pooled outputs $X,Y$, the RMS guard is $r_i=\operatorname{median}_c|\log((\operatorname{RMS}(Y_c)+10^{-6})/(\operatorname{RMS}(X_c)+10^{-6}))|$. The saturation guard is the fraction of elements of $Y$ exceeding $P_{99.9}(|X|)$ in magnitude. Thresholds are 1.5 times the nearest-rank 99th percentile of measured W4 guard values, unless supplied by the frozen bank. GR00T uses $\tau_{\mathrm{rms}}=0.1318639107$ and $\tau_{\mathrm{sat}}=0.0023243131$; exceeding either removes a layer's quantization options and retains it in FP16. The protected numerical outlier is language layer 2's MLP down-projection. These are feasibility cuts, not soft penalties.
+
+\paragraph{Historical calibration provenance.}
+The headline initializer's parent plan and the independent signal comparison read \nolinkurl{checkpoints/packs/robocasa365/sensitivity_robocasa365_atomic_protocolfix_d4_g64_b4_6_dit.json} (SHA-256 prefix \texttt{29e1a5c7a991e2ab}). Its calibration buffer is deterministic and self-contained: regenerating it from seed 0, 256 observations, horizon 16, action dimension 32, and the RoboCasa365 observation format reproduces the recorded digest \texttt{1f61d740\ldots f531c} exactly. The digest covers the generation parameters and the observation and noise tensors, so it identifies the inputs rather than only the configuration. Those inputs are synthetic and data-free---random images and states drawn from the checkpoint's recorded ranges---in RoboCasa365 format. The bank's \texttt{obs\_source} constant instead names the L1 format; both are synthetic, so only that format label disagrees with the buffer the digest fixes. The same digest appears in the static A8 range table and in the allocation report, linking the bank, that table, and the archived final mask to one buffer. The 256-observation buffer is the A8 calibration set; the representation statistics use its first 16 observations, and the action-impact weights use the first eight with two paired noise draws each. We neither relabel the bank as FCP's 12-task on-policy buffer nor present FCP's buffer as its source.
+
+\paragraph{Protocol attribution.}
+The historical 54.0\% configuration was produced under the v2.0 protocol: the frozen 100-W4/16-FP16 mask, its Hessian W4 construction, and the \dyrange execution stack are those of the v2.0 pipeline. The bank records a wrapped representation reference with FP16 target-layer weights, static A8 activation scaling, and rotations active, while its functional pairing and guard reference use the pure FP16 model; we report those archived fields as recorded.
+
+\paragraph{What the audit establishes.}
+The audit reproduces the recorded calibration inputs and regenerates all nine precision candidates from the frozen sensitivity bank. Re-running the archived allocation entry point from that bank, with the inputs recorded in the parent plan, reproduces the parent plan's 116-layer precision vector, its byte total, and all nine candidates exactly; the archived deployment mask matches candidate~2 (historical label \texttt{flip8}). The audit does not recompute the sensitivity bank and does not rerun the historical candidate-ranking stage. The shared A8 range table belongs to the historical static-activation path; the deployed \dyrange rule recomputes ranges per forward and does not read it. Table~\ref{tab:ripa_provenance} records each link; the audit is reproduced by \nolinkurl{scripts/tools/verify_ripa_provenance.py} and stored at \nolinkurl{docs/gdsq_vla_iclr2027/evidence/ripa_provenance_audit.json}.
+
+\input{tables/ripa_provenance}
+
+FCP separately uses original-reference physical actions on its stratified buffer. The Gaussian CS bandwidth is fixed from the representation reference; token/step samples are dependent.
+
+A four-task development sweep selects $\lambda_g:\lambda_d=16:1$ by closed-loop macro success, yielding the 100-W4/16-FP16 initial mask. The source statistic definitions remain those cited in Section~\ref{sec:cscka}.
+
+The full-context stage runs once from the frozen $M_0$; it does not restart from several initial masks and retain the best-performing one. The artifact registry records the exact initializer and calibration-buffer hash. The four ratio-selection tasks remain in the 50-task aggregate. A post-freeze calculation over the other 46 tasks gives 51.8\% for ours, 27.6\% for QuantVLA W4A8, and 52.8\% for FP16, showing that the four development tasks do not create the main pattern.
+
+\subsection{Exact Metric Specification and Edge Cases}
+\label{sec:metric_specification}
+
+\paragraph{Sequence construction and action semantics.}
+Each metric unit is a task--seed sequence $u$ with $R_u$ unique replans. We sort replans by their recorded integer index; each contributes the complete inverse-normalized $(16,12)$ chunk executed before the next replan, so $N_u=16R_u$. We discard later unexecuted forecasts, do not overlap adjacent chunks, and do not deduplicate predictions. A sequence contains only complete chunks collected before success, termination, truncation, or the official horizon. Duplicate replans, any shape other than $(16,12)$, or a non-finite value fail the metric gate rather than being padded or imputed. Coordinates 1--3 encode end-effector translation, 4--6 a rotation vector, 7 gripper close, and 8--12 the deployed base/control commands. Equation~\ref{eq:global_scale} normalizes each coordinate separately.
+
+For coordinate $k$, we estimate a robust scale once from the complete FP16 selection buffer and never recompute it per task, sequence, or candidate:
+\begin{equation}
+ \tilde{s}_k=\max\!\left(1.4826\operatorname{MAD}_k,0.1\operatorname{RMS}_k\right),\qquad
+ s_k=\max\!\left(\tilde{s}_k,0.05\operatorname{median}_{j}\tilde{s}_j,10^{-4}\right).
+ \label{eq:global_scale}
+\end{equation}
+With $z_{u,t}=(a^Q_{u,t}-a^T_{u,t})/s$ and $\rho(z)=2(\sqrt{1+z^2}-1)$, the local and accumulated terms are
+\begin{equation}
+ d_{\mathrm{local}}^{(u)}=\frac{1}{N_ud}\sum_{t,k}\rho(z_{u,t,k}),\qquad
+ d_{\mathrm{prefix}}^{(u)}=\frac{1}{N_ud}\sum_{t,k}
+ \rho\!\left(\frac{\sum_{j=1}^{t}z_{u,j,k}}{\sqrt{t}}\right).
+ \label{eq:local_prefix}
+\end{equation}
+
+\paragraph{Pose map.}
+For $\xi=[v;\omega]$, let $\Omega=[\omega]_{\times}$, $\theta=\lVert\omega\rVert_2$, and
+\begin{equation}
+\begin{aligned}
+\operatorname{Exp}(\xi)
+&=\begin{bmatrix}
+I+A\Omega+B\Omega^2&(I+B\Omega+C\Omega^2)v\\
+0&1
+\end{bmatrix},\\
+A&=\frac{\sin\theta}{\theta},\qquad
+B=\frac{1-\cos\theta}{\theta^2},\qquad
+C=\frac{\theta-\sin\theta}{\theta^3}.
+\end{aligned}
+\label{eq:se3_exp_detail}
+\end{equation}
+The implementation uses Taylor limits for $\theta<10^{-5}$. Right multiplication, $T_t=T_{t-1}\operatorname{Exp}(\xi_t)$, interprets each increment in the current end-effector frame. The logarithm uses the principal rotation angle and inverse left Jacobian $V^{-1}=I-\Omega/2+c\Omega^2$, where $c=1/12$ near zero and $c=\theta^{-2}-(1+\cos\theta)/(2\theta\sin\theta)$ otherwise. The three control-specific components are
+\begin{align}
+ e^{\mathrm{pose}}_t&=\frac{\operatorname{Diag}(s_{1:6})^{-1}
+ \operatorname{Log}((T^T_t)^{-1}T^Q_t)}{\sqrt t},\qquad
+ d_{\mathrm{pose}}^{(u)}=\overline\rho_t(e^{\mathrm{pose}}_t),
+ \label{eq:pose}\\
+ d_{\mathrm{stitch}}&=\overline{\rho}\!\left(
+ \frac{(A^Q_{r+1,1}-A^Q_{r,H})-(A^T_{r+1,1}-A^T_{r,H})}{s}
+ \right),
+ \label{eq:stitch}\\
+ d_{\mathrm{grip}}^{(u)}&=\tfrac12\left[
+ \overline\rho_t(g^Q_t-g^T_t)+
+ \overline\rho_{t>1}((g^Q_t-g^Q_{t-1})-(g^T_t-g^T_{t-1}))\right],
+ \label{eq:gripper}
+\end{align}
+where $g^P_t=\sigma(4a^P_{t,7}/s_7)$. Translation and rotation are normalized coordinatewise before averaging.
+
+\paragraph{Functional diagnostic.}
+For physical final chunks indexed by context $i$, define
+\begin{equation}
+\begin{aligned}
+ e_i&=\frac{\lVert A_i^Q-A_i^T\rVert_F^2}
+ {\max(\lVert A_i^T\rVert_F^2,10^{-8})},\qquad
+ d_{\mathrm{final}}=\frac{\lVert A^Q-A^T\rVert_F^2}
+ {\max(\lVert A^T\rVert_F^2,10^{-8})},\\
+ \dfunc&=d_{\mathrm{final}}+d_{\mathrm{kin}}+d_{\mathrm{grip}}
+ +2\operatorname{CVaR}_{0.9,i}(e_i).
+\end{aligned}
+\label{eq:dfunc_detail}
+\end{equation}
+$d_{\mathrm{kin}}$ is one half of the sum of analogous relative errors restricted to translation and rotation coordinates. The logged $d_{\mathrm{solver}}=\operatorname{mean}_i e_i$ is a separate summary. In Equation~\ref{eq:dfunc_detail}, $\operatorname{CVaR}_{0.9,i}(e_i)$ averages the context-level samples $e_i$ at or above their empirical 90th percentile, rather than applying CVaR to that scalar mean. The registered \dfunc gripper term is the fraction of adjacent solver states for which active gripper changes ($>10^{-4}$ in both policies) disagree in sign. Because the shared selection path records only final physical chunks and not the internal solver trajectory, this legacy \dfunc gripper term is zero on that path. Gripper deviation still enters \dpac through Equation~\ref{eq:gripper} and the explicit component guard.
+
+\paragraph{Evaluation order.}
+For each candidate, we (1) validate paired records, sort replans, and inverse-normalize final chunks; (2) compute the global 12-coordinate scale once from all FP16 selection chunks; (3) evaluate Equations~\ref{eq:local_prefix}, \ref{eq:pose}, \ref{eq:stitch}, and \ref{eq:gripper} for each task--seed sequence; (4) form the five-component mean and worst-10\% sequence mean in Equation~\ref{eq:dpac_sequence}; and (5) compute task-level candidate-minus-$M_0$ differences, the jackknife standard error in Equation~\ref{eq:task_jackknife}, $J$, and the pose/stitch/gripper upper bounds. We set $d_{\mathrm{stitch}}=0$ for a one-replan sequence and the gripper-difference term to zero for a one-action sequence. Acceptance requires strict $J_{\mathrm{final}}<0$, non-positive component upper bounds, and the exact byte constraint; equality fails closed.
+
+For $n_g$ task scalars $x_t$ in cluster $g$, the implemented leave-one-task-out jackknife standard error is
+\begin{equation}
+ \operatorname{SE}^{\mathrm{jack}}(\bar{x})=
+ \sqrt{\frac{\sum_{t\in g}(x_t-\bar{x})^2}{n_g(n_g-1)}},
+ \label{eq:task_jackknife}
+\end{equation}
+which is algebraically identical to the usual sample standard error of the task mean.
+
+\subsection{Mask Diagnostic Robustness}
+\label{sec:mask_diagnostic}
+
+The registered 50-episode diagnostic compares $M_0$ with uniform full-W4 under an otherwise identical runtime. $M_0$ obtains 56\% versus 46\%, with ten paired wins, five losses, and 35 ties ($p=0.302$). An earlier 50-episode exploratory wave reverses the direction (50\% versus 52\%); pooling both waves gives 53\% versus 49\% ($p=0.557$). We retain this small-sample result as a robustness check outside the headline evaluation.
+
+\subsection{Paired Statistical Detail}
+
+Against QuantVLA W4A8, 1,647 of 2,500 episodes are tied, 721 favor \method, and 132 favor QuantVLA. The exact two-sided McNemar test gives $p=6.30\times10^{-99}$; Holm adjustment over the registered comparison family gives $p=1.89\times10^{-98}$. Against FP16, 1,889 episodes are tied, 292 favor \method, and 319 favor FP16, giving $p=0.2929$.
+
+Against the initializer-stage GDSQ-VLA deployment, 1,841 episodes are tied, 370 favor \method, and 289 favor GDSQ-VLA. The exact McNemar test gives $p=0.00181$, and Holm adjustment gives $p=0.00362$. All three split-specific GDSQ-VLA plans use exactly the same 100-W4/16-FP16 decision vector as the final mask. GDSQ-VLA uses the original DuQuant W4 substrate and split-calibrated static A8, whereas the final stack uses Hessian-aware W4 and \dyrange. The contrast therefore measures their combined post-allocation effect. In the paired GR00T task-level comparison, ours is higher/tied/lower on 48/1/1 tasks against QuantVLA; Figure~\ref{fig:operating_points} shows the common-scope operating points and Table~\ref{tab:main_results} the full comparison with storage scopes marked.
+
+\subsection{Compression-Rate Sweep}
+\label{sec:compression_sweep}
+
+\input{tables/compression_sweep}
+
+The sweep traces our own rate family rather than an external baseline: every arm is produced by the frozen FCP rule from the same 116-layer inventory, with one frozen layer ordering and the same Hessian-g64/dynamic-A8 execution stack. Shrinking the static policy by 2.19$\times$ across the two endpoints produces no monotonic success degradation: the 2.556$\times$ all-W4 endpoint reaches 55.4\%, tying the 1.166$\times$ arm and exceeding the frozen 2.224$\times$ headline rate of 54.0\%. The isolated 51.4\% trough at 1.979$\times$ is driven most strongly by Composite-Unseen, which falls to 37.5\% and recovers to 44.4\% at the all-W4 endpoint. Across this candidate domain, one pipeline sustains a broad high-success compression plateau.
+
+\paragraph{Formal-scale maximal-rate endpoints.}
+The all-W4 endpoints are additionally evaluated at formal Table-1 scale (50 seeds per task, 2,500 episodes) under the shared four-flow-step protocol and are displayed in Table~\ref{tab:main_results} as \method (Ours, all-W4). They are the maximal-rate endpoint of the same rate family, not an independently developed baseline. On GR00T, the all-W4 rate-family endpoint reaches 52.8\% task-macro success (1319/2500; 70.9/42.9/42.3 by split) at 836,960,256 static bytes (2.556$\times$), versus 54.0\% for the audited anchor at 2.22$\times$. On $\pi_{0.5}$, the 180-layer all-W4 profile reaches 26.8\% (670/2500; 58.7/14.5/3.3 by split) at 1,242,169,344 static bytes (3.556$\times$), versus 27.7\% for the projected anchor and 26.2\% for FP16. Both rows are descriptive operating points of our own rate family; they are not registered tests, we do not test them against the headline mask, and neither revises the frozen headline rows. The aggregate is content-addressed at
+\nolinkurl{runs/robocasa365_table1_max_sweep_v1/aggregate.json} (SHA256 \texttt{93bb7b021ca83b07\allowbreak 3b314c6b18e97f3\allowbreak d7b4c4e327eeb190\allowbreak 375d7d5fedb3070bc}) and the plans at
+\nolinkurl{runs/robocasa365_table1_max_sweep_v1/masks/gr00t_max.plan.json} (SHA256 \texttt{b1fe584404184bf6\allowbreak f5505af5ef40ebae\allowbreak ab759a94c1e0e952\allowbreak dd19b085e387179d}) and
+\nolinkurl{runs/robocasa365_table1_max_sweep_v1/masks/pi05_max.plan.json} (SHA256 \texttt{8b0aabc15e489702\allowbreak 50e605ca689e08bd\allowbreak e3c9b73616d2c31f\allowbreak d2fae88d01759dbd}).
+
+\subsection{RIPA Signal Ablation}
+\label{sec:signal_ablation}
+
+\input{tables/signal_ablation}
+
+\paragraph{Relation to the headline mask.}
+This is an independent signal comparison under a common exact-byte solver, not a direct reuse of the headline fused mask. All three arms reuse the same frozen sensitivity file, action weights, numerical guards, and 116-layer inventory. The changed allocation entry point is \texttt{select\_byte\_ablation\_masks.py}: starting from all-W4, it maximizes protected risk with a binary integer program subject to exactly 125,108,224 extra FP16 bytes. Tie-breaking minimizes protected-layer count and then uses lexicographic order. In contrast, the historical headline parent uses greedy allocation with a Uniform-W6 budget, fixed-size flips, and complete-mask adjudication; its final mask is the \texttt{flip8} winner. The equality solver rebuilds the fused arm as 93-W4/23-FP16, versus 100-W4/16-FP16 in Table~\ref{tab:main_results}. Both use 962,068,480 static-component bytes because layer sizes differ. Calibration statistics are reused rather than recollected; candidate generation and the equality constraint differ from the headline procedure.
+
+Within this independent comparison, only the allocation signal changes across the three arms, while the exact static byte budget, Hessian-aware W4, deployment-conditioned A8, and rollout protocol stay fixed. The Primary-46 estimand excludes the four tasks used to choose the 16:1 fusion ratio. Historical table and artifact labels CS+CKA-DiT, CKA-DiT only, and CS only denote the fused, relational-only, and distributional-only variants. The fused variant is higher than relational-only on 16 tasks, tied on 17, and lower on 13; against distributional-only the counts are 21/11/14. Both aggregate differences favor fusion descriptively, with Holm-adjusted $p=0.5796$; a stable gain remains statistically unresolved.
+
+\subsection{Independent Budget-Projection Comparison}
+\label{sec:projection_comparison}
+
+This completed study isolates the deletion rule in FCP's budget projection. The protocol fixes two backbones, two budgets each, and three deletion rules, plus one unmodified initializer per backbone: 14 configurations with 50 tasks and seeds 20000--20009, totaling 7,000 episodes. Masks are fixed before these rollouts and use subsets of frozen parent second-order quantization artifacts, without requantization or selection feedback from the new success results. Historical findings motivated the prospective comparison; this does not make the entire research process preregistered.
+
+\paragraph{Matched budgets and controls.}
+Full-policy-score deletion is compared with final-action-error deletion and largest-layer-first deletion. The former simple control uses saved relative squared error of final physical actions, not raw MSE. Both simple rules include subset-sum feasibility corrections to match the full-score configuration's exact bytes; they are not unconstrained greedy rules. At each budget, the three rules occupy identical static bytes despite possibly different protected-layer counts.
+
+In the order full-policy score / final-action error / largest first, GR00T achieves 51.6/52.2/52.2\% at 900,268,032 bytes (95\% initializer ceiling) and 54.4/53.8/53.8\% at 855,048,192 bytes (90\% ceiling). On $\pi_{0.5}$, the rates are 26.6/25.8/25.4\% at 1,634,828,288 bytes (original target ceiling) and 25.6/26.0/25.8\% at 1,475,051,520 bytes (90\% of that ceiling). Full-score deletion removes 7/15 GR00T protections and 41/71 $\pi_{0.5}$ protections. Unmodified initializers achieve 53.6\% and 25.0\%, respectively, at their larger, unmatched footprints.
+
+\paragraph{Inference and scope.}
+All eight planned exact two-sided McNemar comparisons have raw $p\ge0.504$ and Holm-adjusted $p=1.0$. All eight task-clustered bootstrap descriptive 95\% success-difference intervals include zero. These results do not establish a stable success advantage for full-score deletion, equivalence of the rules, or absence of small effects. The study permits only removal of initial protections and omits later candidate-state admission, so it is a projection-rule comparison rather than an ablation of all FCP stages. Newly generated $\pi_{0.5}$ masks use corrected statistics: matching a historical layer count and byte size does not establish mask identity, and these results do not replace Table~\ref{tab:main_results}.
+
+The protocol is recorded at \nolinkurl{scripts/budget_projection_comparison_protocol.json}; the frozen manifest and completed statistics are at \nolinkurl{runs/budget_projection_comparison_v1/manifest.json} and \nolinkurl{runs/budget_projection_comparison_v1/aggregate.json}. The aggregate records all 14 completed arms, paired comparison counts, confidence intervals, source hashes, and disabled selection feedback.
+
+\subsection{Reduced Closed-Loop Component Ablation}
+\label{sec:component_rollout_detail}
+
+The earlier reduced component study uses all 50 tasks and ten paired seeds per task. It is disjoint from mask construction and was aggregated only after all 1,500 new episodes passed the coverage audit. The matched $M_0$ reference obtains 73.9\%, 46.9\%, and 38.1\% on Atomic-Seen, Composite-Seen, and Composite-Unseen, respectively. Its overall success rate is 53.8\%.
+
+\input{tables/core_rollout_plan}
+
+Table~\ref{tab:core_rollout_plan} collects these controls.
+
+Frozen-range A8 obtains 0.0\% on every split. All 500 episodes complete normally, with no crash or numerical-failure row. Relative to $M_0$, it has no paired wins, 269 losses, and 231 ties. Under the registered calibration protocol, range construction alone determines the transition from 0 to 269 successful episodes.
+
+The Local-MSE control selects its mask using local Hessian reconstruction error; this is distinct from the raw physical-action MSE used in the matched-candidate replay. Local-MSE selection obtains 72.8\%, 43.8\%, and 40.0\% across the three splits, for 53.0\% overall. Against $M_0$, it has 55 paired wins, 59 losses, and 386 ties. The no-final-check proposal obtains 70.6\%, 38.8\%, and 47.5\%, also giving 53.0\% overall, with 54 wins, 58 losses, and 388 ties. Their different split behavior---especially the seen/unseen reversal for the no-final-check proposal---shows why the full 50-task result is more informative than results on the two seen groups alone. Equal aggregate rates do not imply equivalent policies.
+
+\subsection{Dynamic-Range Evidence}
+\label{sec:dynamic_range_visualization}
+
+\input{figures/dypac_dynamic_range_evidence_figure}
+
+Figure~\ref{fig:dynamic_range_evidence} separates mechanism diagnosis from behavioral evidence. Across the 31 applicable action-head layers, median scale drift reaches 10.8\%, 16.8\%, and 24.9\% at flow steps 2--4; the maximum layer--step value is 49.0\%. With the corrected task-level standard error, the registered static table has $J=264.94$ against the A16 diagnostic. \dyrange reduces this discrepancy to $J=0.066$ and improves over the static table with $J=-0.241$. Under an otherwise identical $M_0$ runtime, the paired closed-loop intervention gives 0/500 successes for the registered static table and 269/500 for \dyrange.
+
+\subsection{Independent Static-A8 Coverage Confirmation}
+\label{sec:static_a8_confirmation}
+
+Table~\ref{tab:static_a8_confirmation} in the main text reports the outcome; this appendix gives the frozen protocol and the complete statistics.
+
+\paragraph{Design and frozen controls.}
+This follow-up evaluates four activation-range rules on all 50 RoboCasa365 tasks with ten new seeds, 23000--23009, per task: 500 episodes per arm and 2,000 in total. Its protocol was frozen after an exploratory 18-task/two-seed pilot but before these new outcomes were collected. The pilot and all historical main/control outcomes are excluded from the new statistics. All four arms share each split's checkpoint, 100-W4/16-native-precision layout, Hessian W4 codes/scales, identity input transform, four flow steps, execute-16 horizon, fresh environments, and paired action noise. Runtime audits confirm the shared plan, weights, checkpoint, wrapped-layer count, and each arm's activation table. All 12 split--arm cells complete without error rows.
+
+\paragraph{What changes between the static controls.}
+The registered arm reuses the historical frozen activation table. Two additional static tables are recalibrated from the original FP16 checkpoint separately for each split, using the same 256 calibration observations and paired noise, batch size eight, and 99.9th-percentile scaling per input channel and applicable flow step. The pooled table computes the quantile over all captured rows; the sparse table retains only the first and last flattened row of each forward capture. Thus the dense--sparse comparison changes sampling coverage within the same calibration observations, not the calibration source or number of observations. Both tables remain frozen during evaluation. The label FP16 describes their calibration source; all evaluated policies retain the same mixed W4/native weight layout. The fourth arm uses input-conditioned \dyrange.
+
+\paragraph{Primary coverage result.}
+Dense static calibration obtains 216/500 successes (43.2\%), whereas the matched two-row table and the historical registered table each obtain 0/500. For the pre-frozen primary dense-minus-sparse contrast, there are 216 paired wins, zero losses, and 284 ties: a 43.2-point difference, task-cluster bootstrap 95\% CI $[35.6,51.0]$ points, and exact two-sided McNemar $p=1.90\times10^{-65}$ (Holm-adjusted $p=2.28\times10^{-64}$). The dense-minus-registered comparison has the same counts and statistics. The matched dense--sparse intervention demonstrates that sparse calibration sampling can cause collapse in this setting, while a frozen range table with broader captured-row coverage can recover substantial success.
+
+\paragraph{Dynamic ranges against the stronger static control.}
+Dynamic A8 obtains 269/500 successes (53.8\%), with 106 paired wins, 53 losses, and 341 ties against dense static A8. The 10.6-point advantage has 95\% CI $[6.2,15.0]$ points, exact McNemar $p=3.18\times10^{-5}$, and Holm $p=1.27\times10^{-4}$. All 12 pre-frozen comparisons (three contrasts across the overall set and three splits) share one Holm family. Dynamic-minus-dense split differences are 12.8, 10.6, and 8.1 points, with adjusted $p=0.0155$, $0.0540$, and $0.0660$, respectively; the latter two are not significant at 0.05. The 95\% intervals use 20,000 task-cluster bootstrap replicates with RNG seed 20260907 and are pointwise, not simultaneous family-adjusted intervals.
+
+\paragraph{Implication and provenance.}
+These findings strengthen the evidence for input-conditioned ranges against a functional static baseline, while narrowing the interpretation of the earlier zero-success control to its calibration construction. They establish neither failure of all static schemes nor a separate causal attribution of the remaining dynamic advantage to policy-induced state shift. The new dynamic aggregate happens to equal the historical 269/500 result, but the task--seed records and split outcomes differ and are not pooled. The frozen design and complete summary reside at \nolinkurl{runs/static_a8_confirmation_20260908/protocol.json} and \nolinkurl{runs/static_a8_confirmation_20260908/summary.json}. The paper renderer verifies their hashes, all raw episode keys and outcomes, runtime lineage, paired counts, and the 12-test Holm calculation; the source summary's bootstrap intervals were independently reproduced before inclusion.
+
+\subsection{Full-Policy Audit Outcome}
+\label{sec:fcp_visualization}
+
+\input{tables/core_ablation}
+
+\input{figures/dypac_fcp_audit_figure}
+
+Figure~\ref{fig:fcp_audit} separates conservative FP16-retention benefit from complete-policy acceptance. Corrected task-level statistics identify two of 116 coordinates with positive conservative benefit for retaining FP16 under both \dfunc and \dpac, but both are already protected: removing their protection increases the proxy loss rather than providing improving flips. The generator rebuilds six complete protected sets containing one to five FP16 layers, not small edits of the 16-layer anchor, and scores all six on teacher-state contexts over the three registered splits. Their objectives lie in $[0.948,2.360]$, and each fails at least one component guard. The protocol retains $M_0$ without candidate-state scoring; this decision neither exhausts the feasible neighborhood nor establishes superiority in task success, and no prior rollout, byte count, or checkpoint is changed. Local retention scores do not establish that removing other protections simultaneously will yield an acceptable configuration.
+
+\input{tables/fcp_candidate_rollouts}
+
+The candidate set, task--seed coverage, paired tests, and Holm family were frozen before outcomes were revealed, and the preregistration forbids feeding these results back into selection. The largest observed difference is $+2.4$ points for the FF-pair proposal (raw $p=0.285$, Holm $p=1.000$); the minimum adjusted value across the family is 0.891. These post-selection outcomes leave task-success differences unresolved; they do not validate rejection as preventing a regression. Outcomes are reported without retrospectively selecting the most favorable rollout estimate.
+
+The final plan uses signed-nibble group-64 weights, identity row rotation, and per-forward dynamic A8, with no ATM, OHB, error folding, calibration bypass, or runtime selector. Its SHA-256 is recorded in the artifact registry and checked before table generation.
+
+\subsection{FCP Projection, Adjudication, and Freeze Rules}
+\label{sec:fcp_rules}
+
+\paragraph{Evidence-guided feasibility projection.}
+If $C(M_{\mathrm{init}})\le C_{\max}$, FCP sets $M_0=M_{\mathrm{init}}$. Otherwise, it instantiates each FP16-to-W4 removal as a complete policy and ranks removals by their deviation evidence. For shared context $\mathcal B$, a coordinate intervention has the form
+\begin{equation}
+ \Delta_i(M)=D(Q_{M^{(i)}};\mathcal B)-D(Q_M;\mathcal B),
+ \label{eq:full_policy_intervention}
+\end{equation}
+where $M^{(i)}$ changes target $i$ and $D$ denotes the applicable full-policy deviation criterion. The intervention is measured in the current mixed-precision background rather than as isolated layer reconstruction, and protections are removed from least to most damaging until the mask is feasible. This projection uses ranked single-layer evidence, not an exact solution of all multi-layer interactions.
+
+\paragraph{Coordinate counterfactuals and the candidate class.}
+Starting from $M_0$, FCP flips target precision states one at a time and, when scheduled, repeats the sweep around the preceding winner. Each intervention is instantiated as a mixed-precision network and compared with its complete-mask background, and the resulting conservative benefits feed an exact sparse Pareto 0--1 dynamic program subject to
+\begin{equation}
+ C(M)=C_{\mathrm{fixed}}+\sum_{i\in\mathcal{L}}C_i(M_i)
+ \le 1.10\,C_{\mathrm{QuantVLA}}.
+ \label{eq:budget}
+\end{equation}
+The constraint is expressed in bytes rather than layer count because layers differ in tensor and metadata size. The dynamic program only generates candidates: its additive benefits cannot capture interactions among simultaneous layer changes. The finite class $\mathcal C(M_0)$ contains the anchor, dynamic-program proposals, and five structured proposal types rebuilt from layer scores, and full-policy evaluation checks these complete configurations.
+
+\paragraph{Task-level minimax adjudication.}
+For metric $q\in\{\dfunc,\dpac\}$ and task cluster $g\in\{\mathrm{all},\mathrm{Atomic},\mathrm{C\text{-}Seen},\mathrm{C\text{-}Unseen}\}$, let $\Delta_{q,t}(M)$ be the paired candidate-minus-$M_0$ task scalar. We define
+\begin{equation}
+ U_{q,g}(M)=
+ \frac{\operatorname{mean}_{t\in g}\Delta_{q,t}(M)+
+ \operatorname{SE}^{\mathrm{jack}}_{t\in g}[\Delta_{q,t}(M)]}
+ {\operatorname{mean}_{t\in g}q_t(M_{\mathrm{base}})},
+ \qquad
+ J(M)=\max_{q,g}U_{q,g}(M).
+ \label{eq:minimax}
+\end{equation}
+Here $M_{\mathrm{base}}=M_0$ shares the candidate's context, and the jackknife uses tasks as uncertainty units. With positive denominators, $J(M)<0$ requires \emph{strict one-SE improvement in every metric--group pair}, plus non-positive component bounds for pose, stitch, and gripper. The rule preserves the anchor unless deviation evidence favors replacement: extra compression alone cannot justify admission. It is frozen after evaluation and supplies no safety or success guarantee.
+
+\paragraph{Candidate-state check and freeze.}
+The protocol reserves candidate-induced observations over four to eight replans and defines $J_{\mathrm{final}}=\max(J_{\mathrm{teacher}},J_{\mathrm{candidate}})$. Eligible teacher-state candidates are first filtered by a paired one-standard-error comparison against the best teacher-state objective; up to three then enter candidate-state adjudication. Let $\mathcal E(M_0)$ denote the remaining byte-feasible candidates with negative $J_{\mathrm{final}}$ and the required deviation guards. The frozen choice is
+\begin{equation}
+ \widehat M=\begin{cases}
+ \operatorname*{lexmin}_{M\in\mathcal E(M_0)}
+  (C(M),N_{16}(M),\operatorname{names}(M)),&\mathcal E(M_0)\ne\varnothing,\\
+ M_0,&\mathcal E(M_0)=\varnothing,
+ \end{cases}
+ \label{eq:restricted_freeze}
+\end{equation}
+where $N_{16}$ counts protected layers and names break ties deterministically. Storage is compared only after deviation eligibility. On GR00T all proposals fail the teacher-state screen, so FCP retains $M_0$ without candidate-state evaluation or any success-optimality claim.
+
+\subsection{Real-Hardware Measurement Detail}
+\label{sec:hardware_results}
+
+\input{tables/hardware_results}
+
+Relative to native FP16, $M_0$ reduces median CUDA peak allocation from 5.386 to 4.267~GiB (0.792$\times$) and median NVML device use from 7,644 to 6,720~MiB. Median latency nevertheless rises from 107.5 to 232.2~ms (2.16$\times$), and gross board energy rises from $18.65\pm4.23$ to $39.81\pm0.46$~J/request (2.14$\times$). The six rejected candidates span 238.2--245.8~ms, 4.165--4.218~GiB, and 40.45--41.58~J/request. The packed representation therefore provides a measured memory benefit, but neither static bytes nor W4-layer count predicts speed or energy under this generic nibble-dequantize-then-FP16-GEMM backend.
+
+\paragraph{Real-integer backend revalidation.}
+We next replace the generic execution path with packed W4 residency, dynamic signed A8, and INT8$\times$INT8$\rightarrow$INT32 GEMM. The runtime-contract audit verifies 4-bit weights, 8-bit activations, integer GEMM, the absence of an FP-weight-sized buffer, 409,468,928 packed-weight bytes, and consistent metadata across all three task splits. Kernel compatibility changes activation scaling from the frozen policy's per-input-channel rule to per-row group-64. We therefore treat this result as a separately named post-hoc deployment point that cannot reopen FCP.
+
+The complete paired closed-loop rerun contains no crash, missing key, duplicate, or terminal failure. The integer backend records 251/500 successes (50.2\%) versus 269/500 (53.8\%) for the frozen reference: $-3.6$ points, with 36/54/410 wins/losses/ties, exact two-sided McNemar $p=0.07255$, and a 10,000-draw task-cluster bootstrap interval of $[-8.8,+1.6]$ points (seed 20260903). The original fake-quant operating point remains the formal policy result, while this row quantifies the separately named integer deployment backend.
+
+In a separate paired hardware wave, the real-integer backend reduces p50 latency from 229.7 to 187.5~ms (18.4\%) and pooled p95 from 239.4 to 199.3~ms. Gross board energy falls from $39.25\pm0.24$ to $34.64\pm0.22$~J/request (11.8\%), while idle-adjusted energy falls from $22.65\pm0.35$ to $20.97\pm0.19$~J/request (7.4\%). Median peak CUDA allocation remains 4.267~GiB. Each row uses three 60-request trials after ten warmups on the same otherwise idle A40. These model-only measurements exclude simulator, transport, host, and robot energy.
+
+\subsection{\texorpdfstring{$\pi_{0.5}$}{pi0.5} FCP Diagnostic and Formal Result}
+\label{sec:pi05_fcp_diagnostic}
+
+The transferred $\pi_{0.5}$ initializer contains 80 W4/100 FP16 layers and occupies 1,845,100,544 bytes, exceeding the 1,639,513,497-byte ceiling. FCP evaluates all 180 one-layer precision-state interventions in complete-policy context, then converts the 41 least damaging FP16 protections to W4. The resulting 121-W4/59-FP16 anchor occupies 1,634,828,288 bytes. Subsequent exact-byte proposals do not clear the minimax and component guards, so the projected anchor becomes the final policy.
+
+\input{tables/pi05_fcp_diagnostic}
+
+A separately preregistered, same-protocol diagnostic evaluates all four masks on the same 50 tasks and seeds 0--9. The projected anchor records 141/500 successes versus 130/500 for the transferred initializer, with 41/30/429 paired wins/losses/ties and exact two-sided McNemar $p=0.235$. Thus the projection meets the exact byte constraint while the observed success difference favors the projected mask; the test establishes neither equivalence nor non-inferiority. The single- and two-best proposals record 124/500 and 125/500 successes; both are lower than the anchor after the frozen selection.
+
+The frozen policy uses four flow steps on the complete RoboCasa365 target split, matching the completed reference rows, with 50 seeds on each of 50 tasks. It completes all 2,500 episodes with no missing, duplicate, or failed row. The policy records 536/900 Atomic-Seen, 123/800 Composite-Seen, and 34/800 Composite-Unseen successes, for 693/2,500 overall; the corresponding task-macro rates are 59.6\%, 15.4\%, 4.3\%, and 27.7\%. This establishes the paper's primary success--storage operating point at 2.702$\times$ compression.
+
+\subsection{Exact-Budget Offline Proxy Predictive Validity}
+\label{sec:predictive_validity}
+
+As an auxiliary diagnostic, we test whether frozen offline scores rank the closed-loop consequences of precision allocation. The library contains 60 masks with identical 100-W4/16-FP16 allocation and exact static bytes, stratified into ten masks at each of six swap distances from $M_0$. We freeze offline scores before running one rollout per target task and mask. Across all masks, Spearman correlation with signed success degradation is $-0.116$ for \dpac and $-0.028$ for MSE. Mask distance confounds this pooled comparison: larger swaps have greater offline distortion but, in this library, slightly higher mean success. Within each fixed-distance stratum, the registered \dpac correlations are positive but imprecise ($\rho=0.055$--$0.352$, ten masks per stratum), and \dpac does not consistently outperform MSE or \dfunc. These results position \dpac as a predeclared complete-policy deviation guard rather than a success-ranking objective.
+
+\subsection{Local Cross-Architecture Adaptations}
+\label{sec:local_adaptations}
+
+\paragraph{ActQuant.}
+We pin the official ActQuant implementation at commit \texttt{b64791125070652fe6b554e244fe809c79ef5246} and retain its allocation and quantization semantics~\citep{akbari2026actquant}. Because local adapters provide the GR00T, $\pi_{0.5}$, and RoboCasa365 integration, we label the result \texttt{source\_protocol\_equivalent=false}. Calibration uses an FP16-teacher proxy and excludes formal seeds 0--49; no formal outcome selects or tunes the packs. Both ActQuant configurations complete all 50 tasks and seeds 0--49 under the four-flow-step protocol. GR00T records 649/900, 341/800, and 332/800 successes on Atomic-Seen, Composite-Seen, and Composite-Unseen, respectively, for 1,322/2,500 (52.9\%) overall. The corresponding $\pi_{0.5}$ counts are 509/900, 98/800, and 22/800, for 629/2,500 (25.2\%). Against \method, ActQuant has 340/368 paired wins/losses on GR00T (Holm $p=0.3102$) and 135/199 on $\pi_{0.5}$ (Holm $p=0.0011$). Its measured static packs occupy 3.655~GiB and 2.904~GiB, respectively; these sizes do not imply runtime-memory or latency gains.
+
+\paragraph{QVLA-code.}
+We cloned the official QVLA GitHub repository at commit \texttt{26cc4821a3be4c003d09d3c7997b38db2a347982} and followed its released Hessian proxy, channel-gate set $\{0,2,4,8,16\}$, greedy allocation rule, and row-wise fake-quantization semantics~\citep{xu2026qvla}. The release provides QVLA quantization and evaluation paths for OpenVLA-family models on LIBERO, but not GR00T N1.5 or $\pi_{0.5}$ tensor mappings, a deployed mixed-row exporter for these architectures, or a RoboCasa365 evaluation path. We therefore add local cross-architecture adapters and label the run \texttt{source\_protocol\_equivalent=false}. Under the shared four-flow-step RoboCasa365 protocol, the content-bound run produces 0 successes in 1,728 completed GR00T episodes and 0 successes in 1,517 completed $\pi_{0.5}$ episodes, despite passing local source-parity, pack-loading, and runtime-metadata checks. We stop the run and omit QVLA-code from Table~\ref{tab:main_results}. Because the public repository lacks the target-architecture and target-benchmark paths, the outcome is recorded as a failed cross-architecture reproduction; the native OpenVLA/LIBERO result is unaffected.
+
+\paragraph{DA-PTQ.}
+DA-PTQ reports CogACT W4A8 mixed-precision experiments calibrated with 512 BridgeData V2 trajectories, together with 42.5\% memory reduction and 54.8\% speedup in its WidowX setup. These measurements use a different model, benchmark, calibration set, hardware path, and accounting scope from our eager fake-quant RoboCasa365 experiments. Table~\ref{tab:daptq_source} therefore presents them only as source-reported context, without numerically ranking them against our local results. Our frozen clean-room adaptation follows the paper-level allocation and transformation semantics while adding GR00T, $\pi_{0.5}$, and RoboCasa365 mappings absent from the public release. Both local configurations complete all 50 tasks and seeds 0--49 under the four-flow-step protocol. GR00T records 73/900, 0/800, and 3/800 successes on Atomic-Seen, Composite-Seen, and Composite-Unseen, respectively, for 76/2,500 (3.0\%) overall. The corresponding $\pi_{0.5}$ counts are 527/900, 98/800, and 30/800, for 655/2,500 (26.2\%). Against \method, DA-PTQ has 8/1,282 paired wins/losses on GR00T and 182/220 on $\pi_{0.5}$; the latter comparison has Holm $p=0.0648$. We report these results as a complete local cross-architecture adaptation with \texttt{source\_protocol\_equivalent=false}, not as a reproduction of the native CogACT/SimplerEnv results.
+
+\input{tables/daptq_source_reported}
+
+\subsection{Storage Accounting and Native Reference Scopes}
+\label{sec:storage_scope}
+
+Table~\ref{tab:main_results}'s common reference inventories contain 2,139,537,408 bytes for GR00T and 4,416,602,112 bytes for $\pi_{0.5}$. These are declared Linear-component counts, not whole-model checkpoint sizes; vision modules, activations and runtime caches are outside the scope. GR00T's fixed 327,352,320 bytes cover non-candidate components within that inventory, and its final plan occupies 962,068,480 bytes (2.2239$\times$), or 0.9982$\times$ the 963,772,416-byte QuantVLA cell, within the preregistered 1.10$\times$ ceiling; the $\pi_{0.5}$ plan occupies 1,634,828,288 bytes (2.7016$\times$). Common-scope compression divides the corresponding exact FP16 bytes by each row's component bytes, before display rounding. These are static packed estimates, so the ratios alone imply no runtime benefit; Table~\ref{tab:hardware_results} measures model-only latency, peak memory, and board energy directly instead.
+
+\paragraph{Component scope versus whole-checkpoint payload.}
+The audited inventory is a strict subset of each checkpoint's stored tensors. Each of GR00T's three split checkpoints holds 7,585,939,328 bytes (7.065~GiB) across 899 tensors, so the 2,139,537,408-byte inventory covers 28.2\% of that payload and 5,446,401,920 bytes (5.072~GiB) lie outside the audited scope and are unchanged by the plan. Every one of the plan's 116 layers resolves to a checkpoint tensor, and re-deriving their 16-bit payload gives 1,811,939,328 bytes, within 245,760 bytes of the 1,812,185,088-byte candidate anchor. Substituting the 962,068,480-byte quantized components into the same payload gives 6,408,470,400 bytes, so the complete checkpoint corresponds to 1.18$\times$ storage reduction while the audited components give 2.22$\times$. For unchanged out-of-scope bytes $U>0$, $(C_{\mathrm{FP}}+U)/(C_{\mathrm{Q}}+U)<C_{\mathrm{FP}}/C_{\mathrm{Q}}$ whenever $C_{\mathrm{FP}}>C_{\mathrm{Q}}$, so component-scope ratios are upper bounds rather than whole-model claims. We do not report an equivalent $\pi_{0.5}$ payload because its frozen inventory and the available checkpoint trees are not reconciled to the same standard. The measurement is recorded at \nolinkurl{scripts/tools/audit_checkpoint_scope.py} and \nolinkurl{docs/gdsq_vla_iclr2027/evidence/checkpoint_scope_audit.json}.
+
+ActQuant uses a broader whole-model pack scope: its GR00T reference is 5,448,327,040 bytes (5.074~GiB) per checkpoint, versus a mean pack of 3.655~GiB across three split checkpoints, giving native-scope compression 1.388$\times$. On $\pi_{0.5}$ its reference is 6,714,075,840 bytes (6.253~GiB), with a 3,117,743,968-byte pack (2.904~GiB), giving 2.154$\times$. Those native ratios cannot be combined with the common FP16 row. We mark these sizes $P$ and suppress the common-scope compression cells instead of dividing incomparable inventories.
+
+The $\pi_{0.5}$ $\Omega$-QVLA calculator covers 252 PaliGemma/expert Linear weights and biases, with reference 4,586,471,424 bytes (4.271~GiB). Its tightly packed deployment estimate is 1,402,970,112 bytes (1.307~GiB), including weights, scales, block rotations, and permutation indices, giving native compression 3.269$\times$. The evaluated pack contains dequantized caches and is larger than this deployment estimate. This row is marked $L$ and its common-scope compression suppressed. GR00T's $\Omega$-QVLA calculator uses the common 2,139,537,408-byte reference and remains in the common-scope plot. Raw native measurements remain unchanged in their source artifacts.
+
+The provenance is \nolinkurl{scripts/tools/quantvla_table1_bytes.py}, \nolinkurl{runs/qvla_actquant_table1/formal/aggregate.json}, and \nolinkurl{runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/pi05_paper_memory.json}. Success comparisons retain all evaluated methods; storage comparisons distinguish these scopes.
+
+\subsection{Controlled Temporal Probes and Matched-Candidate Replay}
+\label{sec:method_validation}
+
+\input{tables/temporal_validation}
+
+The CPU-only validation calls the production five-component implementation in \texttt{quantvla\_metric\_protocol.py}. Each sequence contains four 16-action chunks with 12 coordinates. A separate sinusoidal reference buffer supplies one fixed coordinate scale. The paired tests fix raw MSE and local error while comparing persistent versus alternating translation error, equal impulses at chunk boundaries versus inside chunks, and a four-step delayed gripper transition versus the same error on a base coordinate. The expected component directions and equality assertions are specified in the test before execution. All three paired checks pass. This establishes responses to these controlled inputs, not closed-loop gains or universal discrimination.
+
+A separate retrospective replay holds the six existing GR00T candidate masks, byte ceiling, teacher-state observations, and one-SE strict-improvement rule fixed. It compares raw physical-action MSE alone, D-PAC alone, and D-PAC with component conditions. All three rules reject all six candidates and select the same anchor. MSE task means are reconstructed from the three original split score files: the merged file retains only one split's MSE summary and is not used for that comparison. Every replay rule uses the same 12 tasks. The D-PAC bounds and component conditions are taken from the corrected frozen report. Consequently this candidate set reveals no incremental decision value for the more elaborate rule; no new candidate-state evaluation or independent success benefit is inferred. The Local-MSE/no-final-check closed-loop controls in Table~\ref{tab:core_rollout_plan} are a different experiment, not newly selected replay outcomes.
+
+\nolinkurl{scripts/tools/validate_dypac_method_evidence.py} reproduces both checks without loading a VLA or simulator. The output \nolinkurl{docs/gdsq_vla_iclr2027/evidence/method_validation.json} records the inputs' hashes, per-component values, per-candidate bounds, and selected masks.
+
+\subsection{Available Offline Configuration Costs}
+\label{sec:offline_cost}
+
+\begin{table}[t]
+\centering
+\caption{Offline work recoverable from the frozen GR00T records.}
+\label{tab:offline_cost}
+\footnotesize
+\begin{tabular}{@{}p{0.17\linewidth}p{0.40\linewidth}p{0.23\linewidth}r@{}}
+\toprule
+Stage & Forward-work record & Environment work & Time (s) \\
+\midrule
+RIPA bank & 116 targets; 16 representation inputs; $8\times2$ action contexts & Synthetic RoboCasa365 format; see A.1 & NR \\
+RIPA adjudication & Nine masks, 16 paired inputs per ratio & Cached inputs & NR \\
+W4 construction & 256 calibration observations per W4 layer & Reused calibration & NR \\
+FCP coordinates & 116 one-layer interventions on shared context & 12 tasks, 36 sequences, 144 selected observations & NR \\
+FCP teacher screen & Seven masks $\times144$ observations; four flow steps & Cached observations; no new rollouts & 175.87 \\
+Candidate-state branch & Zero admitted candidates on GR00T & Zero candidate-state rollouts & Not run \\
+\bottomrule
+\end{tabular}
+\vspace{2pt}
+\parbox{0.99\linewidth}{\footnotesize NR denotes a stage-wide measurement that was not recorded. Counts distinguish calibration inputs from policy evaluations.}
+\end{table}
+
+The 175.87 seconds sum the per-mask \texttt{elapsed\_s} records over three split files for 1,008 policy--observation evaluations. This is measured scoring time, excluding model loading, coordinate construction, calibration collection, and weight packing. It is not total FCP wall time. The 144 selected observations likewise do not count every environment step needed to reach the sampled windows. Complete stage-wide wall time, total collection steps, and end-to-end configuration cost cannot be recovered from these records and remain unreported. On $\pi_{0.5}$, the projection inventory has 180 interventions and removes 41 protections; no comparable complete timing record is claimed.
+
+\subsection{LIBERO Protocol Detail}
+\label{sec:libero_comparison}
+
+\input{tables/omega_qvla_libero}
+
+Table~\ref{tab:omega_qvla_libero} reports the complete suite matrix. Each local cell contains 100 episodes over ten tasks and held-out states 10--19, and all 40 cells pass the joint gate. The corrected GR00T rerun uses five actions per replan and paired suite-keyed noise; we do not interpret the correction as an algorithmic gain. Local size is the average packed weight and metadata footprint across suite-specific masks. Thus LIBERO transfer concerns the framework and execution rules; the masks are separately calibrated for each suite and then remain fixed during deployment, rather than reusing the RoboCasa365 masks unchanged. The two source-reported 4.0-BPW $\pi_{0.5}$ anchors~\citep{akbari2026actquant,xu2026qvla} are excluded from the 4,000-episode gate, and their 2.7-GB memory measure is not directly compared with our audited static size.

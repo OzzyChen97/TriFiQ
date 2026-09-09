@@ -1,0 +1,178 @@
+{
+  "kind": "method_validation_cpu_only",
+  "metric_sha256": "89cf552a572d4c4d0657ddafa67ba29b5ef855413bdc45c0a94218f0d703a4d1",
+  "replay": {
+    "candidates": {
+      "attention_6": {
+        "component_pass": false,
+        "dpac_upper": 0.7779367707034243,
+        "mse_group_bounds": {
+          "all": 1.0714318512099086,
+          "atomic_seen": 1.237535978390174,
+          "composite_seen": 1.0520361686460005,
+          "composite_unseen": 1.7031953949278402
+        },
+        "mse_upper": 1.7031953949278402,
+        "static_bytes": 855048192
+      },
+      "dp_full_lambda_1p0": {
+        "component_pass": false,
+        "dpac_upper": 0.43905222092216345,
+        "mse_group_bounds": {
+          "all": 0.6798963170799892,
+          "atomic_seen": 1.53096348003258,
+          "composite_seen": -0.02718737389337931,
+          "composite_unseen": 0.34979075862155845
+        },
+        "mse_upper": 1.53096348003258,
+        "static_bytes": 910819328
+      },
+      "ff_pair_0": {
+        "component_pass": false,
+        "dpac_upper": 1.0365907339943836,
+        "mse_group_bounds": {
+          "all": 1.6096837132308857,
+          "atomic_seen": 2.254482273238099,
+          "composite_seen": 0.8354350110186993,
+          "composite_unseen": 2.510250528206547
+        },
+        "mse_upper": 2.510250528206547,
+        "static_bytes": 864092160
+      },
+      "mlp_2": {
+        "component_pass": false,
+        "dpac_upper": 0.5766750837460543,
+        "mse_group_bounds": {
+          "all": 0.3514300599161597,
+          "atomic_seen": 0.7692173440832569,
+          "composite_seen": 0.08936258982146529,
+          "composite_unseen": 0.07403993452777949
+        },
+        "mse_upper": 0.7692173440832569,
+        "static_bytes": 891224064
+      },
+      "single_best": {
+        "component_pass": false,
+        "dpac_upper": 0.7619703270265543,
+        "mse_group_bounds": {
+          "all": 1.2665207560781646,
+          "atomic_seen": 2.013622189509695,
+          "composite_seen": 0.7237994445103579,
+          "composite_unseen": 1.585355807613014
+        },
+        "mse_upper": 2.013622189509695,
+        "static_bytes": 855048192
+      },
+      "two_best": {
+        "component_pass": false,
+        "dpac_upper": 0.6703243806960175,
+        "mse_group_bounds": {
+          "all": 1.275815923179245,
+          "atomic_seen": 2.047957790038202,
+          "composite_seen": 0.49877477138714565,
+          "composite_unseen": 1.65380119106772
+        },
+        "mse_upper": 2.047957790038202,
+        "static_bytes": 861077504
+      }
+    },
+    "rules": {
+      "D-PAC": {
+        "eligible": [],
+        "selected": "context_base"
+      },
+      "D-PAC + components": {
+        "eligible": [],
+        "selected": "context_base"
+      },
+      "MSE": {
+        "eligible": [],
+        "selected": "context_base"
+      }
+    },
+    "scope": "retrospective teacher-state screening only; same six frozen candidates; no new rollouts",
+    "score_observation_pairs": 1008,
+    "sources": {
+      "runs/full_context_v2/fcp_completion/gr00t_corrected_fcp_frozen.json.selection.json": "7e7830c749d501b516c82ead5e416437e4408ba519914a5b47d0f29613914987",
+      "runs/full_context_v2/fcp_completion/teacher_state/scores_atomic_seen.json": "f6709d4b709fe63f3249225ab98785c45704d6d9f877c7ba41e2a3a7f0872d3a",
+      "runs/full_context_v2/fcp_completion/teacher_state/scores_composite_seen.json": "5b73fe51beb00d8f06b676ba041f48964ee93d3099bfdf99e38d709ded48ffa3",
+      "runs/full_context_v2/fcp_completion/teacher_state/scores_composite_unseen.json": "7fb9ac41db2130e6814297e2c5a56885d9c1410ea3a36a31c12aa8cb2b0f0d75"
+    },
+    "summed_recorded_score_seconds": 175.87392807006836,
+    "timing_scope": "sum of per-mask score elapsed_s across three splits; excludes loading, construction and environment collection"
+  },
+  "script_sha256": "314afcc3239811c629ac7fc3320ef0cf65bb734fdb85221f08c37d4a24fa78ad",
+  "temporal": {
+    "design": "CPU-only paper checks: controlled temporal probes and frozen-candidate replay.\n\nThe six synthetic sequences are designed before execution to test three specific\nsensitivities at matched raw MSE/local error: bias vs alternation, boundary vs\ninterior impulses, and delayed gripper vs the same error on a base coordinate.\nThey are metric unit tests, not robot episodes. Replay is retrospective and keeps\nall six existing candidate masks, contexts, budgets, and strict one-SE rules fixed.\nNo success labels select configurations and no model or environment is run.\n",
+    "passed": true,
+    "rows": {
+      "Alternation": {
+        "grip": 0.0,
+        "local": 0.004673413001000881,
+        "pose": 0.0003994961443822831,
+        "prefix": 0.00019974807219114155,
+        "raw_mse": 2.0833331291214563e-06,
+        "stitch": 0.017985325306653976
+      },
+      "Base-coordinate control": {
+        "grip": 0.0,
+        "local": 0.012020316906273365,
+        "pose": 0.0,
+        "prefix": 0.03801294043660164,
+        "raw_mse": 8.333333425980527e-06,
+        "stitch": 0.06410835683345795
+      },
+      "Boundary impulses": {
+        "grip": 0.0,
+        "local": 0.0004381324688438326,
+        "pose": 1.695766877674032e-05,
+        "prefix": 8.47883438837016e-06,
+        "raw_mse": 1.9531249506599124e-07,
+        "stitch": 0.017985325306653976
+      },
+      "Gripper delay": {
+        "grip": 0.03619707189500332,
+        "local": 0.012020316906273365,
+        "pose": 0.0,
+        "prefix": 0.03801294043660164,
+        "raw_mse": 8.333333425980527e-06,
+        "stitch": 0.06410835683345795
+      },
+      "Interior impulses": {
+        "grip": 0.0,
+        "local": 0.0004381324688438326,
+        "pose": 2.8346505132503808e-05,
+        "prefix": 1.4173252566251904e-05,
+        "raw_mse": 1.9531249506599124e-07,
+        "stitch": 0.0
+      },
+      "Persistent bias": {
+        "grip": 0.0,
+        "local": 0.004673413001000881,
+        "pose": 0.2187790870666504,
+        "prefix": 0.10938957333564758,
+        "raw_mse": 2.0833331291214563e-06,
+        "stitch": 0.0
+      }
+    },
+    "scale": [
+      0.02096712961792946,
+      0.02096712961792946,
+      0.02096712961792946,
+      0.02096712961792946,
+      0.02096712961792946,
+      0.02096712961792946,
+      0.02096712961792946,
+      0.02096712961792946,
+      0.02096712961792946,
+      0.02096712961792946,
+      0.02096712961792946,
+      0.02096712961792946
+    ],
+    "shape": [
+      4,
+      16,
+      12
+    ]
+  }
+}

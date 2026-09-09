@@ -1,0 +1,41 @@
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Experimental Setup}
+\label{sec:setup}
+
+We evaluate GR00T N1.5 and $\pi_{0.5}$~\citep{bjorck2025groot,intelligence2025pi05} on RoboCasa365 v1.0.1~\citep{nasiriany2026robocasa365}: 18 Atomic-Seen, 16 Composite-Seen, and 16 Composite-Unseen tasks. Headline configurations use 50 seeds per task, the official horizon, four flow steps, and paired task--seed--replan noise (2,500 episodes each). Focused controls use seeds 0--9 unless specified. LIBERO evaluates framework applicability with separately calibrated suite-specific plans, fixed within each deployment.
+
+\paragraph{Comparison and statistics.}
+We compare FP16, QuantVLA~\citep{zhang2026quantvla}, Uniform W6, $\Omega$-QVLA~\citep{wang2026omegaqvla}, and local ActQuant/DA-PTQ adaptations. Storage counts the declared Linear-component inventory, including packing metadata and fixed tensors; the same substitution gives 1.18$\times$ over the complete GR00T checkpoint payload versus 2.22$\times$ within that inventory, and whole-model packs and alternative inventories are marked separately (Appendix~\ref{sec:storage_scope}). We report task-macro success and paired two-sided McNemar tests with Holm correction within registered families; non-significance establishes neither equivalence nor non-inferiority. RIPA's four ratio-selection tasks remain in the headline; on the other 46 tasks, success is 51.8/27.6/52.8\% for ours/QuantVLA/FP16. Frozen manifests bind masks, code, and coverage.
+
+\subsection{RoboCasa365: Success--Storage Results}
+\label{sec:main_results}
+\input{tables/main_results}
+\input{figures/dypac_operating_points_figure}
+
+\method attains the highest observed success among the evaluated PTQ methods on both backbones. GR00T reaches 54.0\% at 2.22$\times$ audited Linear-component compression, 23.6 points above the approximately size-matched QuantVLA (Holm $p<10^{-4}$) and 1.1 points below FP16 (55.1\%, $p=0.2929$). On $\pi_{0.5}$, it reaches 27.7\% at 2.70$\times$, versus 24.8\% for QuantVLA and 26.2\% for FP16; that margin is descriptive and the rows are not all size-matched. The all-W4 rows are the maximal-rate endpoint of the same \method\ rate family, not a separate baseline: the same FCP rule produces them from the same inventory, and comparing them with the headline mask on success would test two operating points of one procedure against each other. Their role is to show the range the pipeline covers. One rule yields 54.0\% at 2.22$\times$ and 52.8\% at 2.56$\times$ on GR00T, and 27.7\% at 2.70$\times$ and 26.8\% at 3.56$\times$ on $\pi_{0.5}$; the appendix sweep extends the family to 1.17$\times$ at 55.4\%. What the allocation and admission stages contribute is therefore a budget-to-configuration mapping, including the projection that makes an infeasible $\pi_{0.5}$ initializer feasible, not an established success gain over a simpler endpoint of the same family (Appendix~\ref{sec:compression_sweep}).
+
+\paragraph{Adapted methods.}
+ActQuant reaches 52.9/25.2\% on GR00T/$\pi_{0.5}$ (ours-versus-ActQuant Holm $p=0.3102/0.0011$); DA-PTQ reaches 3.0/26.2\% ($p=0.0648$ on $\pi_{0.5}$). Both are local, source-protocol-nonequivalent architecture adaptations, so their outcomes characterize the adapters rather than the native source methods.
+
+\subsection{Framework Applicability on LIBERO}
+\label{sec:libero_main}
+\input{tables/libero_transfer_compact}
+
+The 4,000-episode matrix yields 97.3\% on $\pi_{0.5}$ at 1.788~GiB and 93.8\% on GR00T at 0.948~GiB. Ours leads the displayed GR00T rows; on $\pi_{0.5}$, $\Omega$-QVLA reaches 98.0\% at 1.307~GiB under its distinct inventory. The framework transfers; the mask does not, since each suite has a separately prepared plan (Appendix~\ref{sec:libero_comparison}).
+
+\subsection{RIPA and FCP: Allocation and Decision Evidence}
+\label{sec:pi05_fcp_main}
+
+\paragraph{Independent signal comparison.}
+An equal-byte integer program rebuilds all three RIPA variants from the same frozen bank, with a fused 93-W4/23-FP16 mask that differs from the headline 100-W4/16-FP16 mask. On Primary-46, fusion reaches 53.26\%, versus 51.52\% and 50.65\% for relational-only and distributional-only allocation (both Holm $p=0.5796$); the fused advantage is directional and unresolved (Appendix~\ref{sec:signal_ablation}).
+
+\paragraph{Budget projection and admission.}
+FCP removes 41 of $\pi_{0.5}$'s 100 initial protections, producing the feasible 121-W4/59-FP16 anchor from a mask exceeding the ceiling by 205,587,047 bytes. A 500-key diagnostic gives 28.2\% versus 26.0\% ($p=0.235$), and an independent 7,000-episode comparison finds no resolved advantage over final-action-error or largest-first deletion (eight Holm $p=1.0$). D-PAC passes three controlled matched-MSE sensitivity tests, yet MSE, D-PAC, and D-PAC plus components reject all six GR00T candidates under strict one-SE improvement: on this candidate set, the sequence-level rule adds no admission benefit. The rejected proposals differ from the retained initializer by no Holm-significant margin (Appendices~\ref{sec:projection_comparison}, \ref{sec:pi05_fcp_diagnostic}, \ref{sec:method_validation}, \ref{sec:predictive_validity}).
+
+\subsection{Controlled Component Comparisons}
+\label{sec:core_ablation_main}
+\input{tables/static_a8_confirmation}
+
+At a fixed mask, fixed Hessian W4 weights, and paired seeds, only the activation-range rule changes: pooled static A8 reaches 43.2\%, the matched two-row and registered tables reach 0\%, and input-conditioned \dyrange reaches 53.8\%. \dyrange exceeds the stronger pooled-static control by 10.6 points (Holm $p=1.27\times10^{-4}$; 95\% CI $[6.2,15.0]$; Table~\ref{tab:static_a8_confirmation}), so sparse calibration sampling explains a substantial static-calibration failure while input-conditioned ranges retain a measured advantage over a working static baseline. The contrast does not isolate the policy-induced component of the shift. At the same fixed 100/16 mask, replacing DuQuant/static-A8 with Hessian-aware W4 and \dyrange raises success from 50.8\% to 54.0\% (Holm $p=0.0036$), while local-MSE and no-final-check selection each reach 53.0\% versus 53.8\% for the anchor under different masks and byte counts. Neither historical control establishes an independent benefit for RIPA's allocation or FCP's admission stages (Appendices~\ref{sec:static_a8_confirmation}, \ref{sec:component_rollout_detail}).

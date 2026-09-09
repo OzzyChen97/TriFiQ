@@ -1,0 +1,297 @@
+{
+  "claim_evidence_boundaries": {
+    "dynamic_range": "scale drift is descriptive; the 500-episode matched rollout is the closed-loop intervention",
+    "fcp": "offline acceptance/rejection evidence within the declared counterfactual neighborhood; not a success gain or global optimum",
+    "operating_points": "formal closed-loop success and exact static component storage; pi0.5 cross-row differences remain descriptive"
+  },
+  "derived": {
+    "dynamic_range": {
+      "all_action_head_median_drift_by_step": [
+        0.0,
+        0.10823523341028554,
+        0.16792976404600485,
+        0.24858765814465714
+      ],
+      "dynamic_objective": 0.06592289711881642,
+      "dynamic_successes": 269,
+      "maximum_drift": 0.4898800881748424,
+      "maximum_drift_flow_step": 4,
+      "maximum_drift_layer": "action_head.model.transformer_blocks.13.ff.net.2",
+      "objective_ratio": 4018.8744841410344,
+      "static_objective": 264.93584915146585,
+      "static_successes": 0
+    },
+    "fcp": {
+      "benefit_d_func_range": [
+        -2.049786258441286,
+        0.1042670754511812
+      ],
+      "benefit_d_pac_range": [
+        -0.7632944448811605,
+        0.06591870298790001
+      ],
+      "mask_allocation": {
+        "Action head": {
+          "FP16": 1,
+          "W4": 31
+        },
+        "Backbone": {
+          "FP16": 15,
+          "W4": 69
+        }
+      },
+      "one_layer_flips": 116,
+      "positive_both_metrics": 2,
+      "positive_d_func_benefits": 5,
+      "positive_d_pac_benefits": 9,
+      "structured_objectives": {
+        "attention_6": 1.6580054442339807,
+        "dp_full_lambda_1p0": 1.5914462204590942,
+        "ff_pair_0": 2.36031518928543,
+        "mlp_2": 0.9483594348498502,
+        "single_best": 2.0215483715055944,
+        "two_best": 2.0095857039836194
+      },
+      "verified_candidate_plans": 117
+    },
+    "operating": {
+      "gr_paired_comparisons": {
+        "fp16": {
+          "holm_adjusted_mcnemar_p": 0.29286269346886834,
+          "paired_losses": 319,
+          "paired_ties": 1889,
+          "paired_wins": 292
+        },
+        "quantvla_w4a8": {
+          "holm_adjusted_mcnemar_p": 1.8894854853781264e-98,
+          "paired_losses": 132,
+          "paired_ties": 1647,
+          "paired_wins": 721
+        }
+      },
+      "gr_pareto_ids": [
+        "omega",
+        "ours",
+        "fp16"
+      ],
+      "gr_points": [
+        {
+          "id": "omega",
+          "size_gib": 0.598785400390625,
+          "task_macro_success_rate": 0.3871999999999998
+        },
+        {
+          "id": "quantvla",
+          "size_gib": 0.8975830078125,
+          "task_macro_success_rate": 0.3044
+        },
+        {
+          "id": "ours",
+          "size_gib": 0.89599609375,
+          "task_macro_success_rate": 0.54
+        },
+        {
+          "id": "uniform",
+          "size_gib": 1.1085205078125,
+          "task_macro_success_rate": 0.5172
+        },
+        {
+          "id": "fp16",
+          "size_gib": 1.9925994873046875,
+          "task_macro_success_rate": 0.5508
+        }
+      ],
+      "pi05_pareto_ids": [
+        "omega",
+        "quantvla",
+        "ours"
+      ],
+      "pi05_points": [
+        {
+          "id": "omega",
+          "size_gib": 1.3066177368164062,
+          "task_macro_success_rate": 0.2148
+        },
+        {
+          "id": "quantvla",
+          "size_gib": 1.3881053924560547,
+          "task_macro_success_rate": 0.24839999999999995
+        },
+        {
+          "id": "ours",
+          "size_gib": 1.522552490234375,
+          "task_macro_success_rate": 0.2772
+        },
+        {
+          "id": "uniform",
+          "size_gib": 1.9022655487060547,
+          "task_macro_success_rate": 0.24519999999999992
+        },
+        {
+          "id": "fp16",
+          "size_gib": 4.11328125,
+          "task_macro_success_rate": 0.26159999999999994
+        }
+      ],
+      "task_direction_counts": {
+        "FP16": {
+          "better": 18,
+          "tie": 6,
+          "worse": 26
+        },
+        "QuantVLA": {
+          "better": 48,
+          "tie": 1,
+          "worse": 1
+        }
+      }
+    }
+  },
+  "formulas": {
+    "fcp_benefit": "production conservative_fp16_benefit with task-cluster mean±jackknife-SE bounds",
+    "flow_drift": "||s_layer,t - s_layer,1||_2 / ||s_layer,1||_2",
+    "pareto": "non-dominated under smaller static size and larger success",
+    "scale_aggregation": "channelwise median across atomic-seen, composite-seen, and composite-unseen frozen-A8 tables",
+    "task_delta": "task-level SR(DyPAC) - task-level SR(baseline)"
+  },
+  "kind": "dypac_evidence_figures",
+  "outputs": [
+    {
+      "path": "docs/gdsq_vla_iclr2027/figures/dypac_operating_points.png",
+      "sha256": "e65228926f0d95db8f995c650edc6a02dca7f36064b6243680e807a3016bb618"
+    },
+    {
+      "path": "docs/gdsq_vla_iclr2027/figures/dypac_operating_points.pdf",
+      "sha256": "f2d3ffe49a3defa714cd505a68a7ab1fba428d2a9eb88479f735e562b914541c"
+    },
+    {
+      "path": "docs/gdsq_vla_iclr2027/figures/dypac_dynamic_range_evidence.png",
+      "sha256": "7d44288d3b0e90e972d38864455ae7e470c72c39f19ce03045fcf9da5fe5afa4"
+    },
+    {
+      "path": "docs/gdsq_vla_iclr2027/figures/dypac_dynamic_range_evidence.pdf",
+      "sha256": "2bfa5b25700896e11b4b2a9466de49efbf451098ee44a8780b7ba5620d555973"
+    },
+    {
+      "path": "docs/gdsq_vla_iclr2027/figures/dypac_fcp_audit.png",
+      "sha256": "712a1f8b8d6380307494248748b5ec0d8438bc2fb6137d1f115906c92d4501d6"
+    },
+    {
+      "path": "docs/gdsq_vla_iclr2027/figures/dypac_fcp_audit.pdf",
+      "sha256": "036d2a864e71f47941f1129b70bca71552bd21da5973d7d3643bd6d9a5c94b0d"
+    }
+  ],
+  "schema_version": 1,
+  "sources": [
+    {
+      "name": "activation",
+      "path": "runs/full_context_v2/p2/activation_attribution.json",
+      "sha256": "3c59f27bf648b575bf87864ba9ed4a44590d077d8a57c298d841e6ff4bd879b9"
+    },
+    {
+      "name": "corrected_fcp_selection",
+      "path": "runs/full_context_v2/fcp_completion/gr00t_corrected_fcp_frozen.json.selection.json",
+      "sha256": "7e7830c749d501b516c82ead5e416437e4408ba519914a5b47d0f29613914987"
+    },
+    {
+      "name": "flip_manifest",
+      "path": "runs/full_context_v2/p2/interventions_dynamic/manifest.json",
+      "sha256": "c28857a5ffd081d17aa3ef8d8b765d9aff8c4e1639b28137ff8f7317bcfceb68"
+    },
+    {
+      "name": "flip_scores",
+      "path": "runs/full_context_v2/p2/flip_scores/flip_scores_cross_split.json",
+      "sha256": "2b99b74b67c400243b037bf4c7c7172ba8d37243057119c5035c57d817d1c631"
+    },
+    {
+      "name": "gr_manifest",
+      "path": "runs/full_context_v2/table1/manifest.json",
+      "sha256": "bb9f4518774be78370fddb8f82393f1ecb670299f0bcfb5ce00cbdb5d9717a08"
+    },
+    {
+      "name": "gr_omega",
+      "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_robocasa365_v1/aggregate/summary.json",
+      "sha256": "88f5a0ffd282148ed98f5c6df3d2087c5b49a76dda5ff4f84e4f14a71b8e749b"
+    },
+    {
+      "name": "gr_omega_memory",
+      "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_robocasa365_v1/aggregate/atomic_seen_paper_memory.json",
+      "sha256": "cbd299f7dd28033a194fde6fcf94be7255b96ed094d267fd3252a1ace84a84a2"
+    },
+    {
+      "name": "gr_plan",
+      "path": "runs/full_context_v2/p2/gr00t_full_context_v2_frozen.json",
+      "sha256": "969c5ae8bc84719229c81a88e8b6ace745cbb87cea551528ec8cf1fd3820e3a2"
+    },
+    {
+      "name": "gr_result",
+      "path": "runs/full_context_v2/table1/aggregate.json",
+      "sha256": "cbb59547a6149456f9ae8fc0bac0fedea1267e5ff5f4d144448112f15b0f459e"
+    },
+    {
+      "name": "gr_uniform",
+      "path": "runs/gdsq_week1_preregistered_v1/execution/aggregate/gr00t_uniform_w6/summary.json",
+      "sha256": "3a9165fe10fd69de8c23b254527135c4b30a5d20b8b7bf1030609e887ec75c36"
+    },
+    {
+      "name": "pi_baselines",
+      "path": "runs/pi05_gdsq_gr00t_aligned/official_target_paired50/aggregate/summary.json",
+      "sha256": "c7b6441c6ca0a49aa5cfe8e673d1ee465a5d101076b6ad866b149fb545d10cbb"
+    },
+    {
+      "name": "pi_omega",
+      "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/summary.json",
+      "sha256": "d898552b26fb68db253decfe9375977f1dbf38daf89bb94d73c6d62564114ae9"
+    },
+    {
+      "name": "pi_omega_memory",
+      "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/pi05_paper_memory.json",
+      "sha256": "38e8af86473a566a23bcb52801a5e951a576135d9f905d19db907c067adf82f6"
+    },
+    {
+      "name": "pi_plan",
+      "path": "runs/full_context_v2/pi05_p2/pi05_full_context_v2_frozen.json",
+      "sha256": "e502f7cd7d126517c000f8b5b8e7c6e5537b31226910a2dd6834caaebf736c83"
+    },
+    {
+      "name": "pi_result",
+      "path": "runs/full_context_v2/pi05_table1/aggregate.json",
+      "sha256": "512480a2e0836423254217b5215489bcb218e17a4c7d0fff1cdf5aba9acf4f73"
+    },
+    {
+      "name": "pi_uniform",
+      "path": "runs/gdsq_week1_preregistered_v1/execution/runs/pi05_uniform_w6_official50/aggregate/summary.json",
+      "sha256": "849e1e159daf6b515bcb1724a8862fea17e9c0c95053ed5fefc99b9c145e052a"
+    },
+    {
+      "name": "rollout",
+      "path": "runs/full_context_v2/table3_quick/aggregate.json",
+      "sha256": "41a2d63af912111725bf3b547a7ee220d78135987cb914d0cd4b073c16a87f9b"
+    },
+    {
+      "name": "selection",
+      "path": "runs/full_context_v2/p2/gr00t_full_context_v2_frozen.json.selection.json",
+      "sha256": "0a062d77528251751516f80e460f974b5243a732ecf8ebd0a40366339d9a14a7"
+    },
+    {
+      "name": "static_atomic",
+      "path": "runs/full_context_v2/table3_quick/static_a8/atomic_seen/m0_static_a8.npz",
+      "sha256": "4d6bc1f67b8695edda6297ce24cf2a10d6c5dddfaffa9e4232462993e360a178"
+    },
+    {
+      "name": "static_seen",
+      "path": "runs/full_context_v2/table3_quick/static_a8/composite_seen/m0_static_a8.npz",
+      "sha256": "b7d586bd77c2dd5593caa8d281849001800f21696079833be9302202b367b04d"
+    },
+    {
+      "name": "static_unseen",
+      "path": "runs/full_context_v2/table3_quick/static_a8/composite_unseen/m0_static_a8.npz",
+      "sha256": "69990ab5cc767fc6dafea931038b2e7d3ed7458bdc7c81b496ebc78ad94682ef"
+    },
+    {
+      "name": "statistics_correction",
+      "path": "runs/full_context_v2/statistics_correction/corrected_statistics.json",
+      "sha256": "5ed6ce1efe409dccfc38af9e1473455563772c646941efcd913349717a01b3ec"
+    }
+  ]
+}

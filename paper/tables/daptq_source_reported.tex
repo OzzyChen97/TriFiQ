@@ -1,0 +1,19 @@
+\begin{table}[h!]
+\centering
+\caption{Source-reported DA-PTQ task-average success on CogACT/SimplerEnv (not locally reproduced).}
+\label{tab:daptq_source}
+\small
+\setlength{\tabcolsep}{5.0pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+SimplerEnv setting & CogACT FP & VLA-Cache & QuantVLA & DA-PTQ \\
+\midrule
+WidowX visual matching & 51.3 & 46.8 & 43.5 & 48.9 \\
+Google Robot visual matching & 74.8 & 74.4 & 65.6 & 68.5 \\
+Google Robot variant aggregation & 61.3 & 62.3 & 49.4 & 51.7 \\
+\bottomrule
+\end{tabular}
+\vspace{2pt}
+\parbox{0.99\textwidth}{\footnotesize Values are transcribed from Tables 2--3 of the cited paper. Different models, task distributions, calibration, and evaluation protocols preclude a numerical ranking against Table~\ref{tab:main_results}.}
+\end{table}

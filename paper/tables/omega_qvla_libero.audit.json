@@ -1,0 +1,909 @@
+{
+  "attested_pi05_omega": {
+    "claim_enabled": true,
+    "kind": "experiment_owner_attested_result",
+    "path": "runs/table6_libero_v1/external_attested/pi05_omega_qvla_w4a4.json",
+    "sha256": "cbfb20c36138a047ea1a5557b197db53b529d768f9e05f167280fbcfe5974cf0"
+  },
+  "external_source": {
+    "arxiv": "2605.24011v3",
+    "paper": "ActQuant: Sub-4-bit Action-Guided Quantization for Vision-Language-Action Models",
+    "qvla_reproduction_note": "ActQuant authors' reproduction under the shared 60-episode calibration budget",
+    "scope": "pi0.5 4.0 Vision+LLM BPW rows only",
+    "table": 1,
+    "url": "https://arxiv.org/abs/2605.24011v3",
+    "user_supplied_image_sha256": "279b79fb5fc2b8bce6bc82db89cdd9cd1404289d73c52fde9bfcf137035179a5"
+  },
+  "kind": "omega_qvla_libero_table_audit",
+  "local_reproduction": {
+    "display_scope": "formal_joint_summary",
+    "interim_snapshot": {
+      "cell_artifacts": [
+        {
+          "claim_enabled": true,
+          "config": "fp16",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/fp16/goal/merged_summary.json",
+          "result_config": "fp16",
+          "sha256": "a9b5a28216e10e24145897789010a9eef8897ef45650b8254367abf12acb2fa7",
+          "status": "complete",
+          "success_rate_percent": 95.0,
+          "successes": 95,
+          "suite": "goal"
+        },
+        {
+          "claim_enabled": true,
+          "config": "fp16",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/fp16/spatial/merged_summary.json",
+          "result_config": "fp16",
+          "sha256": "90b5923bbbeb678ac84f3d45c105e2c3553d2481d52c7617c176bd91055f0e37",
+          "status": "complete",
+          "success_rate_percent": 100.0,
+          "successes": 100,
+          "suite": "spatial"
+        },
+        {
+          "claim_enabled": true,
+          "config": "fp16",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/fp16/object/merged_summary.json",
+          "result_config": "fp16",
+          "sha256": "8c4def3ff663cccf16e5e6df2cc1fccd5770ff0fcfbf74e01924d6e4e7cb9085",
+          "status": "complete",
+          "success_rate_percent": 98.0,
+          "successes": 98,
+          "suite": "object"
+        },
+        {
+          "claim_enabled": true,
+          "config": "fp16",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/fp16/long/merged_summary.json",
+          "result_config": "fp16",
+          "sha256": "63966575b224701d3dd2afb1775731e354840de89ca140ba31c63230665a6212",
+          "status": "complete",
+          "success_rate_percent": 94.0,
+          "successes": 94,
+          "suite": "long"
+        },
+        {
+          "claim_enabled": true,
+          "config": "quantvla_w4a8",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/quantvla_w4a8/goal/merged_summary.json",
+          "result_config": "quantvla_w4a8",
+          "sha256": "0b303364b5e3c7b3999fec4241c182376d35321a1a6158ad15786ac34fc13a20",
+          "status": "complete",
+          "success_rate_percent": 97.0,
+          "successes": 97,
+          "suite": "goal"
+        },
+        {
+          "claim_enabled": true,
+          "config": "quantvla_w4a8",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/quantvla_w4a8/spatial/merged_summary.json",
+          "result_config": "quantvla_w4a8",
+          "sha256": "b2fa7c9827774ad3b81aa0f618f0d13a47bf367589d9dd5001cf8b254591f43d",
+          "status": "complete",
+          "success_rate_percent": 97.0,
+          "successes": 97,
+          "suite": "spatial"
+        },
+        {
+          "claim_enabled": true,
+          "config": "quantvla_w4a8",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/quantvla_w4a8/object/merged_summary.json",
+          "result_config": "quantvla_w4a8",
+          "sha256": "9cad296aa7a1983c520539d314a61dcc959bf3350767d3d5dc8b8d361853ca39",
+          "status": "complete",
+          "success_rate_percent": 98.0,
+          "successes": 98,
+          "suite": "object"
+        },
+        {
+          "claim_enabled": true,
+          "config": "quantvla_w4a8",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/quantvla_w4a8/long/merged_summary.json",
+          "result_config": "quantvla_w4a8",
+          "sha256": "44f5d87ba1e3d599a9e668507bb9447e4696591dc504cc8f0e70b64cd424122c",
+          "status": "complete",
+          "success_rate_percent": 93.0,
+          "successes": 93,
+          "suite": "long"
+        },
+        {
+          "claim_enabled": true,
+          "config": "uniform_w6",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/uniform_w6/goal/merged_summary.json",
+          "result_config": "uniform_w6",
+          "sha256": "cd8bc74f50b442554ba0be615c39e9868c021a26a7253ea08d14d1ca5931a5fe",
+          "status": "complete",
+          "success_rate_percent": 99.0,
+          "successes": 99,
+          "suite": "goal"
+        },
+        {
+          "claim_enabled": true,
+          "config": "uniform_w6",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/uniform_w6/spatial/merged_summary.json",
+          "result_config": "uniform_w6",
+          "sha256": "39bba67da1acfc4b1e4175b11620c53c3e96b2b0f528ab950f59a3729c8dd584",
+          "status": "complete",
+          "success_rate_percent": 97.0,
+          "successes": 97,
+          "suite": "spatial"
+        },
+        {
+          "claim_enabled": true,
+          "config": "uniform_w6",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/uniform_w6/object/merged_summary.json",
+          "result_config": "uniform_w6",
+          "sha256": "f480dd6690929944676e1e2adb3544ed737370714f1e93e305645832f3db3571",
+          "status": "complete",
+          "success_rate_percent": 99.0,
+          "successes": 99,
+          "suite": "object"
+        },
+        {
+          "claim_enabled": true,
+          "config": "uniform_w6",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/uniform_w6/long/merged_summary.json",
+          "result_config": "uniform_w6",
+          "sha256": "cb6a9eecf9b54021d2c40c26f6b4f64ca5a0fa936e9e4381ddb3dee757f307ac",
+          "status": "complete",
+          "success_rate_percent": 92.0,
+          "successes": 92,
+          "suite": "long"
+        },
+        {
+          "claim_enabled": true,
+          "config": "omega_qvla_w4a4",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/omega_qvla_w4a4/goal/merged_summary.json",
+          "result_config": "omega_qvla_w4a4",
+          "sha256": "3c346724439ae33f09118a5c692b1d45e6faaed519ace7b4d72b19fc392abc07",
+          "status": "complete",
+          "success_rate_percent": 100.0,
+          "successes": 100,
+          "suite": "goal"
+        },
+        {
+          "claim_enabled": true,
+          "config": "omega_qvla_w4a4",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/omega_qvla_w4a4/spatial/merged_summary.json",
+          "result_config": "omega_qvla_w4a4",
+          "sha256": "e27016e3b6e018a12433bffd0107581c3545e7ed94d768f680788ec57657dd16",
+          "status": "complete",
+          "success_rate_percent": 100.0,
+          "successes": 100,
+          "suite": "spatial"
+        },
+        {
+          "claim_enabled": true,
+          "config": "omega_qvla_w4a4",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/omega_qvla_w4a4/object/merged_summary.json",
+          "result_config": "omega_qvla_w4a4",
+          "sha256": "5353de8d13f0460ff5e961efd397d3ddc6d9e229716bfa40817afb0628a6b2c3",
+          "status": "complete",
+          "success_rate_percent": 98.0,
+          "successes": 98,
+          "suite": "object"
+        },
+        {
+          "claim_enabled": true,
+          "config": "omega_qvla_w4a4",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/table6_libero_v1/results/pi05/omega_qvla_w4a4/long/merged_summary.json",
+          "result_config": "omega_qvla_w4a4",
+          "sha256": "2d03fde705bf4c2f265dac4e59de407ad1995790a593ef79e08374eac4589f5e",
+          "status": "complete",
+          "success_rate_percent": 97.0,
+          "successes": 97,
+          "suite": "long"
+        },
+        {
+          "claim_enabled": true,
+          "config": "gdsq_vla_selector",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/libero_dypac_v1/results/pi05/dypac_vla/goal/merged_summary.json",
+          "result_config": "dypac_vla",
+          "sha256": "324441244ef871914cd2bac44d4cf93554938fbd526ba58056679293fe929be6",
+          "status": "complete",
+          "success_rate_percent": 99.0,
+          "successes": 99,
+          "suite": "goal"
+        },
+        {
+          "claim_enabled": true,
+          "config": "gdsq_vla_selector",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/libero_dypac_v1/results/pi05/dypac_vla/spatial/merged_summary.json",
+          "result_config": "dypac_vla",
+          "sha256": "461beb404ff68ae7534069a4141f5eb4f7e5dede8e38b5218fc2161f9fe0166b",
+          "status": "complete",
+          "success_rate_percent": 100.0,
+          "successes": 100,
+          "suite": "spatial"
+        },
+        {
+          "claim_enabled": true,
+          "config": "gdsq_vla_selector",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/libero_dypac_v1/results/pi05/dypac_vla/object/merged_summary.json",
+          "result_config": "dypac_vla",
+          "sha256": "564b9ae3e77e259f0886196a18a9626b275499429f85237a35306d6e6a1f2e53",
+          "status": "complete",
+          "success_rate_percent": 96.0,
+          "successes": 96,
+          "suite": "object"
+        },
+        {
+          "claim_enabled": true,
+          "config": "gdsq_vla_selector",
+          "episodes": 100,
+          "model": "pi05",
+          "path": "runs/libero_dypac_v1/results/pi05/dypac_vla/long/merged_summary.json",
+          "result_config": "dypac_vla",
+          "sha256": "23cf757f672ac04f764bc8b8654411b7e1150b24ee0e4e4e505c907d2f0541a6",
+          "status": "complete",
+          "success_rate_percent": 94.0,
+          "successes": 94,
+          "suite": "long"
+        },
+        {
+          "claim_enabled": true,
+          "config": "fp16",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/fp16/goal/merged_summary.json",
+          "result_config": "fp16",
+          "sha256": "a90702cfa516dce96aee8ed27deb45c580d0224935f5dfe83f849aa85e052ba9",
+          "status": "complete",
+          "success_rate_percent": 88.0,
+          "successes": 88,
+          "suite": "goal"
+        },
+        {
+          "claim_enabled": true,
+          "config": "fp16",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/fp16/spatial/merged_summary.json",
+          "result_config": "fp16",
+          "sha256": "b94d74122f902243bfcd196dd7dc5864edeb077c1f71337bcaef1c990b747898",
+          "status": "complete",
+          "success_rate_percent": 87.0,
+          "successes": 87,
+          "suite": "spatial"
+        },
+        {
+          "claim_enabled": true,
+          "config": "fp16",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/fp16/object/merged_summary.json",
+          "result_config": "fp16",
+          "sha256": "9dc45988b009d7e863086ff60db099305c0e36b58bbe75baa8bb3725bd969deb",
+          "status": "complete",
+          "success_rate_percent": 96.0,
+          "successes": 96,
+          "suite": "object"
+        },
+        {
+          "claim_enabled": true,
+          "config": "fp16",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/fp16/long/merged_summary.json",
+          "result_config": "fp16",
+          "sha256": "816227a9eafa55e2ad78b52707c8b4eb04fe747d2e3c6afa5ba6822fb94f3a41",
+          "status": "complete",
+          "success_rate_percent": 76.0,
+          "successes": 76,
+          "suite": "long"
+        },
+        {
+          "claim_enabled": true,
+          "config": "quantvla_w4a8",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/quantvla_w4a8/goal/merged_summary.json",
+          "result_config": "quantvla_w4a8",
+          "sha256": "d5727b0a59a8927fdd3d2163ff2a711b75d09dcba4e9c0f0c5d6a754d80b95cf",
+          "status": "complete",
+          "success_rate_percent": 89.0,
+          "successes": 89,
+          "suite": "goal"
+        },
+        {
+          "claim_enabled": true,
+          "config": "quantvla_w4a8",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/quantvla_w4a8/spatial/merged_summary.json",
+          "result_config": "quantvla_w4a8",
+          "sha256": "8bc498d282dfb56d83a3a9d56e9bdd8c1dfb6a4debe29dd151eb03ac0e545fd4",
+          "status": "complete",
+          "success_rate_percent": 85.0,
+          "successes": 85,
+          "suite": "spatial"
+        },
+        {
+          "claim_enabled": true,
+          "config": "quantvla_w4a8",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/quantvla_w4a8/object/merged_summary.json",
+          "result_config": "quantvla_w4a8",
+          "sha256": "69155f0808ab0367fd3bd07154f1ca9806351cef9abb5da350a29689c0750510",
+          "status": "complete",
+          "success_rate_percent": 79.0,
+          "successes": 79,
+          "suite": "object"
+        },
+        {
+          "claim_enabled": true,
+          "config": "quantvla_w4a8",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/quantvla_w4a8/long/merged_summary.json",
+          "result_config": "quantvla_w4a8",
+          "sha256": "1befb27b392c43ed4eb9c123d30b36f3c2ed49d3e26c19d8c92fdb8b0a07003c",
+          "status": "complete",
+          "success_rate_percent": 72.0,
+          "successes": 72,
+          "suite": "long"
+        },
+        {
+          "claim_enabled": true,
+          "config": "uniform_w6",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/uniform_w6/goal/merged_summary.json",
+          "result_config": "uniform_w6",
+          "sha256": "6f589dbccbc2a74a19c0283368e3dd3ee5efea09bbb24d71aa2fd8756c7eb55a",
+          "status": "complete",
+          "success_rate_percent": 85.0,
+          "successes": 85,
+          "suite": "goal"
+        },
+        {
+          "claim_enabled": true,
+          "config": "uniform_w6",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/uniform_w6/spatial/merged_summary.json",
+          "result_config": "uniform_w6",
+          "sha256": "eb84856ca7ae75a0e23d0a08ff2d6a76ff4d4f97b7cbc62fda6522ef182efabe",
+          "status": "complete",
+          "success_rate_percent": 83.0,
+          "successes": 83,
+          "suite": "spatial"
+        },
+        {
+          "claim_enabled": true,
+          "config": "uniform_w6",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/uniform_w6/object/merged_summary.json",
+          "result_config": "uniform_w6",
+          "sha256": "f4a885070d170d3b93ed19d32c34445c12e536dda264a90c984174f3be2de6cf",
+          "status": "complete",
+          "success_rate_percent": 92.0,
+          "successes": 92,
+          "suite": "object"
+        },
+        {
+          "claim_enabled": true,
+          "config": "uniform_w6",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/uniform_w6/long/merged_summary.json",
+          "result_config": "uniform_w6",
+          "sha256": "5d6a0420904c03fb79599c14dff903eb7dcb53f70a99f9ba94bd44edbd8321f4",
+          "status": "complete",
+          "success_rate_percent": 22.0,
+          "successes": 22,
+          "suite": "long"
+        },
+        {
+          "claim_enabled": true,
+          "config": "omega_qvla_w4a4",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/omega_qvla_w4a4/goal/merged_summary.json",
+          "result_config": "omega_qvla_w4a4",
+          "sha256": "b0f78f03f4b0c28183be04d5581b9966b6d6fe3a8b90626ab7868aaa662e78f7",
+          "status": "complete",
+          "success_rate_percent": 87.0,
+          "successes": 87,
+          "suite": "goal"
+        },
+        {
+          "claim_enabled": true,
+          "config": "omega_qvla_w4a4",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/omega_qvla_w4a4/spatial/merged_summary.json",
+          "result_config": "omega_qvla_w4a4",
+          "sha256": "78e26261560acb283453504033fd3092e81df0511bcb272888193eb638e28b05",
+          "status": "complete",
+          "success_rate_percent": 86.0,
+          "successes": 86,
+          "suite": "spatial"
+        },
+        {
+          "claim_enabled": true,
+          "config": "omega_qvla_w4a4",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/omega_qvla_w4a4/object/merged_summary.json",
+          "result_config": "omega_qvla_w4a4",
+          "sha256": "d2004dca72f4331e5185181cba96f342418ece423b43391d545034576870eb96",
+          "status": "complete",
+          "success_rate_percent": 89.0,
+          "successes": 89,
+          "suite": "object"
+        },
+        {
+          "claim_enabled": true,
+          "config": "omega_qvla_w4a4",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/table6_libero_v1/results/gr00t/omega_qvla_w4a4/long/merged_summary.json",
+          "result_config": "omega_qvla_w4a4",
+          "sha256": "076c1bebf020f5993cdd2fb550885e0dfafeaba222950e4e6b2061fbd2d73ada",
+          "status": "complete",
+          "success_rate_percent": 76.0,
+          "successes": 76,
+          "suite": "long"
+        },
+        {
+          "claim_enabled": true,
+          "config": "gdsq_vla_selector",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/libero_dypac_v1/results_v2/gr00t/dypac_vla/goal/merged_summary.json",
+          "result_config": "dypac_vla",
+          "sha256": "c0d5e6f23c5df4c7afe7a4367ad6e583cb6022711ab7501849eec079b41b2082",
+          "status": "complete",
+          "success_rate_percent": 97.0,
+          "successes": 97,
+          "suite": "goal"
+        },
+        {
+          "claim_enabled": true,
+          "config": "gdsq_vla_selector",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/libero_dypac_v1/results_v2/gr00t/dypac_vla/spatial/merged_summary.json",
+          "result_config": "dypac_vla",
+          "sha256": "86c66072f8f89e897f009cc7bc0ebe19fc3040176ae8ee45c334a723fe6faa9a",
+          "status": "complete",
+          "success_rate_percent": 95.0,
+          "successes": 95,
+          "suite": "spatial"
+        },
+        {
+          "claim_enabled": true,
+          "config": "gdsq_vla_selector",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/libero_dypac_v1/results_v2/gr00t/dypac_vla/object/merged_summary.json",
+          "result_config": "dypac_vla",
+          "sha256": "23c067ace09bcb51074de7e6d5a3cd0f7ea2110ae6ba5577bc2d13d6de82ac01",
+          "status": "complete",
+          "success_rate_percent": 98.0,
+          "successes": 98,
+          "suite": "object"
+        },
+        {
+          "claim_enabled": true,
+          "config": "gdsq_vla_selector",
+          "episodes": 100,
+          "model": "gr00t",
+          "path": "runs/libero_dypac_v1/results_v2/gr00t/dypac_vla/long/merged_summary.json",
+          "result_config": "dypac_vla",
+          "sha256": "be878db99eaf21c270447051f2449501cd51109258fd5d75d8fa236847cb949a",
+          "status": "complete",
+          "success_rate_percent": 85.0,
+          "successes": 85,
+          "suite": "long"
+        }
+      ],
+      "coverage": {
+        "complete_cells": 40,
+        "expected_cells": 40,
+        "expected_episodes": 4000,
+        "missing_episodes": 0,
+        "observed_episodes": 4000,
+        "pending_cells": 0
+      },
+      "joint_claim_enabled": true,
+      "release_mode": "interim_complete_cells_only"
+    },
+    "joint_gate": {
+      "claim_enabled": true,
+      "preregistration": "runs/gdsq_extension_preregistered_v1/libero_table2_five_config_v2.json",
+      "preregistration_sha256": "1f2bc757bc0adbefa6466a89bfcb24d6b6595628e0cbe0f147fa0cd3af23bf73",
+      "status": "complete",
+      "summary": "runs/table6_libero_v1/aggregate/summary.json",
+      "summary_sha256": "545291172b23b2520cebbc613d3da511b2586de18eb6f7d18ef6b1a1e5412dbd"
+    }
+  },
+  "official_code_commit": "3727e2203568db43fc5fba06ee8686c1b47c044f",
+  "paper_pdf_sha256": "d0c2ede8a71a497e423c31a2431b0166592f61093acfcfeb6be1be62a7f716e7",
+  "rows": {
+    "gr00t": [
+      {
+        "claim_enabled": true,
+        "complete_suites": [
+          "goal",
+          "spatial",
+          "object",
+          "long"
+        ],
+        "config": "fp16",
+        "evidence": "local reproduction",
+        "metrics": {
+          "average": 86.75,
+          "goal": 88.0,
+          "long": 76.0,
+          "object": 96.0,
+          "spatial": 87.0
+        },
+        "row_average_enabled": true,
+        "static_memory": {
+          "component_bytes": 2139537408,
+          "display_gib": "1.993"
+        }
+      },
+      {
+        "claim_enabled": true,
+        "complete_suites": [
+          "goal",
+          "spatial",
+          "object",
+          "long"
+        ],
+        "config": "quantvla_w4a8",
+        "evidence": "local reproduction",
+        "metrics": {
+          "average": 81.25,
+          "goal": 89.0,
+          "long": 72.0,
+          "object": 79.0,
+          "spatial": 85.0
+        },
+        "row_average_enabled": true,
+        "static_memory": {
+          "component_bytes": 963772416,
+          "display_gib": "0.898"
+        }
+      },
+      {
+        "claim_enabled": true,
+        "complete_suites": [
+          "goal",
+          "spatial",
+          "object",
+          "long"
+        ],
+        "config": "uniform_w6",
+        "evidence": "local reproduction",
+        "metrics": {
+          "average": 70.5,
+          "goal": 85.0,
+          "long": 22.0,
+          "object": 92.0,
+          "spatial": 83.0
+        },
+        "row_average_enabled": true,
+        "static_memory": {
+          "component_bytes": 1190264832,
+          "display_gib": "1.109"
+        }
+      },
+      {
+        "claim_enabled": true,
+        "complete_suites": [
+          "goal",
+          "spatial",
+          "object",
+          "long"
+        ],
+        "config": "omega_qvla_w4a4",
+        "evidence": "local reproduction",
+        "metrics": {
+          "average": 84.5,
+          "goal": 87.0,
+          "long": 76.0,
+          "object": 89.0,
+          "spatial": 86.0
+        },
+        "row_average_enabled": true,
+        "static_memory": {
+          "component_bytes": 642940928,
+          "display_gib": "0.599"
+        }
+      },
+      {
+        "claim_enabled": true,
+        "complete_suites": [
+          "goal",
+          "spatial",
+          "object",
+          "long"
+        ],
+        "config": "gdsq_vla_selector",
+        "evidence": "benchmark-specific DyPAC-VLA reproduction",
+        "metrics": {
+          "average": 93.75,
+          "goal": 97.0,
+          "long": 85.0,
+          "object": 98.0,
+          "spatial": 95.0
+        },
+        "row_average_enabled": true,
+        "static_memory": {
+          "aggregation": "suite_mean",
+          "component_bytes": 1018204672,
+          "display_gib": "0.948",
+          "per_suite_component_bytes": {
+            "goal": 1046052864,
+            "long": 1006215168,
+            "object": 1014335488,
+            "spatial": 1006215168
+          }
+        }
+      }
+    ],
+    "pi05": [
+      {
+        "claim_enabled": true,
+        "complete_suites": [
+          "goal",
+          "spatial",
+          "object",
+          "long"
+        ],
+        "config": "fp16",
+        "evidence": "local reproduction",
+        "metrics": {
+          "average": 96.75,
+          "goal": 95.0,
+          "long": 94.0,
+          "object": 98.0,
+          "spatial": 100.0
+        },
+        "row_average_enabled": true,
+        "static_memory": {
+          "component_bytes": 4416602112,
+          "display_gib": "4.113"
+        }
+      },
+      {
+        "claim_enabled": true,
+        "complete_suites": [
+          "goal",
+          "spatial",
+          "object",
+          "long"
+        ],
+        "config": "quantvla_w4a8",
+        "evidence": "local reproduction",
+        "metrics": {
+          "average": 96.25,
+          "goal": 97.0,
+          "long": 93.0,
+          "object": 98.0,
+          "spatial": 97.0
+        },
+        "row_average_enabled": true,
+        "static_memory": {
+          "component_bytes": 1490466816,
+          "display_gib": "1.388"
+        }
+      },
+      {
+        "claim_enabled": true,
+        "complete_suites": [
+          "goal",
+          "spatial",
+          "object",
+          "long"
+        ],
+        "config": "uniform_w6",
+        "evidence": "local reproduction",
+        "metrics": {
+          "average": 96.75,
+          "goal": 99.0,
+          "long": 92.0,
+          "object": 99.0,
+          "spatial": 97.0
+        },
+        "row_average_enabled": true,
+        "static_memory": {
+          "component_bytes": 2042542080,
+          "display_gib": "1.902"
+        }
+      },
+      {
+        "claim_enabled": true,
+        "complete_suites": [
+          "goal",
+          "spatial",
+          "object",
+          "long"
+        ],
+        "config": "omega_qvla_w4a4",
+        "evidence": "experiment-owner attested result",
+        "metrics": {
+          "average": 98.0,
+          "goal": 100.0,
+          "long": 96.0,
+          "object": 97.0,
+          "spatial": 99.0
+        },
+        "row_average_enabled": true,
+        "static_memory": {
+          "component_bytes": 1402970112,
+          "display_gib": "1.307"
+        }
+      },
+      {
+        "claim_enabled": true,
+        "config": "qvla_source_4bpw",
+        "evidence": "source-reported ActQuant v3 Table 1",
+        "included_in_local_4000_episode_gate": false,
+        "local_reproduction": false,
+        "memory_gb": 2.7,
+        "metrics": {
+          "average": 95.8,
+          "goal": 96.4,
+          "long": 91.8,
+          "object": 97.2,
+          "spatial": 98.0
+        }
+      },
+      {
+        "claim_enabled": true,
+        "config": "actquant_source_4bpw",
+        "evidence": "source-reported ActQuant v3 Table 1",
+        "included_in_local_4000_episode_gate": false,
+        "local_reproduction": false,
+        "memory_gb": 2.7,
+        "metrics": {
+          "average": 96.6,
+          "goal": 96.8,
+          "long": 91.8,
+          "object": 99.4,
+          "spatial": 98.4
+        }
+      },
+      {
+        "claim_enabled": true,
+        "complete_suites": [
+          "goal",
+          "spatial",
+          "object",
+          "long"
+        ],
+        "config": "gdsq_vla_selector",
+        "evidence": "benchmark-specific DyPAC-VLA reproduction",
+        "metrics": {
+          "average": 97.25,
+          "goal": 99.0,
+          "long": 94.0,
+          "object": 96.0,
+          "spatial": 100.0
+        },
+        "row_average_enabled": true,
+        "static_memory": {
+          "aggregation": "suite_mean",
+          "component_bytes": 1919942656,
+          "display_gib": "1.788",
+          "per_suite_component_bytes": {
+            "goal": 1919942656,
+            "long": 1919942656,
+            "object": 1919942656,
+            "spatial": 1919942656
+          }
+        }
+      }
+    ]
+  },
+  "schema_version": 1,
+  "source": "runs/gdsq_extension_preregistered_v1/omega_qvla_table1/source_record.json",
+  "source_sha256": "9a94dbae0b053b32ceac08d7a2f6ba2156764d2180295d370b743b7d34297d8f",
+  "static_memory": {
+    "aggregation": "A suite-invariant configuration uses its exact byte count. A suite-specific selector uses the arithmetic mean over the four LIBERO suite plans.",
+    "display_unit": "GiB",
+    "path": "runs/table6_libero_v1/artifacts/table5_static_memory.json",
+    "scope": "Tightly packed model-component storage under the paper accounting scope",
+    "sha256": "68e90aacd8b1435ad421c5e36086d34a394d63fa48ca42e9bd204e219492c431",
+    "sources": {
+      "byte_anchors": {
+        "path": "scripts/tools/quantvla_table1_bytes.py",
+        "sha256": "3ef908b6ce432b0a4ed24f06c21bdb088d2bd2043495cf5f3965abdbb0fc74d2"
+      },
+      "gr00t_goal_plan": {
+        "path": "checkpoints/packs/gr00t/gr00t_quant_plan_libero_goal_v14_adjudicated.final_plan.json",
+        "sha256": "ab260134eac8d27472cb09584e1a21a6ec76f069b78aa71ce54244a4ea337158"
+      },
+      "gr00t_long_plan": {
+        "path": "checkpoints/packs/gr00t/gr00t_quant_plan_long_transfer_v14.json",
+        "sha256": "dc401bb8fb7d5923acabd5fefa42d1ac7efd003f1995348f76b758c9f0351c38"
+      },
+      "gr00t_object_plan": {
+        "path": "checkpoints/packs/gr00t/gr00t_quant_plan_libero_object_v14_adjudicated.final_plan.json",
+        "sha256": "8fd9e2d464cd3ef6cac9b3b365f99362dcb47290f564433d1adee768f5fe1dc0"
+      },
+      "gr00t_omega_memory": {
+        "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_robocasa365_v1/aggregate/atomic_seen_paper_memory.json",
+        "sha256": "cbd299f7dd28033a194fde6fcf94be7255b96ed094d267fd3252a1ace84a84a2"
+      },
+      "gr00t_spatial_plan": {
+        "path": "checkpoints/packs/gr00t/gr00t_quant_plan_libero_spatial_v14_adjudicated.final_plan.json",
+        "sha256": "222ed6fdcc79c2c505af6fadb67b624a89dbc583b8234635dfb62dae0d83b5ab"
+      },
+      "pi05_candidate_inventory": {
+        "path": "runs/pi05_gdsq_gr00t_aligned/plans/pi05_candidate_inventory_d4.json",
+        "sha256": "900084089317fec0e8389d8f3f61dba5efd94d1f083db7a3cc5813e7f3e3a79f"
+      },
+      "pi05_goal_plan": {
+        "path": "runs/table6_libero_v1/artifacts/pi05/goal/gdsq_vla_selector.plan.json",
+        "sha256": "5c131d44b7a98aafd89714ea5c928b31f266070765107744331dd2669b005cdb"
+      },
+      "pi05_long_plan": {
+        "path": "runs/table6_libero_v1/artifacts/pi05/long/gdsq_vla_selector.plan.json",
+        "sha256": "9c3eda2789822d8cd96625309a3a15a9d1a9a162e53f1813c570dc2b13703e80"
+      },
+      "pi05_object_plan": {
+        "path": "runs/table6_libero_v1/artifacts/pi05/object/gdsq_vla_selector.plan.json",
+        "sha256": "b086f703f77ba7c4ab446653b907a1207f36976f6546d066f54b7fdc35ee2999"
+      },
+      "pi05_omega_memory": {
+        "path": "runs/gdsq_extension_preregistered_v1/omega_qvla_pi05_robocasa365_v1/aggregate/pi05_paper_memory.json",
+        "sha256": "38e8af86473a566a23bcb52801a5e951a576135d9f905d19db907c067adf82f6"
+      },
+      "pi05_spatial_plan": {
+        "path": "runs/table6_libero_v1/artifacts/pi05/spatial/gdsq_vla_selector.plan.json",
+        "sha256": "2cbf6b10085a166960d45a9136855f607737d7ef7db47e49e4c13f7e8f064e0c"
+      },
+      "same_budget_preregistration": {
+        "path": "runs/gdsq_week1_preregistered_v1/preregistration.json",
+        "sha256": "216f1b6267b5bc9ff67cb19f9e3502c30836b0aa7e81e10ade522fa7d6104541"
+      }
+    }
+  }
+}

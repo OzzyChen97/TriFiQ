@@ -1,0 +1,45 @@
+\begin{table}[H]
+\centering
+\caption{LIBERO per-suite results on $\pi_{0.5}$ (10 tasks per suite; 100 episodes per suite).}
+\label{tab:omega_qvla_libero}
+\footnotesize
+\setlength{\tabcolsep}{4.2pt}
+\renewcommand{\arraystretch}{0.92}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+Configuration & Goal $\uparrow$ & Spatial $\uparrow$ & Object $\uparrow$ & Long $\uparrow$ & Avg. $\uparrow$ & \shortstack{Size\\(GiB) $\downarrow$} \\
+\midrule
+\multicolumn{7}{@{}l}{\textbf{$\pi_{0.5}$}} \\
+\quad FP16 & 95.0 & 100.0 & 98.0 & 94.0 & 96.8 & 4.113 \\
+\quad \quantvla W4A8 & 97.0 & 97.0 & 98.0 & 93.0 & 96.3 & 1.388 \\
+\quad Uniform W6 & 99.0 & 97.0 & 99.0 & 92.0 & 96.8 & 1.902 \\
+\quad $\Omega$-QVLA W4A4 & 100.0 & 99.0 & 97.0 & 96.0 & 98.0 & 1.307$^{L}$ \\
+\quad QVLA (4.0 BPW)$^{\dagger}$ & 96.4 & 98.0 & 97.2 & 91.8 & 95.8 & 2.7 GB \\
+\quad ActQuant (4.0 BPW)$^{\dagger}$ & 96.8 & 98.4 & 99.4 & 91.8 & 96.6 & 2.7 GB \\
+\quad \textbf{\method (Ours)} & 99.0 & 100.0 & 96.0 & 94.0 & 97.3 & 1.788 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[H]
+\centering
+\addtocounter{table}{-1}
+\renewcommand{\theHtable}{\arabic{table}b}
+\caption{LIBERO per-suite results on GR00T N1.5 (10 tasks per suite; 100 episodes per suite).}
+\footnotesize
+\setlength{\tabcolsep}{4.2pt}
+\renewcommand{\arraystretch}{0.92}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+Configuration & Goal $\uparrow$ & Spatial $\uparrow$ & Object $\uparrow$ & Long $\uparrow$ & Avg. $\uparrow$ & \shortstack{Size\\(GiB) $\downarrow$} \\
+\midrule
+\multicolumn{7}{@{}l}{\textbf{GR00T N1.5}} \\
+\quad FP16 & 88.0 & 87.0 & 96.0 & 76.0 & 86.8 & 1.993 \\
+\quad \quantvla W4A8 & 89.0 & 85.0 & 79.0 & 72.0 & 81.3 & 0.898 \\
+\quad Uniform W6 & 85.0 & 83.0 & 92.0 & 22.0 & 70.5 & 1.109 \\
+\quad $\Omega$-QVLA W4A4 & 87.0 & 86.0 & 89.0 & 76.0 & 84.5 & 0.599 \\
+\quad \textbf{\method (Ours)} & 97.0 & 95.0 & 98.0 & 85.0 & 93.8 & 0.948 \\
+\bottomrule
+\end{tabular}
+\vspace{2pt}
+\parbox{0.99\textwidth}{\footnotesize The complete local matrix contains 4,000 episodes across 40/40 exact-valid cells. Each local suite uses ten tasks and ten held-out initial states. Size includes packed weights and metadata and is averaged over suite-specific masks; sizes count the audited Linear-component inventory, not whole-model checkpoints. $^{L}$The $\pi_{0.5}$ $\Omega$-QVLA size is a distinct 252-Linear inventory and is not comparable with the common component scope (Appendix~\ref{sec:storage_scope}). $^{\dagger}$The $\pi_{0.5}$ QVLA and ActQuant rows are source-reported 4.0-BPW results~\citep{akbari2026actquant} using the source memory definition, reported in GB.}
+\end{table}

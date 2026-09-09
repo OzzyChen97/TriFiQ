@@ -1,0 +1,84 @@
+\section{Method}
+\label{sec:method}
+
+\paragraph{Overview.}
+\method constructs a low-bit policy through three stages: RIPA proposes precision from representation integrity, FCP projects and admits configurations using action-sequence fidelity, and \dyrange adapts activation ranges to the execution input. The output is one frozen precision mask and one input-conditioned activation rule. The stages follow a \emph{proposal--admission separation}: layer-level evidence proposes precision, and only complete-policy action evidence decides admission. Appendix~\ref{sec:fcp_rules} gives the full projection, adjudication, and freeze rules.
+
+\paragraph{Problem formulation: byte-constrained policy configuration under a mask-induced rollout distribution.}
+\label{sec:problem}
+
+Let $f_{\theta}(o,\epsilon)$ denote a frozen FP16-reference VLA that maps observation $o$ and generative noise $\epsilon$ to an action chunk $A\in\mathbb{R}^{H\times d}$, with target linear layers indexed by $\mathcal{L}$. A mask $M\in\{4,16\}^{|\mathcal{L}|}$ assigns signed-nibble W4 or native 16-bit precision to each target, and $Q_M(f_\theta)$ denotes the mixed-precision policy under a fixed activation rule; FP16 follows the reference-row naming used throughout. Unlike static model compression, the deployed object is a policy whose actions change the states and observations that later queries are conditioned on. We therefore write $\mathcal D_M$ for the \emph{mask-induced rollout distribution}, the rollouts that $Q_M$ itself generates, and $S(Q_M;\tau)\in\{0,1\}$ for task success on rollout $\tau$. The deployment objective is
+\begin{equation}
+ M^\star=\arg\max_{M\in\{4,16\}^{|\mathcal L|}}
+ \mathbb E_{\tau\sim\mathcal D_M}\!\left[S(Q_M;\tau)\right]
+ \quad\text{s.t.}\quad C(M)\le C_{\max},
+ \label{eq:problem}
+\end{equation}
+where $C(M)$ is exact packed static-component storage. Equation~\ref{eq:problem} is the evaluation goal, not FCP's selection rule: evaluating every mask's rollout distribution is intractable. It also fixes the roles of the two evidence types. Because the decision variable is one coupled mask, simultaneous layer changes need not combine additively, so layer-level scores cannot serve as decisions; and because the distribution is mask-induced, fidelity on a fixed calibration buffer is a proposal signal rather than an admission certificate. FCP therefore screens complete policies on paired teacher contexts, checks shortlisted candidates on candidate-induced observations, and otherwise retains a feasible anchor (Section~\ref{sec:fcp}).
+
+FCP is label-free: success and reward never enter its guards. Candidate and reference share generative noise, and an independent noise stream is reserved for post-freeze audit. The RIPA ratio is selected by a disclosed four-task success sweep, and deployment uses a global fixed mask without gradient updates, task-conditioned routing, output correction, or FP16 bypass.
+
+\subsection{RIPA: Representation-Integrity-aware Precision Allocation}
+\label{sec:cscka}
+
+RIPA combines two damage views: centered linear kernel alignment (CKA)~\citep{kornblith2019similarity} measures input-corresponding relations, and the uncentered Gaussian-kernel Cauchy--Schwarz divergence used in CS-Aligner~\citep{yin2026csaligner} measures distributional change, with bandwidth fixed from reference samples. The relational signal is recorded at the action generator's output representation (CKA-DiT); CS is measured at the intervened layer. The two views are complementary: a uniform translation of features preserves centered relations while shifting the distribution, and a row permutation preserves the distribution while disrupting input-corresponding relations (Appendix~\ref{sec:init_provenance}). RMS and saturation guards protect numerically unstable layers separately.
+
+Let $\bar d_i^{\mathrm{rel}}=\operatorname{norm}(1-\widehat{\mathrm{CKA}}_i)$ and $\bar d_i^{\mathrm{dist}}=\operatorname{norm}(\widehat D_{\mathrm{CS},i})$ be min--max-normalized damage scores, with the normalizing constants taken jointly over all measured layer--bit pairs of the frozen score bank. RIPA scores each target and allocates precision under a byte budget:
+\begin{equation}
+ \begin{aligned}
+ \mathcal I_i&=w_i\left[\alpha\bar d_i^{\mathrm{rel}}+(1-\alpha)\bar d_i^{\mathrm{dist}}\right],\\
+ M_{\mathrm{init}}&\approx\arg\min_M\sum_i\mathbf{1}[M_i=4]\mathcal I_i
+ \quad\mathrm{s.t.}\quad C(M)\le C_{\mathrm{init}},\;M_i=16\;(i\in\mathcal G).
+ \end{aligned}
+ \label{eq:cscka_allocator}
+\end{equation}
+Here $w_i$ is an action-impact weight derived from one-layer \dfunc values, clipped to $[0.5,2]$ before renormalization; $\mathcal G$ hard-protects layers exceeding the RMS or saturation thresholds; and $C_{\mathrm{init}}$ is the initializer's budget, which can differ from FCP's deployment ceiling $C_{\max}$. A four-task development sweep over seven choices fixes $\alpha=16/17$, a $16{:}1$ relational-to-distributional ratio. Appendix~\ref{sec:init_provenance} gives the weight formula, deployed range, guard thresholds, and calibration provenance.
+
+The $\pi_{0.5}$ port transfers the frozen 16:1 ratio and reruns target-architecture sensitivity and complete-mask adjudication under its earlier Uniform-W6 budget, producing an 80-W4/100-FP16 mask for FCP without copying GR00T layer identities. FCP then adapts that artifact to the tighter QuantVLA-relative ceiling; direct target-budget RIPA is not evaluated here.
+
+\subsection{FCP: Full-Policy Budget Projection and Fidelity Admission}
+\label{sec:fcp}
+\label{sec:dpac}
+
+Full-Context Precision Protection (FCP) turns representation-based proposals into discrete configuration decisions. It first retains or projects $M_{\mathrm{init}}$ to a byte-feasible anchor $M_0$, then admits a complete candidate only if it meets the prescribed action-deviation conditions. D-PAC defines how to measure sequence deviation; FCP defines how that evidence governs precision changes.
+
+\paragraph{D-PAC: defining temporal policy deviation.}
+D-PAC is a definition of \emph{temporal policy deviation} for configuration evaluation and admission, not a new scalar error metric. Pointwise action error cannot serve the admission decision, because equal local error can produce different accumulated, replanning, and control-transition behavior. Consider $e_t^{(1)}=\epsilon$ and $e_t^{(2)}=(-1)^t\epsilon$: both have per-step mean squared error (MSE) $\epsilon^2$, yet their sums over even $T$ are $T\epsilon$ and zero. Equal local errors can therefore have different temporal structure, so the decision needs a sequence-level definition.
+
+D-PAC scores paired physical sequences. For each task--seed sequence, teacher and candidate share observations and initial action noise; we inverse-normalize the final chunks and retain all $H=16$ actions executed before each replan, without overlapping forecasts. Errors use a robust coordinate scale estimated globally from FP16 data, so a candidate cannot alter its denominator. Five normalized components address three control questions and receive equal weight:
+\begin{equation}
+ \begin{aligned}
+ d_{\mathrm{PAC}}^{(u)}&=\tfrac{1}{5}\bigl(
+ d_{\mathrm{local}}+d_{\mathrm{prefix}}+d_{\mathrm{pose}}+
+ d_{\mathrm{stitch}}+d_{\mathrm{grip}}\bigr),\\
+ \dpac&=\operatorname{mean}_u d_{\mathrm{PAC}}^{(u)}+
+ \operatorname{CVaR}_{0.9,u}\!\left(d_{\mathrm{PAC}}^{(u)}\right).
+ \end{aligned}
+ \label{eq:dpac_sequence}
+\end{equation}
+The three components $d_{\mathrm{local}}$, $d_{\mathrm{prefix}}$, and $d_{\mathrm{pose}}$ measure persistent deviation through local error, prefix accumulation, and right-composed SE(3) pose deviation; $d_{\mathrm{stitch}}$ measures replanning continuity at chunk boundaries; and $d_{\mathrm{grip}}$ measures discrete control consistency. Here $u$ indexes task--seed sequences, and conditional value at risk (CVaR) averages the largest $\lceil0.1|u|\rceil$ sequence deviations, giving this tail the same total weight as the mean. We retain \dfunc for complementary final-action and kinematic evidence. FCP uses 12 stratified tasks, three seeds each and four replans: 36 sequences and 144 teacher observations, distinct from RIPA's historical score bank. Appendix~\ref{sec:metric_specification} gives the formulas and edge cases.
+
+\paragraph{Projection followed by admission.}
+FCP projects the initial layout, generates exact-byte proposals, and admits complete candidates using task-level deviation bounds and candidate-induced observations. A feasible initializer becomes the anchor; nothing forces a precision change. Projection instantiates each FP16-to-W4 removal as a complete policy and removes protections from least to most damaging until the mask fits, using the measured intervention $\Delta_i(M)=D(Q_{M^{(i)}};\mathcal B)-D(Q_M;\mathcal B)$ in the current mixed-precision background rather than as isolated layer reconstruction. On $\pi_{0.5}$ this removes 41 of 100 protections, producing the 121-W4/59-FP16 anchor.
+
+Admission then flips target precision states one at a time from $M_0$. Each intervention is instantiated as a mixed-precision network and compared with its complete-mask background, and the resulting conservative benefits feed an exact sparse Pareto 0--1 dynamic program subject to $C(M)=C_{\mathrm{fixed}}+\sum_{i\in\mathcal{L}}C_i(M_i)\le 1.10\,C_{\mathrm{QuantVLA}}$. The constraint is expressed in bytes rather than layer count because layers differ in tensor and metadata size. The dynamic program only generates candidates: its additive benefits cannot capture interactions among simultaneous layer changes, so FCP evaluates every candidate as a complete configuration. A candidate is admitted only if the task-level minimax bound is strictly negative in every metric--group pair with non-positive component bounds for pose, stitch, and gripper; the rule preserves the anchor unless deviation evidence favors replacement, and extra compression alone cannot justify admission. On GR00T all proposals fail the teacher-state screen, so FCP retains $M_0$ and claims no success optimality. Appendix~\ref{sec:fcp_rules} gives the minimax statistic, the candidate-state check, and the deterministic freeze order.
+
+\subsection{DyRange-A8: Resolving Closed-Loop Activation-Range Shift}
+\label{sec:deployment}
+
+The deployment stage combines Hessian-aware W4 weights with standard per-forward max-abs A8 ranges, adapting scales to realized inputs while keeping precision fixed. Its design target is one failure mode rather than dynamic quantization in general: a closed-loop activation shift, in which the deployed policy changes the states and flow-step inputs that the ranges must cover.
+
+\paragraph{Weight quantization.}
+For each W4 layer, 256 calibration observations form FP16 input second-order statistics $X^\top X$. A GPTQ-style sequential error-feedback pass selects clipping and quantizes signed weights in groups of 64~\citep{frantar2022gptq}. Two signed four-bit codes are packed per byte; per-group scales and packing metadata are retained, but the FP16 weight tensor is not. Row rotation is the identity: the reported numbers require no learned transform.
+
+\paragraph{Closed-loop activation-range shift.}
+A static activation table is estimated once, under the observations, flow steps, and policy-induced states of the calibration buffer. Once the quantized policy acts, its inputs drift away from that buffer, and a frozen table becomes mismatched even though its calibration was correct at collection time. Our static counterfactual makes the shift concrete: independently calibrated 99.9th-percentile scales per target layer, input channel, and applicable flow step, evaluated under an otherwise identical runtime. \dyrange removes the lookup and recomputes a scale for every target linear layer, forward call, and input channel:
+\begin{equation}
+ s_c=\max\!\left(\frac{\max |x_{\ldots,c}|}{127},10^{-6}\right),
+ \qquad q_c=\operatorname{clip}\!\left(\operatorname{round}(x_c/s_c),-127,127\right).
+ \label{eq:dyrange}
+\end{equation}
+The rule is deterministic and uses the input dtype, with no calibration lookup, flow-step selector, task selector, or candidate branch. It changes activation ranges only: precision stays frozen and no runtime routing occurs (Appendix~\ref{sec:hardware_results}).
+
+\paragraph{Exact storage scope.}
+Storage counts the declared Linear-component inventory: fixed tensors within that inventory, packed W4, scales, and metadata. It excludes vision modules outside the inventory, activations, and runtime caches. GR00T's 100-W4/16-FP16 layout occupies 962,068,480 component bytes; $\pi_{0.5}$'s 121-W4/59-FP16 layout occupies 1,634,828,288. Appendix~\ref{sec:storage_scope} distinguishes these counts from whole-model packs and alternate inventories; Appendix~\ref{sec:offline_cost} reports available offline work counts.
