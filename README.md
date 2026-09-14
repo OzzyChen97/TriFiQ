@@ -19,7 +19,7 @@ RoboCasa365 operating point; rollout success is evaluation-only and never select
 
 ## Method
 
-![DyPAC-VLA pipeline](figures/dypac_pipeline.png)
+![DyPAC-VLA pipeline](figures/method_pipeline.png)
 
 *Method pipeline. RIPA constructs an exact-byte anchor and equal-byte candidates. D-PAC minimizes
 accumulated executed-prefix deviation under local and immediate-action bounds. DyRange-A8 adapts
