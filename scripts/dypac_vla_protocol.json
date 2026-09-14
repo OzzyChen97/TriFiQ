@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "method_id": "dypac_vla_paper_method_v1",
+  "paper_title": "DyPAC-VLA: Representation-to-Action Fidelity for Low-Bit Vision-Language-Action Models",
+  "scope": "training_free_post_training_quantization",
+  "weight_mask": {
+    "target_layer_states": [
+      "signed_group64_w4",
+      "native_16bit"
+    ],
+    "cost_formula": "C(M)=C_allW4+sum_i 1[M_i=16]*delta_C_i",
+    "cost_scope": "audited_weight_component_bytes",
+    "allocation_solver": "exact_integer_cost_dynamic_programming",
+    "layer_count_proxy_allowed": false,
+    "unmatched_storage_scope_comparison_allowed": false
+  },
+  "ripa": {
+    "measurement": "one_layer_w4_intervention_in_otherwise_native_16bit_policy",
+    "paired_inputs": true,
+    "probe_sites": {
+      "final_continuous_action_representation": "relational_damage",
+      "intervened_layer_output": "distributional_damage"
+    },
+    "relational_formula": "1-<A,B>_F/(norm(A)_F*norm(B)_F), A=HXX^T H, B=HYY^T H",
+    "distributional_formula": "max(0,log(mean(K_XX))+log(mean(K_YY))-2*log(mean(K_XY)))",
+    "gaussian_bandwidth": "median_off_diagonal_squared_distance_in_reference_floored_at_1e-6",
+    "bank_normalization": "per_signal_min_max_with_constant_bank_mapped_to_zero",
+    "alpha": {
+      "numerator": 16,
+      "denominator": 17
+    },
+    "probe_sampling": {
+      "rows_per_hook_call": 4,
+      "maximum_concatenated_rows": 256,
+      "selection": "deterministic_evenly_spaced_rows"
+    },
+    "guards": {
+      "rms_log_ratio_threshold": 0.6931471805599453,
+      "reference_tail_exceedance_threshold": 0.05,
+      "reference_tail_quantile": 0.999
+    }
+  },
+  "d_pac": {
+    "paired_reference_states_and_noise": true,
+    "action_scope": "continuous_executed_action_prefixes_before_environment_gripper_binarization",
+    "time_axis": "environment_action_positions_across_replans",
+    "unexecuted_chunk_suffix_used": false,
+    "scale_source": "reference_selection_actions_once_and_shared_across_candidates_and_noise_streams",
+    "scale_formula": "s_c=max(max(1.4826*MAD_c,0.1*RMS_c),0.05*median_c(max(1.4826*MAD_c,0.1*RMS_c)),1e-4)",
+    "robust_penalty": "phi(x)=2*(sqrt(1+x^2)-1)",
+    "immediate_loss": "mean_u,t,c phi(z_u,t,c)",
+    "accumulated_loss": "mean_u,t,c phi(sum_j<=t z_u,j,c/sqrt(t))",
+    "sequence_weighting": "pool_steps_and_coordinates_within_each_sequence_then_weight_sequences_equally",
+    "selection_objective": "minimum_accumulated_loss",
+    "constraints": [
+      "exact_anchor_component_bytes",
+      "protected_layers_remain_native_16bit",
+      "ripa_local_loss_within_delta_R",
+      "immediate_action_loss_within_delta_A"
+    ],
+    "heldout_success_used_for_selection": false,
+    "closed_loop_state_divergence_claimed": false,
+    "tie_tolerance": 1e-10,
+    "controlled_libero_bounds": {
+      "delta_R": 0.05,
+      "delta_A": 0.05
+    }
+  },
+  "dyrange_a8": {
+    "activation_bits": 8,
+    "signed_code_range": [
+      -128,
+      127
+    ],
+    "scale_granularity": "input_channel",
+    "reduction_axes": "all_current_input_axes_except_last_channel",
+    "formula": "s_c=max(max_abs(x[...,c])/127,1e-6)",
+    "max_computation_dtype": "float32",
+    "scale_output_dtype": "input_dtype",
+    "recompute": "every_forward_call",
+    "calibration_table": false,
+    "history_or_ema": false,
+    "runtime_selector": false
+  },
+  "weight_quantization": {
+    "bits": 4,
+    "signed_code_range": [
+      -8,
+      7
+    ],
+    "group_size": 64,
+    "statistics": "reference_input_second_order_statistics",
+    "mechanics": "sequential_hessian_aware_error_feedback",
+    "packing": "two_signed_four_bit_codes_per_byte",
+    "scale_dtype": "float32",
+    "native_mask_state": "leave_weight_at_native_16bit"
+  }
+}

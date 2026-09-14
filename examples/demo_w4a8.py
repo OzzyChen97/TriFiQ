@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Self-contained DyPAC-VLA demo: Hessian-aware group-64 W4, DyRange-A8, and D-PAC.
-
-Runs on CPU with no model, dataset, checkpoint, or simulator.
-"""
+"""CPU-only demonstration of the public DyPAC-VLA Method core."""
 
 from __future__ import annotations
 
@@ -11,125 +8,137 @@ from pathlib import Path
 
 import torch
 
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "tools"))
 
+from dypac_vla_protocol import RIPA_ALPHA  # noqa: E402
+from quantvla_dynamic_a8_protocol import dyrange_a8  # noqa: E402
 from quantvla_hessian_w4 import (  # noqa: E402
     GROUP_SIZE,
-    a8_scale_table,
     hessian_aware_w4,
     pack_signed_nibbles,
     unpack_signed_nibbles,
 )
-from quantvla_metric_protocol import ACTION_DIM, ACTION_HORIZON, summarize_pair  # noqa: E402
-from quantvla_table1_bytes import (  # noqa: E402
-    TABLE1_FP16_BYTES,
-    TABLE1_QUANTVLA_BYTES,
-    table1_display_gib,
-    table1_total_static_compression,
-    table1_variable_budget,
-)
+from quantvla_metric_protocol import dpac_sequence  # noqa: E402
+from quantvla_ripa import aggregate_probe_bank, probe_layer  # noqa: E402
+from quantvla_selector import LayerChoice, allocate_ripa_mask  # noqa: E402
+from quantvla_table1_bytes import result_row  # noqa: E402
 
 
-def demo_hessian_w4() -> tuple[torch.Tensor, torch.Tensor, object]:
-    """Quantize a synthetic Linear weight with the frozen group-64 Hessian W4 routine."""
+def demo_w4() -> None:
     torch.manual_seed(0)
-    out_features, in_features, tokens = 96, 128, 512
-    weight = torch.randn(out_features, in_features) * 0.02
-    calibration = torch.randn(tokens, in_features)
-
-    result = hessian_aware_w4(weight, calibration)
+    weight = torch.randn(16, 64) * 0.02
+    reference_inputs = torch.randn(128, 64)
+    result = hessian_aware_w4(weight, reference_inputs)
     packed = pack_signed_nibbles(result.codes)
-    assert torch.equal(unpack_signed_nibbles(packed, in_features), result.codes)
-
-    fp16_bytes = weight.numel() * 2
-    code_bytes = packed.numel()
-    scale_bytes = result.scales.numel() * 4
-    relative = (result.dequantized - weight).norm() / weight.norm()
-
+    assert torch.equal(unpack_signed_nibbles(packed, 64), result.codes)
+    relative = float((result.dequantized - weight).norm() / weight.norm())
     print("== Hessian-aware group-64 W4 ==")
-    print(f"weight shape              {tuple(weight.shape)}  groups={result.group_size}")
-    print(f"FP16 weight bytes         {fp16_bytes:,}")
-    print(f"packed signed-nibble W4   {code_bytes:,}  ({fp16_bytes / code_bytes:.2f}x smaller)")
-    print(f"per-group scales (fp32)   {scale_bytes:,}")
-    print(f"weight relative L2 error  {relative:.5f}")
-    print(f"clipping ratios selected  {sorted(set(result.clipping.flatten().tolist()))}")
-    print()
-    return weight, result, calibration
+    print(f"group size: {result.group_size}")
+    print(f"packed code bytes: {packed.numel():,}")
+    print(f"FP32 scale bytes: {result.scales.numel() * 4:,}")
+    print(f"weight relative L2 error: {relative:.6f}\n")
 
 
-def demo_dyrange_a8(weight: torch.Tensor, result: object, calibration: torch.Tensor) -> None:
-    """Compare one static A8 table with deterministic per-flow-step DyRange-A8 tables."""
-    torch.manual_seed(7)
-    flow_steps, tokens = 4, 256
-    # Flow steps do not share a dynamic range: amplitude drifts across the integration steps.
-    # A single static table must cover the pooled range; DyRange-A8 adapts per forward.
-    step_amplitude = torch.tensor([1.0, 1.5, 2.2, 3.0]).reshape(flow_steps, 1, 1)
-    activations = torch.randn(flow_steps, tokens, weight.shape[1]) * step_amplitude
+def demo_ripa_and_budget() -> None:
+    generator = torch.Generator().manual_seed(1)
+    action = torch.randn(24, 8, generator=generator)
+    layer = torch.randn(24, 12, generator=generator)
+    rows = {
+        "layer_a": probe_layer(
+            reference_action_rows=action,
+            intervention_action_rows=action + 0.01 * torch.randn(action.shape, generator=generator),
+            reference_layer_rows=layer,
+            intervention_layer_rows=layer * 1.10,
+        ),
+        "layer_b": probe_layer(
+            reference_action_rows=action,
+            intervention_action_rows=action + 0.03 * torch.randn(action.shape, generator=generator),
+            reference_layer_rows=layer,
+            intervention_layer_rows=layer * 1.25,
+        ),
+        "layer_c": probe_layer(
+            reference_action_rows=action,
+            intervention_action_rows=action + 0.02 * torch.randn(action.shape, generator=generator),
+            reference_layer_rows=layer,
+            intervention_layer_rows=layer * 1.15,
+        ),
+    }
+    bank = aggregate_probe_bank(
+        {name: float(row["relational_damage"]) for name, row in rows.items()},
+        {name: float(row["distributional_damage"]) for name, row in rows.items()},
+    )
+    allocation = allocate_ripa_mask(
+        [
+            LayerChoice(name, extra, bank[name]["importance"], bool(rows[name]["protected"]))
+            for name, extra in (("layer_a", 6), ("layer_b", 5), ("layer_c", 10))
+        ],
+        all_w4_component_bytes=100,
+        budget_bytes=111,
+    )
+    print("== RIPA dual-site probes and exact-byte allocation ==")
+    print(f"alpha: {RIPA_ALPHA:.9f} (=16/17)")
+    for name in sorted(bank):
+        print(
+            f"{name}: relational={bank[name]['relational_damage']:.6f} "
+            f"distributional={bank[name]['distributional_damage']:.6f} "
+            f"importance={bank[name]['importance']:.6f}"
+        )
+    print(f"native layers: {allocation.native_layers}")
+    print(f"W4 layers: {allocation.w4_layers}")
+    print(f"attained component bytes: {allocation.total_component_bytes}/{allocation.budget_bytes}\n")
 
-    static_scale = a8_scale_table(activations.reshape(-1, weight.shape[1]))
-    step_scale = a8_scale_table(activations, flow_steps=flow_steps)
 
-    def activation_error(x: torch.Tensor, scale: torch.Tensor) -> float:
-        codes = torch.clamp(torch.round(x / scale), -127.0, 127.0)
-        return float(((codes * scale) - x).norm() / x.norm())
-
-    static_errors = [activation_error(activations[step], static_scale) for step in range(flow_steps)]
-    step_errors = [activation_error(activations[step], step_scale[step]) for step in range(flow_steps)]
-    static_mean = sum(static_errors) / flow_steps
-    step_mean = sum(step_errors) / flow_steps
-
-    print("== DyRange-A8 (deterministic per-forward activation scales) ==")
-    print("activation-side relative L2 error per flow step (A8 input quantization):")
-    print(f"  static A8 table    {[f'{value:.4f}' for value in static_errors]}  mean {static_mean:.4f}")
-    print(f"  DyRange-A8 table   {[f'{value:.4f}' for value in step_errors]}  mean {step_mean:.4f}")
-    print(f"  mean error ratio   DyRange-A8 / static = {step_mean / static_mean:.3f}")
-    print("  (end-to-end W4A8 output error is dominated by the W4 weight error at this scale)")
-    print()
-
-
-def demo_d_pac() -> None:
-    """Report D-PAC / D_func on a perturbed action chunk under the frozen metric protocol."""
-    torch.manual_seed(1)
-    replans = 8
-    reference = torch.randn(replans, ACTION_HORIZON, ACTION_DIM) * 0.1
+def demo_dpac() -> None:
+    reference = torch.zeros(3, 4, 2)
     candidate = reference.clone()
-    candidate[..., 0] += 0.01
-    records = [{"task": "demo", "seed": index // 4, "replan": index % 4} for index in range(replans)]
+    candidate[:, :2, 0] = 0.2
+    score = dpac_sequence(
+        reference,
+        candidate,
+        [0, 1, 2],
+        scale=torch.ones(2),
+        execution_prefix=2,
+    )
+    print("== D-PAC over executed prefixes ==")
+    print(f"executed steps: {score['executed_steps']}")
+    print(f"immediate loss: {score['immediate_loss']:.6f}")
+    print(f"accumulated loss: {score['accumulated_loss']:.6f}")
+    print(f"final cumulative target: {score['cumulative_targets'][-1]}\n")
 
-    summary = summarize_pair(reference, candidate, records)
-    identical = summarize_pair(reference, reference, records)
 
-    print("== D-PAC / D_func action-chunk metric ==")
-    print(f"chunk shape               ({replans}, {ACTION_HORIZON}, {ACTION_DIM})  (replans, horizon, dim)")
-    print(f"identical chunk           D_func={identical['d_func_summary']['d_func']:.6f}"
-          f"  D_PAC={identical['d_pac_summary']['d_pac']:.6f}")
-    print(f"perturbed chunk (+0.01 m) D_func={summary['d_func_summary']['d_func']:.6f}"
-          f"  D_PAC={summary['d_pac_summary']['d_pac']:.6f}")
-    print()
+def demo_dyrange() -> None:
+    first = torch.randn(2, 8, 4) * torch.tensor([1.0, 2.0, 4.0, 8.0])
+    second = torch.randn(1, 3, 4) * torch.tensor([8.0, 4.0, 2.0, 1.0])
+    first_q, first_scale, _ = dyrange_a8(first)
+    _, second_scale, _ = dyrange_a8(second)
+    error = float((first_q - first).norm() / first.norm())
+    print("== DyRange-A8 per-forward input-channel ranges ==")
+    print(f"first input scales: {[round(float(value), 6) for value in first_scale]}")
+    print(f"second input scales: {[round(float(value), 6) for value in second_scale]}")
+    print(f"first-input relative L2 error: {error:.6f}\n")
 
 
 def demo_storage() -> None:
-    """Print the paper's exact static byte accounting anchors."""
-    print("== Static byte accounting (paper Table 1 scope) ==")
-    for model in ("gr00t", "pi05"):
-        fp16 = TABLE1_FP16_BYTES[model]
-        anchor = TABLE1_QUANTVLA_BYTES[model]
-        budget = table1_variable_budget(model)
-        compression = table1_total_static_compression(model, budget)
-        print(f"{model:6s} FP16 {table1_display_gib(fp16)} GiB"
-              f" | QuantVLA anchor {table1_display_gib(anchor)} GiB"
-              f" | variable budget {budget:,} B"
-              f" | compression at budget {compression:.3f}x")
+    print("== Audited Linear-component storage scope ==")
+    for model in ("pi05", "gr00t"):
+        for point in ("selected", "all_candidate_w4"):
+            row = result_row(model, point)
+            print(
+                f"{model:5s} {point:16s} {row['component_bytes']:,} B "
+                f"({row['component_gib']} GiB, {row['component_compression']:.2f}x)"
+            )
     print()
 
 
 def main() -> None:
-    weight, result, calibration = demo_hessian_w4()
-    demo_dyrange_a8(weight, result, calibration)
-    demo_d_pac()
+    demo_w4()
+    demo_ripa_and_budget()
+    demo_dpac()
+    demo_dyrange()
     demo_storage()
-    print(f"done (group size {GROUP_SIZE})")
+    print(f"done (W4 group size {GROUP_SIZE})")
 
 
 if __name__ == "__main__":

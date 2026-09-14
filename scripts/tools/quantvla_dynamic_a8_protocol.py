@@ -1,79 +1,93 @@
 #!/usr/bin/env python3
-"""Shared DyRange-A8 v5 amendment layered over the frozen v4 protocol."""
+"""Selector-free, per-forward, input-channel DyRange-A8."""
 
 from __future__ import annotations
 
-import hashlib
-import json
-from pathlib import Path
 from typing import Any, Mapping
 
-from quantvla_cross_model_protocol import PROTOCOL_SHA256
+import torch
+
+from dypac_vla_protocol import PROTOCOL, protocol_attestation
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-PROTOCOL_PATH = REPO_ROOT / "scripts/quantvla_dynamic_a8_protocol.json"
+QMIN, QMAX = (int(value) for value in PROTOCOL["dyrange_a8"]["signed_code_range"])
+SCALE_FLOOR = 1e-6
 
 
-def _canonical_hash(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+def dyrange_scale(current_input: Any) -> torch.Tensor:
+    """Compute one scale per input channel from the current forward input only."""
+    value = torch.as_tensor(current_input)
+    if value.ndim < 1 or value.shape[-1] == 0 or not torch.isfinite(value).all():
+        raise ValueError("DyRange-A8 input must be finite with a final channel axis")
+    compute = value.detach().to(dtype=torch.float32)
+    reduction_axes = tuple(range(compute.ndim - 1))
+    maxima = compute.abs().amax(dim=reduction_axes) if reduction_axes else compute.abs()
+    scale = (maxima / float(QMAX)).clamp_min(SCALE_FLOOR)
+    output_dtype = value.dtype if value.is_floating_point() else torch.float32
+    return scale.to(dtype=output_dtype, device=value.device)
 
 
-PROTOCOL = json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
-if PROTOCOL.get("method_id") != "quantvla-dpac-errorfold-dyrange-v5":
-    raise ValueError("unexpected DyRange-A8 protocol id")
-BASE_PROTOCOL_SHA256 = (PROTOCOL.get("base_cross_model_protocol") or {}).get(
-    "protocol_sha256"
-)
-PROTOCOL_SHA256 = _canonical_hash(PROTOCOL)
-PROTOCOL_FILE_SHA256 = hashlib.sha256(PROTOCOL_PATH.read_bytes()).hexdigest()
-
-
-def _require_base_protocol() -> None:
-    from quantvla_cross_model_protocol import PROTOCOL_SHA256 as active_base_sha256
-
-    if BASE_PROTOCOL_SHA256 != active_base_sha256:
-        raise ValueError("DyRange-A8 base protocol drift")
-
-
-def protocol_attestation() -> dict[str, Any]:
-    _require_base_protocol()
-    return {
-        "method_id": PROTOCOL["method_id"],
-        "protocol_sha256": PROTOCOL_SHA256,
-        "protocol_file": str(PROTOCOL_PATH),
-        "protocol_file_sha256": PROTOCOL_FILE_SHA256,
-        "base_protocol_sha256": PROTOCOL["base_cross_model_protocol"][
-            "protocol_sha256"
-        ],
-        "only_allowed_model_difference": "model_adapter",
-    }
-
-
-def require_protocol_attestation(value: Mapping[str, Any], *, source: str) -> None:
-    _require_base_protocol()
-    actual = value.get("dynamic_a8_protocol") or value
-    expected = protocol_attestation()
-    mismatches = {
-        key: (actual.get(key), expected_value)
-        for key, expected_value in expected.items()
-        if actual.get(key) != expected_value
-    }
-    if mismatches:
-        raise ValueError(f"{source}: DyRange-A8 protocol drift: {mismatches}")
+def dyrange_a8(current_input: Any) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Quantize/dequantize one current activation tensor with fresh channel scales."""
+    value = torch.as_tensor(current_input)
+    if not value.is_floating_point():
+        value = value.to(torch.float32)
+    scale = dyrange_scale(value)
+    codes = torch.round(value / scale).clamp(QMIN, QMAX).to(torch.int8)
+    dequantized = codes.to(value.dtype) * scale
+    return dequantized, scale, codes
 
 
 def validate_runtime(contract: Mapping[str, Any], *, source: str) -> None:
-    _require_base_protocol()
-    checks = {
-        "activation_bits": int(contract.get("activation_bits", -1)) == 8,
-        "dynamic": contract.get("static_activation_scales") is False,
-        "policy": contract.get("calibration_policy")
-        == "online_dynamic_per_forward_per_channel_amax",
-        "selector_free": not bool(contract.get("runtime_selector", False)),
+    expected = {
+        "activation_bits": 8,
+        "range_source": "current_forward_input",
+        "granularity": "input_channel",
+        "runtime_selector": False,
+        "history_or_ema": False,
+        "calibration_table": False,
     }
-    failed = [key for key, passed in checks.items() if not passed]
-    if failed:
-        raise ValueError(f"{source}: invalid DyRange-A8 runtime fields: {failed}")
+    mismatches = {
+        key: (contract.get(key), value)
+        for key, value in expected.items()
+        if contract.get(key) != value
+    }
+    if mismatches:
+        raise ValueError(f"{source}: invalid DyRange-A8 runtime contract: {mismatches}")
+
+
+def protocol_runtime_contract() -> dict[str, Any]:
+    return {
+        "activation_bits": 8,
+        "range_source": "current_forward_input",
+        "granularity": "input_channel",
+        "runtime_selector": False,
+        "history_or_ema": False,
+        "calibration_table": False,
+        "dypac_vla_protocol": protocol_attestation(),
+    }
+
+
+def selftest() -> None:
+    first = torch.tensor(
+        [[[1.0, 10.0], [-2.0, 5.0]], [[0.5, -4.0], [0.0, 8.0]]],
+        dtype=torch.float32,
+    )
+    second = torch.tensor([[8.0, 1.0], [-4.0, -2.0]], dtype=torch.float32)
+    _, first_scale, first_codes = dyrange_a8(first)
+    _, second_scale, _ = dyrange_a8(second)
+    torch.testing.assert_close(first_scale, torch.tensor([2.0 / 127.0, 10.0 / 127.0]))
+    torch.testing.assert_close(second_scale, torch.tensor([8.0 / 127.0, 2.0 / 127.0]))
+    assert first_codes.shape == first.shape
+    assert not torch.equal(first_scale, second_scale)
+
+    # A later call has no effect on recomputing the first input's scale.
+    _, repeated_scale, _ = dyrange_a8(first)
+    torch.testing.assert_close(repeated_scale, first_scale)
+    contract = protocol_runtime_contract()
+    validate_runtime(contract, source="selftest")
+    print("[quantvla-dyrange-a8] selftest OK")
+
+
+if __name__ == "__main__":
+    selftest()
