@@ -121,11 +121,6 @@ The pi0.5 selected plan reaches 27.7% success at 2.70x Linear-component compress
 26.2% for FP16. GR00T N1.5 reaches 54.0% at 2.22x, compared with 55.1% for FP16. These are measured
 operating points, not guarantees for other hardware, models, or tasks.
 
-![RoboCasa365 operating points](figures/operating_points.png)
-
-*Measured GR00T N1.5 success-storage operating points under one matched Linear-component accounting
-scope. The dashed segment connects displayed non-dominated points and is not an interpolation.*
-
 ### Deployment evidence
 
 On an idle NVIDIA A40 at batch size one, the evaluated masks reduce peak CUDA allocation from
