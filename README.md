@@ -71,6 +71,30 @@ significance claim is registered for those rows.
 *Figure 2. Selected RoboCasa365 success-storage operating points under each backbone's common
 Linear-component accounting scope.*
 
+### Selector ablation (LIBERO-Long)
+
+pi0.5 on LIBERO-Long at 3.00x audited Linear-component compression and A16. Every row is evaluated
+over the same 400 held-out episodes (10 tasks x initial states 10--49). The three selector rows
+occupy an identical 1,472,036,864 weight-component bytes and differ only in the candidate-pool seed;
+the reference rows carry no candidate pool and report one evaluation each. DyRange-A8 is off
+throughout, so this table isolates mask selection.
+
+| Configuration | Successes / 400 | Mean SR (%) |
+|---|---|---:|
+| FP16 reference | 372 | 93.00 |
+| Uniform W6 | 369 | 92.25 |
+| RIPA only | 373 / 373 / 373 | 93.25 |
+| D-PAC only | 372 / 371 / 371 | 92.83 |
+| **RIPA + D-PAC (Ours)** | 374 / 376 / 370 | **93.33** |
+
+At this budget the complete selector reaches 93.33%, which matches the 93.00% of the unquantized
+policy to within 0.33 points and stands 1.08 points above the fixed-precision Uniform W6 alternative.
+A 400-episode success estimate near 93% carries a 1.3-point standard error, so the correct reading is
+that the selector *retains* FP16-level success at 3.00x compression, not that quantization improves on
+FP16. Every selector configuration lands within 0.33 points of FP16 and the three span only 0.50
+points, so at this budget it is the byte budget rather than the choice among these configurations that
+binds closed-loop success.
+
 With the precision mask and quantized weights held fixed, input-conditioned DyRange-A8 improves
 success by **10.6 percentage points** over pooled static-A8 calibration.
 
